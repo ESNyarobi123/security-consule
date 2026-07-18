@@ -1,0 +1,284 @@
+{
+  "$schema": "https://json.schemastore.org/nest-cli",
+  "collection": "@nestjs/schematics",
+  "sourceRoot": "apps/core-api/src",
+  "compilerOptions": {
+    "deleteOutDir": true,
+    "webpack": true,
+    "tsConfigPath": "apps/core-api/tsconfig.app.json"
+  },
+  "monorepo": true,
+  "root": "apps/core-api",
+  "projects": {
+    "core-api": {
+      "type": "application",
+      "root": "apps/core-api",
+      "entryFile": "main",
+      "sourceRoot": "apps/core-api/src",
+      "compilerOptions": {
+        "tsConfigPath": "apps/core-api/tsconfig.app.json"
+      }
+    },
+    "shared": {
+      "type": "library",
+      "root": "libs/shared",
+      "entryFile": "index",
+      "sourceRoot": "libs/shared",
+      "compilerOptions": {
+        "tsConfigPath": "libs/shared/tsconfig.lib.json"
+      }
+    },
+    "identity": {
+      "type": "library",
+      "root": "libs/identity",
+      "entryFile": "index",
+      "sourceRoot": "libs/identity",
+      "compilerOptions": {
+        "tsConfigPath": "libs/identity/tsconfig.lib.json"
+      }
+    },
+    "enterprise": {
+      "type": "library",
+      "root": "libs/enterprise",
+      "entryFile": "index",
+      "sourceRoot": "libs/enterprise",
+      "compilerOptions": {
+        "tsConfigPath": "libs/enterprise/tsconfig.lib.json"
+      }
+    },
+    "audit": {
+      "type": "library",
+      "root": "libs/audit",
+      "entryFile": "index",
+      "sourceRoot": "libs/audit",
+      "compilerOptions": {
+        "tsConfigPath": "libs/audit/tsconfig.lib.json"
+      }
+    },
+    "approvals": {
+      "type": "library",
+      "root": "libs/approvals",
+      "entryFile": "index",
+      "sourceRoot": "libs/approvals",
+      "compilerOptions": {
+        "tsConfigPath": "libs/approvals/tsconfig.lib.json"
+      }
+    },
+    "customers": {
+      "type": "library",
+      "root": "libs/customers",
+      "entryFile": "index",
+      "sourceRoot": "libs/customers",
+      "compilerOptions": {
+        "tsConfigPath": "libs/customers/tsconfig.lib.json"
+      }
+    },
+    "contracts": {
+      "type": "library",
+      "root": "libs/contracts",
+      "entryFile": "index",
+      "sourceRoot": "libs/contracts",
+      "compilerOptions": {
+        "tsConfigPath": "libs/contracts/tsconfig.lib.json"
+      }
+    },
+    "workforce": {
+      "type": "library",
+      "root": "libs/workforce",
+      "entryFile": "index",
+      "sourceRoot": "libs/workforce",
+      "compilerOptions": {
+        "tsConfigPath": "libs/workforce/tsconfig.lib.json"
+      }
+    },
+    "operations": {
+      "type": "library",
+      "root": "libs/operations",
+      "entryFile": "index",
+      "sourceRoot": "libs/operations",
+      "compilerOptions": {
+        "tsConfigPath": "libs/operations/tsconfig.lib.json"
+      }
+    },
+    "attendance": {
+      "type": "library",
+      "root": "libs/attendance",
+      "entryFile": "index",
+      "sourceRoot": "libs/attendance",
+      "compilerOptions": {
+        "tsConfigPath": "libs/attendance/tsconfig.lib.json"
+      }
+    },
+    "occurrence-book": {
+      "type": "library",
+      "root": "libs/occurrence-book",
+      "entryFile": "index",
+      "sourceRoot": "libs/occurrence-book",
+      "compilerOptions": {
+        "tsConfigPath": "libs/occurrence-book/tsconfig.lib.json"
+      }
+    },
+    "incidents": {
+      "type": "library",
+      "root": "libs/incidents",
+      "entryFile": "index",
+      "sourceRoot": "libs/incidents",
+      "compilerOptions": {
+        "tsConfigPath": "libs/incidents/tsconfig.lib.json"
+      }
+    },
+    "access-control": {
+      "type": "library",
+      "root": "libs/access-control",
+      "entryFile": "index",
+      "sourceRoot": "libs/access-control",
+      "compilerOptions": {
+        "tsConfigPath": "libs/access-control/tsconfig.lib.json"
+      }
+    },
+    "visitors": {
+      "type": "library",
+      "root": "libs/visitors",
+      "entryFile": "index",
+      "sourceRoot": "libs/visitors",
+      "compilerOptions": {
+        "tsConfigPath": "libs/visitors/tsconfig.lib.json"
+      }
+    },
+    "parking": {
+      "type": "library",
+      "root": "libs/parking",
+      "entryFile": "index",
+      "sourceRoot": "libs/parking",
+      "compilerOptions": {
+        "tsConfigPath": "libs/parking/tsconfig.lib.json"
+      }
+    },
+    "recruitment": {
+      "type": "library",
+      "root": "libs/recruitment",
+      "entryFile": "index",
+      "sourceRoot": "libs/recruitment",
+      "compilerOptions": {
+        "tsConfigPath": "libs/recruitment/tsconfig.lib.json"
+      }
+    },
+    "payroll": {
+      "type": "library",
+      "root": "libs/payroll",
+      "entryFile": "index",
+      "sourceRoot": "libs/payroll",
+      "compilerOptions": {
+        "tsConfigPath": "libs/payroll/tsconfig.lib.json"
+      }
+    },
+    "employee-loans": {
+      "type": "library",
+      "root": "libs/employee-loans",
+      "entryFile": "index",
+      "sourceRoot": "libs/employee-loans",
+      "compilerOptions": {
+        "tsConfigPath": "libs/employee-loans/tsconfig.lib.json"
+      }
+    },
+    "finance": {
+      "type": "library",
+      "root": "libs/finance",
+      "entryFile": "index",
+      "sourceRoot": "libs/finance",
+      "compilerOptions": {
+        "tsConfigPath": "libs/finance/tsconfig.lib.json"
+      }
+    },
+    "procurement": {
+      "type": "library",
+      "root": "libs/procurement",
+      "entryFile": "index",
+      "sourceRoot": "libs/procurement",
+      "compilerOptions": {
+        "tsConfigPath": "libs/procurement/tsconfig.lib.json"
+      }
+    },
+    "inventory": {
+      "type": "library",
+      "root": "libs/inventory",
+      "entryFile": "index",
+      "sourceRoot": "libs/inventory",
+      "compilerOptions": {
+        "tsConfigPath": "libs/inventory/tsconfig.lib.json"
+      }
+    },
+    "assets": {
+      "type": "library",
+      "root": "libs/assets",
+      "entryFile": "index",
+      "sourceRoot": "libs/assets",
+      "compilerOptions": {
+        "tsConfigPath": "libs/assets/tsconfig.lib.json"
+      }
+    },
+    "notifications": {
+      "type": "library",
+      "root": "libs/notifications",
+      "entryFile": "index",
+      "sourceRoot": "libs/notifications",
+      "compilerOptions": {
+        "tsConfigPath": "libs/notifications/tsconfig.lib.json"
+      }
+    },
+    "reporting": {
+      "type": "library",
+      "root": "libs/reporting",
+      "entryFile": "index",
+      "sourceRoot": "libs/reporting",
+      "compilerOptions": {
+        "tsConfigPath": "libs/reporting/tsconfig.lib.json"
+      }
+    },
+    "integration-gateway": {
+      "type": "application",
+      "root": "apps/integration-gateway",
+      "entryFile": "main",
+      "sourceRoot": "apps/integration-gateway/src",
+      "compilerOptions": {
+        "tsConfigPath": "apps/integration-gateway/tsconfig.app.json"
+      }
+    },
+    "background-worker": {
+      "type": "application",
+      "root": "apps/background-worker",
+      "entryFile": "main",
+      "sourceRoot": "apps/background-worker/src",
+      "compilerOptions": {
+        "tsConfigPath": "apps/background-worker/tsconfig.app.json"
+      }
+    },
+    "realtime-gateway": {
+      "type": "application",
+      "root": "apps/realtime-gateway",
+      "entryFile": "main",
+      "sourceRoot": "apps/realtime-gateway/src",
+      "compilerOptions": {
+        "tsConfigPath": "apps/realtime-gateway/tsconfig.app.json"
+      }
+    },
+    "reporting-service": {
+      "type": "application",
+      "root": "apps/reporting-service",
+      "entryFile": "main",
+      "sourceRoot": "apps/reporting-service/src",
+      "compilerOptions": {
+        "tsConfigPath": "apps/reporting-service/tsconfig.app.json"
+      }
+    },
+    "api-gateway": {
+      "type": "application",
+      "root": "apps/api-gateway",
+      "entryFile": "main",
+      "sourceRoot": "apps/api-gateway/src",
+      "compilerOptions": {
+        "tsConfigPath": "apps/api-gateway/tsconfig.app.json"
+      }
+    }
+  }
+}

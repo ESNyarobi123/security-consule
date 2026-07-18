@@ -1,0 +1,64 @@
+---
+description: PSSMS major system modules (29) — scope checklist for development
+alwaysApply: true
+---
+
+# PSSMS Major System Modules (29)
+
+Official module list from the design document. Every feature must map to one (or clearly cross) these modules. Do not invent parallel product areas outside this list without updating architecture docs + this rule.
+
+## Platform & people
+
+1. Administration and User Management → `libs/identity`, Keycloak
+2. Human Resource Management → `libs/workforce`
+3. Recruitment Management → `libs/recruitment`
+4. Recruitment Services for Other Security Companies → `libs/recruitment` (B2B flow)
+5. Employee Loan Management → `libs/employee-loans`
+6. Payroll Management → `libs/payroll` (INTERNAL_COMPANY)
+7. Customer Employee Payroll Services → `libs/payroll` (CUSTOMER_MANAGED_PAYROLL)
+8. Electronic Payroll Due and Alert System → `libs/payroll` + `background-worker` alerts
+
+## Customers & commercial
+
+9. Customer Management → `libs/customers`
+10. Contract Management → `libs/contracts`
+11. Invoice and Payment Management → `libs/finance`
+12. Petty Cash Management → `libs/finance`
+13. Payment Voucher Management → `libs/finance`
+14. Supplier Registration and Supplier Portal → `libs/procurement` + `supplier-web`
+15. Procurement and Inventory Management → `libs/procurement`, `libs/inventory`
+16. Asset and Equipment Management → `libs/assets`
+
+## Security operations
+
+17. Security Guard Management → `libs/workforce` (guard profiles) + `libs/operations`
+18. Guard Attendance Management → `libs/attendance` (guard only — separate from access)
+19. Guard Alertness and Duty Confirmation → `libs/attendance`
+20. Patrol and Checkpoint Management → `libs/attendance` / `libs/operations`
+21. Branch and Field Operations → `libs/operations` + `libs/enterprise`
+22. Electronic Occurrence Book → `libs/occurrence-book` (append-only)
+23. Incident and Risk Management → `libs/incidents`
+24. CCTV and Security Systems Monitoring → events via `vision-ai-service` + ops/incidents (no video through Nest)
+
+## Access, visitors & parking
+
+25. Customer Employee Attendance and Access Control → `libs/access-control`
+26. Visitor Appointment and Gate Verification → `libs/visitors` + gate app
+27. Parking Management → `libs/parking` (ANPR results only — AI elsewhere)
+
+## Governance & insight
+
+28. Compliance, Audit and Data Protection → `libs/compliance`, `libs/audit`
+29. Reports and Dashboards → `libs/reporting` + `reporting-service` + `executive-web`
+
+## Mapping rules
+
+```text
+❌ One Nest microservice per module above
+✅ Domain libs inside modular monolith; extract later if needed
+
+❌ Mix guard attendance tables with customer employee attendance
+✅ Separate models/schemas (attendance.* vs access.*)
+```
+
+Shared cross-cutting (not listed as product modules but required): `libs/enterprise`, `libs/approvals`, `libs/notifications`, `libs/documents`.

@@ -1,0 +1,9 @@
+{
+  "extends": "../../tsconfig.json",
+  "compilerOptions": {
+    "declaration": true,
+    "outDir": "../../dist/libs/employee-loans"
+  },
+  "include": ["**/*"],
+  "exclude": ["node_modules", "dist", "test", "**/*spec.ts"]
+}

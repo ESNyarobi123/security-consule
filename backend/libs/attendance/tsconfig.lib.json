@@ -1,0 +1,9 @@
+{
+  "extends": "../../tsconfig.json",
+  "compilerOptions": {
+    "declaration": true,
+    "outDir": "../../dist/libs/attendance"
+  },
+  "include": ["**/*"],
+  "exclude": ["node_modules", "dist", "test", "**/*spec.ts"]
+}

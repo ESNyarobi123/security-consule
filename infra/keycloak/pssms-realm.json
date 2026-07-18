@@ -1,0 +1,199 @@
+{
+  "realm": "pssms",
+  "enabled": true,
+  "loginWithEmailAllowed": true,
+  "registrationAllowed": false,
+  "sslRequired": "external",
+  "verifyEmail": false,
+  "registrationEmailAsUsername": true,
+  "requiredActions": [
+    {
+      "alias": "VERIFY_PROFILE",
+      "name": "Verify Profile",
+      "providerId": "VERIFY_PROFILE",
+      "enabled": false,
+      "defaultAction": false,
+      "priority": 90
+    },
+    {
+      "alias": "UPDATE_PASSWORD",
+      "name": "Update Password",
+      "providerId": "UPDATE_PASSWORD",
+      "enabled": true,
+      "defaultAction": false,
+      "priority": 30
+    },
+    {
+      "alias": "VERIFY_EMAIL",
+      "name": "Verify Email",
+      "providerId": "VERIFY_EMAIL",
+      "enabled": true,
+      "defaultAction": false,
+      "priority": 50
+    }
+  ],
+  "clients": [
+    {
+      "clientId": "pssms-api",
+      "name": "PSSMS API",
+      "enabled": true,
+      "protocol": "openid-connect",
+      "publicClient": false,
+      "secret": "change_me_pssms_api",
+      "standardFlowEnabled": false,
+      "implicitFlowEnabled": false,
+      "directAccessGrantsEnabled": true,
+      "serviceAccountsEnabled": false,
+      "redirectUris": [],
+      "webOrigins": []
+    },
+    {
+      "clientId": "pssms-admin-web",
+      "name": "PSSMS Admin Web",
+      "enabled": true,
+      "protocol": "openid-connect",
+      "publicClient": true,
+      "standardFlowEnabled": true,
+      "implicitFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "redirectUris": [
+        "http://localhost:3000/auth/callback",
+        "http://localhost:3000/*"
+      ],
+      "webOrigins": ["http://localhost:3000", "+"],
+      "attributes": {
+        "pkce.code.challenge.method": "S256"
+      }
+    }
+  ],
+  "users": [
+    {
+      "username": "admin@highlink.co.tz",
+      "email": "admin@highlink.co.tz",
+      "firstName": "System",
+      "lastName": "Admin",
+      "enabled": true,
+      "emailVerified": true,
+      "requiredActions": [],
+      "credentials": [
+        {
+          "type": "password",
+          "value": "ChangeMe123!",
+          "temporary": false
+        }
+      ]
+    },
+    {
+      "username": "gm@highlink.co.tz",
+      "email": "gm@highlink.co.tz",
+      "firstName": "General",
+      "lastName": "Manager",
+      "enabled": true,
+      "emailVerified": true,
+      "requiredActions": [],
+      "credentials": [
+        {
+          "type": "password",
+          "value": "ChangeMe123!",
+          "temporary": false
+        }
+      ]
+    },
+    {
+      "username": "guard1@highlink.co.tz",
+      "email": "guard1@highlink.co.tz",
+      "firstName": "Guard",
+      "lastName": "One",
+      "enabled": true,
+      "emailVerified": true,
+      "requiredActions": [],
+      "credentials": [
+        {
+          "type": "password",
+          "value": "ChangeMe123!",
+          "temporary": false
+        }
+      ]
+    },
+    {
+      "username": "gate1@highlink.co.tz",
+      "email": "gate1@highlink.co.tz",
+      "firstName": "Gate",
+      "lastName": "Officer",
+      "enabled": true,
+      "emailVerified": true,
+      "requiredActions": [],
+      "credentials": [
+        {
+          "type": "password",
+          "value": "ChangeMe123!",
+          "temporary": false
+        }
+      ]
+    },
+    {
+      "username": "parking1@highlink.co.tz",
+      "email": "parking1@highlink.co.tz",
+      "firstName": "Parking",
+      "lastName": "Officer",
+      "enabled": true,
+      "emailVerified": true,
+      "requiredActions": [],
+      "credentials": [
+        {
+          "type": "password",
+          "value": "ChangeMe123!",
+          "temporary": false
+        }
+      ]
+    },
+    {
+      "username": "supervisor1@highlink.co.tz",
+      "email": "supervisor1@highlink.co.tz",
+      "firstName": "Field",
+      "lastName": "Supervisor",
+      "enabled": true,
+      "emailVerified": true,
+      "requiredActions": [],
+      "credentials": [
+        {
+          "type": "password",
+          "value": "ChangeMe123!",
+          "temporary": false
+        }
+      ]
+    },
+    {
+      "username": "portal@demo-mfg.co.tz",
+      "email": "portal@demo-mfg.co.tz",
+      "firstName": "Customer",
+      "lastName": "Portal",
+      "enabled": true,
+      "emailVerified": true,
+      "requiredActions": [],
+      "credentials": [
+        {
+          "type": "password",
+          "value": "ChangeMe123!",
+          "temporary": false
+        }
+      ]
+    },
+    {
+      "username": "portal@uniforms.co.tz",
+      "email": "portal@uniforms.co.tz",
+      "firstName": "Supplier",
+      "lastName": "Portal",
+      "enabled": true,
+      "emailVerified": true,
+      "requiredActions": [],
+      "credentials": [
+        {
+          "type": "password",
+          "value": "ChangeMe123!",
+          "temporary": false
+        }
+      ]
+    }
+  ]
+}

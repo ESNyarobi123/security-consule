@@ -1,0 +1,32 @@
+{
+  "expo": {
+    "name": "HIGHLINK Gate",
+    "slug": "pssms-gate-verification-app",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "scheme": "pssms-gate",
+    "userInterfaceStyle": "light",
+    "newArchEnabled": true,
+    "splash": {
+      "resizeMode": "contain",
+      "backgroundColor": "#0f2744"
+    },
+    "ios": {
+      "supportsTablet": false,
+      "bundleIdentifier": "tz.co.highlink.gate"
+    },
+    "android": {
+      "adaptiveIcon": {
+        "backgroundColor": "#0f2744"
+      },
+      "package": "tz.co.highlink.gate"
+    },
+    "plugins": [
+      "expo-router",
+      "expo-secure-store"
+    ],
+    "experiments": {
+      "typedRoutes": true
+    }
+  }
+}

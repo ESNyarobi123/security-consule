@@ -1,0 +1,2124 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+  schemas  = ["iam", "enterprise", "customers", "contracts", "approvals", "audit", "workforce", "operations", "attendance", "incidents", "occurrence", "access", "visitors", "parking", "recruitment", "payroll", "employee_loans", "finance", "procurement", "inventory", "assets", "integrations", "notifications", "reporting", "public"]
+}
+
+// ───────────────────────── IAM ─────────────────────────
+
+model User {
+  id               String    @id @default(uuid())
+  organizationId   String    @map("organization_id")
+  customerId       String?   @map("customer_id")
+  supplierId       String?   @map("supplier_id")
+  email            String    @unique
+  passwordHash     String    @map("password_hash")
+  fullName         String    @map("full_name")
+  phone            String?
+  keycloakSub      String?   @unique @map("keycloak_sub")
+  isActive         Boolean   @default(true) @map("is_active")
+  mfaEnabled       Boolean   @default(false) @map("mfa_enabled")
+  lastLoginAt      DateTime? @map("last_login_at")
+  createdAt        DateTime  @default(now()) @map("created_at")
+  updatedAt        DateTime  @updatedAt @map("updated_at")
+  createdBy        String?   @map("created_by")
+
+  organization     Organization @relation(fields: [organizationId], references: [id])
+  roles            UserRole[]
+  branchAccess     UserBranchAccess[]
+  siteAccess       UserSiteAccess[]
+  loginHistory     LoginHistory[]
+
+  @@index([organizationId, customerId])
+  @@index([organizationId, supplierId])
+  @@map("users")
+  @@schema("iam")
+}
+
+model Role {
+  id             String   @id @default(uuid())
+  organizationId String   @map("organization_id")
+  code           String
+  name           String
+  description    String?
+  isSystem       Boolean  @default(false) @map("is_system")
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  permissions    RolePermission[]
+  users          UserRole[]
+
+  @@unique([organizationId, code])
+  @@map("roles")
+  @@schema("iam")
+}
+
+model Permission {
+  id          String @id @default(uuid())
+  code        String @unique
+  name        String
+  module      String
+  description String?
+
+  roles RolePermission[]
+
+  @@map("permissions")
+  @@schema("iam")
+}
+
+model RolePermission {
+  roleId       String @map("role_id")
+  permissionId String @map("permission_id")
+
+  role       Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  permission Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+
+  @@id([roleId, permissionId])
+  @@map("role_permissions")
+  @@schema("iam")
+}
+
+model UserRole {
+  userId String @map("user_id")
+  roleId String @map("role_id")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role Role @relation(fields: [roleId], references: [id], onDelete: Cascade)
+
+  @@id([userId, roleId])
+  @@map("user_roles")
+  @@schema("iam")
+}
+
+model UserBranchAccess {
+  userId   String @map("user_id")
+  branchId String @map("branch_id")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([userId, branchId])
+  @@map("user_branch_access")
+  @@schema("iam")
+}
+
+model UserSiteAccess {
+  userId String @map("user_id")
+  siteId String @map("site_id")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([userId, siteId])
+  @@map("user_site_access")
+  @@schema("iam")
+}
+
+model LoginHistory {
+  id        String   @id @default(uuid())
+  userId    String   @map("user_id")
+  ipAddress String?  @map("ip_address")
+  userAgent String?  @map("user_agent")
+  success   Boolean
+  createdAt DateTime @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("login_history")
+  @@schema("iam")
+}
+
+// ───────────────────────── ENTERPRISE ─────────────────────────
+
+model Organization {
+  id        String   @id @default(uuid())
+  name      String
+  code      String   @unique
+  tin       String?
+  phone     String?
+  email     String?
+  address   String?
+  isActive  Boolean  @default(true) @map("is_active")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  users        User[]
+  branches     Branch[]
+  departments  Department[]
+  sites        Site[]
+  customers    Customer[]
+  contracts    Contract[]
+
+  @@map("organizations")
+  @@schema("enterprise")
+}
+
+model Branch {
+  id             String   @id @default(uuid())
+  organizationId String   @map("organization_id")
+  code           String
+  name           String
+  region         String?
+  phone          String?
+  address        String?
+  isActive       Boolean  @default(true) @map("is_active")
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+  createdBy      String?  @map("created_by")
+
+  organization Organization @relation(fields: [organizationId], references: [id])
+  sites        Site[]
+  departments  Department[]
+
+  @@unique([organizationId, code])
+  @@map("branches")
+  @@schema("enterprise")
+}
+
+model Department {
+  id             String   @id @default(uuid())
+  organizationId String   @map("organization_id")
+  branchId       String?  @map("branch_id")
+  code           String
+  name           String
+  isActive       Boolean  @default(true) @map("is_active")
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  organization Organization @relation(fields: [organizationId], references: [id])
+  branch       Branch?      @relation(fields: [branchId], references: [id])
+
+  @@unique([organizationId, code])
+  @@map("departments")
+  @@schema("enterprise")
+}
+
+model Site {
+  id             String   @id @default(uuid())
+  organizationId String   @map("organization_id")
+  branchId       String   @map("branch_id")
+  customerId     String?  @map("customer_id")
+  code           String
+  name           String
+  address        String?
+  latitude       Float?
+  longitude      Float?
+  isActive       Boolean  @default(true) @map("is_active")
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+  createdBy      String?  @map("created_by")
+
+  organization Organization @relation(fields: [organizationId], references: [id])
+  branch       Branch       @relation(fields: [branchId], references: [id])
+  gates        Gate[]
+
+  @@unique([organizationId, code])
+  @@map("sites")
+  @@schema("enterprise")
+}
+
+enum GateType {
+  PEDESTRIAN
+  VEHICLE
+  MIXED
+
+  @@schema("enterprise")
+}
+
+model Gate {
+  id             String   @id @default(uuid())
+  organizationId String   @map("organization_id")
+  siteId         String   @map("site_id")
+  code           String
+  name           String
+  gateType       GateType @default(MIXED) @map("gate_type")
+  isActive       Boolean  @default(true) @map("is_active")
+  createdAt      DateTime @default(now()) @map("created_at")
+  createdBy      String?  @map("created_by")
+
+  site Site @relation(fields: [siteId], references: [id])
+
+  @@unique([organizationId, siteId, code])
+  @@map("gates")
+  @@schema("enterprise")
+}
+
+// ───────────────────────── CUSTOMERS ─────────────────────────
+
+model Customer {
+  id             String   @id @default(uuid())
+  organizationId String   @map("organization_id")
+  code           String
+  name           String
+  tin            String?
+  email          String?
+  phone          String?
+  address        String?
+  contactPerson  String?  @map("contact_person")
+  isActive       Boolean  @default(true) @map("is_active")
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+  createdBy      String?  @map("created_by")
+  version        Int      @default(1)
+
+  organization Organization @relation(fields: [organizationId], references: [id])
+  contracts    Contract[]
+
+  @@unique([organizationId, code])
+  @@map("customers")
+  @@schema("customers")
+}
+
+// ───────────────────────── CONTRACTS ─────────────────────────
+
+enum ContractStatus {
+  DRAFT
+  PENDING_APPROVAL
+  APPROVED
+  ACTIVE
+  EXPIRING
+  TERMINATED
+  CANCELLED
+
+  @@schema("contracts")
+}
+
+model Contract {
+  id               String         @id @default(uuid())
+  organizationId   String         @map("organization_id")
+  customerId       String         @map("customer_id")
+  contractNumber   String         @map("contract_number")
+  title            String
+  serviceType      String         @map("service_type")
+  status           ContractStatus @default(DRAFT)
+  startDate        DateTime       @map("start_date")
+  endDate          DateTime       @map("end_date")
+  monthlyFee       Decimal        @map("monthly_fee") @db.Decimal(18, 2)
+  currency         String         @default("TZS")
+  guardCount       Int?           @map("guard_count")
+  slaTerms         String?        @map("sla_terms")
+  createdAt        DateTime       @default(now()) @map("created_at")
+  updatedAt        DateTime       @updatedAt @map("updated_at")
+  createdBy        String?        @map("created_by")
+  version          Int            @default(1)
+
+  organization Organization @relation(fields: [organizationId], references: [id])
+  customer     Customer     @relation(fields: [customerId], references: [id])
+
+  @@unique([organizationId, contractNumber])
+  @@map("contracts")
+  @@schema("contracts")
+}
+
+// ───────────────────────── APPROVALS ─────────────────────────
+
+model WorkflowDefinition {
+  id             String   @id @default(uuid())
+  organizationId String   @map("organization_id")
+  code           String
+  name           String
+  description    String?
+  isActive       Boolean  @default(true) @map("is_active")
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  versions WorkflowVersion[]
+
+  @@unique([organizationId, code])
+  @@map("workflow_definitions")
+  @@schema("approvals")
+}
+
+model WorkflowVersion {
+  id           String   @id @default(uuid())
+  definitionId String   @map("definition_id")
+  version      Int
+  isCurrent    Boolean  @default(true) @map("is_current")
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  definition WorkflowDefinition @relation(fields: [definitionId], references: [id], onDelete: Cascade)
+  steps      WorkflowStep[]
+  instances  ApprovalInstance[]
+
+  @@unique([definitionId, version])
+  @@map("workflow_versions")
+  @@schema("approvals")
+}
+
+model WorkflowStep {
+  id              String  @id @default(uuid())
+  versionId       String  @map("version_id")
+  stepOrder       Int     @map("step_order")
+  name            String
+  requiredRole    String  @map("required_role")
+  minApprovers    Int     @default(1) @map("min_approvers")
+  amountThreshold Decimal? @map("amount_threshold") @db.Decimal(18, 2)
+
+  version WorkflowVersion @relation(fields: [versionId], references: [id], onDelete: Cascade)
+
+  @@map("workflow_steps")
+  @@schema("approvals")
+}
+
+enum ApprovalStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  CANCELLED
+
+  @@schema("approvals")
+}
+
+model ApprovalInstance {
+  id              String         @id @default(uuid())
+  versionId       String         @map("version_id")
+  organizationId  String         @map("organization_id")
+  resourceType    String         @map("resource_type")
+  resourceId      String         @map("resource_id")
+  status          ApprovalStatus @default(PENDING)
+  currentStepOrder Int           @default(1) @map("current_step_order")
+  amount          Decimal?       @db.Decimal(18, 2)
+  createdBy       String         @map("created_by")
+  createdAt       DateTime       @default(now()) @map("created_at")
+  updatedAt       DateTime       @updatedAt @map("updated_at")
+
+  version WorkflowVersion @relation(fields: [versionId], references: [id])
+  actions ApprovalAction[]
+
+  @@map("approval_instances")
+  @@schema("approvals")
+}
+
+model ApprovalAction {
+  id         String   @id @default(uuid())
+  instanceId String   @map("instance_id")
+  stepOrder  Int      @map("step_order")
+  actorId    String   @map("actor_id")
+  decision   String
+  remarks    String?
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  instance ApprovalInstance @relation(fields: [instanceId], references: [id], onDelete: Cascade)
+
+  @@map("approval_actions")
+  @@schema("approvals")
+}
+
+// ───────────────────────── AUDIT ─────────────────────────
+
+model AuditLog {
+  id             String   @id @default(uuid())
+  organizationId String?  @map("organization_id")
+  actorId        String?  @map("actor_id")
+  action         String
+  resourceType   String   @map("resource_type")
+  resourceId     String?  @map("resource_id")
+  before         Json?
+  after          Json?
+  ipAddress      String?  @map("ip_address")
+  requestId      String?  @map("request_id")
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  @@index([organizationId, createdAt])
+  @@index([resourceType, resourceId])
+  @@map("audit_logs")
+  @@schema("audit")
+}
+
+// ───────────────────────── WORKFORCE ─────────────────────────
+
+enum GuardStatus {
+  ACTIVE
+  ON_LEAVE
+  SUSPENDED
+  TRANSFERRED
+  TERMINATED
+  AVAILABLE
+
+  @@schema("workforce")
+}
+
+model GuardProfile {
+  id                 String      @id @default(uuid())
+  organizationId     String      @map("organization_id")
+  userId             String      @map("user_id")
+  employeeNumber     String      @map("employee_number")
+  status             GuardStatus @default(ACTIVE)
+  deploymentEligible Boolean     @default(false) @map("deployment_eligible")
+  photoUrl           String?     @map("photo_url")
+  phone              String?
+  createdAt          DateTime    @default(now()) @map("created_at")
+  updatedAt          DateTime    @updatedAt @map("updated_at")
+
+  assignments ShiftAssignment[]
+  attendances GuardAttendance[]
+  deployments GuardDeployment[]
+  employee    Employee?
+
+  @@unique([organizationId, employeeNumber])
+  @@unique([organizationId, userId])
+  @@map("guard_profiles")
+  @@schema("workforce")
+}
+
+// ───────────────────────── OPERATIONS ─────────────────────────
+
+enum ShiftStatus {
+  SCHEDULED
+  ACTIVE
+  COMPLETED
+  CANCELLED
+
+  @@schema("operations")
+}
+
+model Shift {
+  id             String      @id @default(uuid())
+  organizationId String      @map("organization_id")
+  siteId         String      @map("site_id")
+  name           String
+  startAt        DateTime    @map("start_at")
+  endAt          DateTime    @map("end_at")
+  status         ShiftStatus @default(SCHEDULED)
+  instructions   String?
+  createdAt      DateTime    @default(now()) @map("created_at")
+  createdBy      String?     @map("created_by")
+
+  assignments ShiftAssignment[]
+  attendances GuardAttendance[]
+
+  @@map("shifts")
+  @@schema("operations")
+}
+
+enum AssignmentStatus {
+  ASSIGNED
+  CONFIRMED
+  REPLACED
+  NO_SHOW
+
+  @@schema("operations")
+}
+
+model ShiftAssignment {
+  id           String           @id @default(uuid())
+  shiftId      String           @map("shift_id")
+  guardId      String           @map("guard_id")
+  supervisorId String?          @map("supervisor_id")
+  status       AssignmentStatus @default(ASSIGNED)
+  assignedAt   DateTime         @default(now()) @map("assigned_at")
+
+  shift Shift        @relation(fields: [shiftId], references: [id], onDelete: Cascade)
+  guard GuardProfile @relation(fields: [guardId], references: [id])
+
+  @@unique([shiftId, guardId])
+  @@map("shift_assignments")
+  @@schema("operations")
+}
+
+enum DeploymentStatus {
+  PENDING
+  ACTIVE
+  ENDED
+
+  @@schema("operations")
+}
+
+model GuardDeployment {
+  id             String           @id @default(uuid())
+  organizationId String           @map("organization_id")
+  guardId        String           @map("guard_id")
+  siteId         String           @map("site_id")
+  contractId     String?          @map("contract_id")
+  startDate      DateTime         @map("start_date")
+  endDate        DateTime?        @map("end_date")
+  status         DeploymentStatus @default(PENDING)
+  createdAt      DateTime         @default(now()) @map("created_at")
+  createdBy      String?          @map("created_by")
+
+  guard GuardProfile @relation(fields: [guardId], references: [id])
+
+  @@map("guard_deployments")
+  @@schema("operations")
+}
+
+model Checkpoint {
+  id             String   @id @default(uuid())
+  organizationId String   @map("organization_id")
+  siteId         String   @map("site_id")
+  code           String
+  name           String
+  zone           String?
+  qrCode         String?  @map("qr_code")
+  nfcTagId       String?  @map("nfc_tag_id")
+  latitude       Float?
+  longitude      Float?
+  isActive       Boolean  @default(true) @map("is_active")
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  patrolScans PatrolScan[]
+
+  @@unique([organizationId, siteId, code])
+  @@map("checkpoints")
+  @@schema("operations")
+}
+
+model PatrolRoute {
+  id             String   @id @default(uuid())
+  organizationId String   @map("organization_id")
+  siteId         String   @map("site_id")
+  name           String
+  checkpointIds  String[] @map("checkpoint_ids")
+  isActive       Boolean  @default(true) @map("is_active")
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  @@map("patrol_routes")
+  @@schema("operations")
+}
+
+// ───────────────────────── ATTENDANCE (GUARD ONLY) ─────────────────────────
+
+enum AttendanceMethod {
+  MOBILE_GPS
+  FINGERPRINT
+  FACE
+  QR
+  NFC
+  SUPERVISOR
+
+  @@schema("attendance")
+}
+
+enum SyncStatus {
+  SYNCED
+  PENDING
+  CONFLICT
+
+  @@schema("attendance")
+}
+
+model GuardAttendance {
+  id                 String           @id @default(uuid())
+  organizationId     String           @map("organization_id")
+  guardId            String           @map("guard_id")
+  siteId             String           @map("site_id")
+  shiftId            String?          @map("shift_id")
+  clockInAt          DateTime         @map("clock_in_at")
+  clockOutAt         DateTime?        @map("clock_out_at")
+  clockInMethod      AttendanceMethod @map("clock_in_method")
+  clockOutMethod     AttendanceMethod? @map("clock_out_method")
+  clockInLatitude    Float?           @map("clock_in_latitude")
+  clockInLongitude   Float?           @map("clock_in_longitude")
+  clockOutLatitude   Float?           @map("clock_out_latitude")
+  clockOutLongitude  Float?           @map("clock_out_longitude")
+  deviceClockInAt    DateTime?        @map("device_clock_in_at")
+  deviceClockOutAt   DateTime?        @map("device_clock_out_at")
+  serverReceivedAt   DateTime         @default(now()) @map("server_received_at")
+  clientEventId      String?          @unique @map("client_event_id")
+  clockOutClientEventId String?       @unique @map("clock_out_client_event_id")
+  syncStatus         SyncStatus       @default(SYNCED) @map("sync_status")
+  supervisorApproved Boolean          @default(false) @map("supervisor_approved")
+  remarks            String?
+  createdAt          DateTime         @default(now()) @map("created_at")
+
+  guard GuardProfile @relation(fields: [guardId], references: [id])
+  shift Shift?       @relation(fields: [shiftId], references: [id])
+
+  @@index([guardId, clockInAt])
+  @@index([siteId, clockInAt])
+  @@map("guard_attendances")
+  @@schema("attendance")
+}
+
+enum AlertnessStatus {
+  SCHEDULED
+  CONFIRMED
+  MISSED
+  LATE
+
+  @@schema("attendance")
+}
+
+model AlertnessCheck {
+  id               String           @id @default(uuid())
+  organizationId   String           @map("organization_id")
+  guardId          String           @map("guard_id")
+  siteId           String           @map("site_id")
+  shiftId          String?          @map("shift_id")
+  scheduledAt      DateTime         @map("scheduled_at")
+  confirmedAt      DateTime?        @map("confirmed_at")
+  status           AlertnessStatus  @default(SCHEDULED)
+  method           AttendanceMethod?
+  latitude         Float?
+  longitude        Float?
+  deviceTime       DateTime?        @map("device_time")
+  serverReceivedAt DateTime?        @map("server_received_at")
+  clientEventId    String?          @unique @map("client_event_id")
+  referenceNumber  String           @unique @map("reference_number")
+  createdAt        DateTime         @default(now()) @map("created_at")
+
+  @@index([guardId, scheduledAt])
+  @@map("alertness_checks")
+  @@schema("attendance")
+}
+
+model PatrolScan {
+  id               String           @id @default(uuid())
+  organizationId   String           @map("organization_id")
+  guardId          String           @map("guard_id")
+  siteId           String           @map("site_id")
+  checkpointId     String           @map("checkpoint_id")
+  routeId          String?          @map("route_id")
+  scannedAt        DateTime         @map("scanned_at")
+  method           AttendanceMethod
+  latitude         Float?
+  longitude        Float?
+  deviceTime       DateTime?        @map("device_time")
+  serverReceivedAt DateTime         @default(now()) @map("server_received_at")
+  clientEventId    String?          @unique @map("client_event_id")
+  syncStatus       SyncStatus       @default(SYNCED) @map("sync_status")
+  remarks          String?
+  createdAt        DateTime         @default(now()) @map("created_at")
+
+  checkpoint Checkpoint @relation(fields: [checkpointId], references: [id])
+
+  @@index([guardId, scannedAt])
+  @@map("patrol_scans")
+  @@schema("attendance")
+}
+
+model FieldAlert {
+  id             String   @id @default(uuid())
+  organizationId String   @map("organization_id")
+  siteId         String   @map("site_id")
+  guardId        String?  @map("guard_id")
+  alertType      String   @map("alert_type")
+  severity       String   @default("MEDIUM")
+  message        String
+  acknowledged   Boolean  @default(false)
+  acknowledgedBy String?  @map("acknowledged_by")
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  @@index([organizationId, createdAt])
+  @@map("field_alerts")
+  @@schema("attendance")
+}
+
+// ───────────────────────── OCCURRENCE BOOK ─────────────────────────
+
+model OccurrenceEntry {
+  id             String   @id @default(uuid())
+  organizationId String   @map("organization_id")
+  siteId         String   @map("site_id")
+  officerId      String   @map("officer_id")
+  category       String
+  description    String
+  version        Int      @default(1)
+  isCurrent      Boolean  @default(true) @map("is_current")
+  parentEntryId  String?  @map("parent_entry_id")
+  correctionReason String? @map("correction_reason")
+  approvedBy     String?  @map("approved_by")
+  recordedAt     DateTime @map("recorded_at")
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  @@index([siteId, recordedAt])
+  @@map("occurrence_entries")
+  @@schema("occurrence")
+}
+
+// ───────────────────────── INCIDENTS ─────────────────────────
+
+enum IncidentSeverity {
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
+
+  @@schema("incidents")
+}
+
+enum IncidentStatus {
+  OPEN
+  INVESTIGATING
+  RESOLVED
+  CLOSED
+
+  @@schema("incidents")
+}
+
+model Incident {
+  id               String           @id @default(uuid())
+  organizationId   String           @map("organization_id")
+  siteId           String           @map("site_id")
+  incidentNumber   String           @map("incident_number")
+  category         String
+  severity         IncidentSeverity @default(MEDIUM)
+  status           IncidentStatus   @default(OPEN)
+  title            String
+  description      String
+  reporterId       String           @map("reporter_id")
+  assignedTo       String?          @map("assigned_to")
+  latitude         Float?
+  longitude        Float?
+  clientEventId    String?          @unique @map("client_event_id")
+  deviceReportedAt DateTime?        @map("device_reported_at")
+  serverReceivedAt DateTime         @default(now()) @map("server_received_at")
+  resolvedAt       DateTime?        @map("resolved_at")
+  createdAt        DateTime         @default(now()) @map("created_at")
+
+  @@unique([organizationId, incidentNumber])
+  @@index([siteId, createdAt])
+  @@map("incidents")
+  @@schema("incidents")
+}
+
+// ───────────────────────── ACCESS (customer employees) ─────────────────────────
+
+enum AccessEntryType {
+  CHECK_IN
+  CHECK_OUT
+
+  @@schema("access")
+}
+
+enum AccessMethod {
+  CARD
+  QR
+  BIOMETRIC
+  MANUAL
+
+  @@schema("access")
+}
+
+model CustomerEmployee {
+  id             String   @id @default(uuid())
+  organizationId String   @map("organization_id")
+  customerId     String   @map("customer_id")
+  employeeNumber String?  @map("employee_number")
+  fullName       String   @map("full_name")
+  email          String?
+  phone          String?
+  department     String?
+  accessCardRef  String?  @map("access_card_ref")
+  biometricRef   String?  @map("biometric_ref")
+  isActive       Boolean  @default(true) @map("is_active")
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+  createdBy      String?  @map("created_by")
+
+  @@index([customerId])
+  @@unique([customerId, email])
+  @@map("customer_employees")
+  @@schema("access")
+}
+
+model AccessEntry {
+  id             String          @id @default(uuid())
+  organizationId String          @map("organization_id")
+  customerId     String          @map("customer_id")
+  employeeId     String          @map("employee_id")
+  siteId         String          @map("site_id")
+  gateId         String?         @map("gate_id")
+  entryType      AccessEntryType @map("entry_type")
+  accessMethod   AccessMethod    @default(MANUAL) @map("access_method")
+  recordedBy     String?         @map("recorded_by")
+  clientEventId  String?         @unique @map("client_event_id")
+  recordedAt     DateTime        @default(now()) @map("recorded_at")
+  createdAt      DateTime        @default(now()) @map("created_at")
+
+  @@index([customerId, recordedAt])
+  @@index([siteId, recordedAt])
+  @@map("access_entries")
+  @@schema("access")
+}
+
+// ───────────────────────── VISITORS ─────────────────────────
+
+enum AppointmentStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  CANCELLED
+  EXPIRED
+  COMPLETED
+
+  @@schema("visitors")
+}
+
+enum VerificationResult {
+  ALLOWED
+  DENIED_EXPIRED
+  DENIED_INVALID
+  DENIED_ALREADY_USED
+  DENIED_REVOKED
+  DENIED_GATE_MISMATCH
+  DENIED_SITE_MISMATCH
+  DENIED_BLACKLISTED
+
+  @@schema("visitors")
+}
+
+model VisitorAppointment {
+  id              String            @id @default(uuid())
+  organizationId  String            @map("organization_id")
+  customerId      String            @map("customer_id")
+  siteId          String            @map("site_id")
+  gateId          String?           @map("gate_id")
+  referenceNumber String            @map("reference_number")
+  visitorName     String            @map("visitor_name")
+  visitorEmail    String?           @map("visitor_email")
+  visitorPhone    String?           @map("visitor_phone")
+  companyName     String?           @map("company_name")
+  purpose         String
+  hostUserId      String?           @map("host_user_id")
+  hostName        String?           @map("host_name")
+  vehiclePlate    String?           @map("vehicle_plate")
+  validFrom       DateTime          @map("valid_from")
+  validUntil      DateTime          @map("valid_until")
+  status          AppointmentStatus @default(PENDING)
+  approvedBy      String?           @map("approved_by")
+  approvedAt      DateTime?         @map("approved_at")
+  rejectedReason  String?           @map("rejected_reason")
+  createdAt       DateTime          @default(now()) @map("created_at")
+  updatedAt       DateTime          @updatedAt @map("updated_at")
+  createdBy       String?           @map("created_by")
+
+  verificationCodes VerificationCode[]
+  visitorEntries    VisitorEntry[]
+
+  @@unique([organizationId, referenceNumber])
+  @@index([customerId, status])
+  @@index([siteId, validFrom])
+  @@map("visitor_appointments")
+  @@schema("visitors")
+}
+
+model VerificationCode {
+  id            String    @id @default(uuid())
+  appointmentId String    @map("appointment_id")
+  codeHash      String    @map("code_hash")
+  maxUses       Int       @default(1) @map("max_uses")
+  useCount      Int       @default(0) @map("use_count")
+  usedAt        DateTime? @map("used_at")
+  validFrom     DateTime  @map("valid_from")
+  validUntil    DateTime  @map("valid_until")
+  siteId        String    @map("site_id")
+  gateId        String?   @map("gate_id")
+  revokedAt     DateTime? @map("revoked_at")
+  createdAt     DateTime  @default(now()) @map("created_at")
+
+  appointment VisitorAppointment @relation(fields: [appointmentId], references: [id])
+
+  @@index([appointmentId])
+  @@map("verification_codes")
+  @@schema("visitors")
+}
+
+model VisitorEntry {
+  id                 String             @id @default(uuid())
+  organizationId     String             @map("organization_id")
+  appointmentId      String?            @map("appointment_id")
+  siteId             String             @map("site_id")
+  gateId             String?            @map("gate_id")
+  visitorName        String             @map("visitor_name")
+  verificationCodeId String?            @map("verification_code_id")
+  result             VerificationResult
+  denyReason         String?            @map("deny_reason")
+  verifiedBy         String?            @map("verified_by")
+  clientEventId      String?            @unique @map("client_event_id")
+  recordedAt         DateTime           @default(now()) @map("recorded_at")
+  createdAt          DateTime           @default(now()) @map("created_at")
+
+  appointment VisitorAppointment? @relation(fields: [appointmentId], references: [id])
+
+  @@index([siteId, recordedAt])
+  @@map("visitor_entries")
+  @@schema("visitors")
+}
+
+model VisitorBlacklist {
+  id             String   @id @default(uuid())
+  organizationId String   @map("organization_id")
+  customerId     String?  @map("customer_id")
+  visitorPhone   String?  @map("visitor_phone")
+  visitorEmail   String?  @map("visitor_email")
+  visitorName    String?  @map("visitor_name")
+  reason         String
+  isActive       Boolean  @default(true) @map("is_active")
+  createdAt      DateTime @default(now()) @map("created_at")
+  createdBy      String?  @map("created_by")
+
+  @@index([organizationId, visitorPhone])
+  @@map("visitor_blacklist")
+  @@schema("visitors")
+}
+
+// ───────────────────────── PARKING ─────────────────────────
+
+enum VehicleType {
+  CAR
+  MOTORCYCLE
+  TRUCK
+  BUS
+  OTHER
+
+  @@schema("parking")
+}
+
+enum PermitType {
+  EMPLOYEE
+  VISITOR
+  CONTRACTOR
+  RESERVED
+
+  @@schema("parking")
+}
+
+enum PermitStatus {
+  PENDING
+  ACTIVE
+  EXPIRED
+  REVOKED
+  SUSPENDED
+
+  @@schema("parking")
+}
+
+enum ParkingEntryDirection {
+  ENTRY
+  EXIT
+
+  @@schema("parking")
+}
+
+enum ParkingDecision {
+  ALLOW
+  DENY
+  PENDING
+
+  @@schema("parking")
+}
+
+enum ViolationType {
+  NO_PERMIT
+  EXPIRED_PERMIT
+  WRONG_ZONE
+  OVERSTAY
+  BLACKLISTED
+
+  @@schema("parking")
+}
+
+model Vehicle {
+  id             String      @id @default(uuid())
+  organizationId String      @map("organization_id")
+  customerId     String?     @map("customer_id")
+  plateNumber    String      @map("plate_number")
+  vehicleType    VehicleType @default(CAR) @map("vehicle_type")
+  make           String?
+  model          String?
+  color          String?
+  ownerName      String?     @map("owner_name")
+  ownerPhone     String?     @map("owner_phone")
+  isActive       Boolean     @default(true) @map("is_active")
+  createdAt      DateTime    @default(now()) @map("created_at")
+  createdBy      String?     @map("created_by")
+
+  permits ParkingPermit[]
+
+  @@unique([organizationId, plateNumber])
+  @@index([customerId])
+  @@map("vehicles")
+  @@schema("parking")
+}
+
+model ParkingPermit {
+  id             String       @id @default(uuid())
+  organizationId String       @map("organization_id")
+  vehicleId      String       @map("vehicle_id")
+  siteId         String       @map("site_id")
+  permitNumber   String       @map("permit_number")
+  permitType     PermitType   @map("permit_type")
+  status         PermitStatus @default(PENDING)
+  validFrom      DateTime     @map("valid_from")
+  validUntil     DateTime     @map("valid_until")
+  createdAt      DateTime     @default(now()) @map("created_at")
+  createdBy      String?      @map("created_by")
+
+  vehicle Vehicle @relation(fields: [vehicleId], references: [id])
+
+  @@unique([organizationId, permitNumber])
+  @@index([siteId, status])
+  @@map("parking_permits")
+  @@schema("parking")
+}
+
+model AnprResult {
+  id             String          @id @default(uuid())
+  organizationId String          @map("organization_id")
+  siteId         String          @map("site_id")
+  gateId         String?         @map("gate_id")
+  plateNumber    String          @map("plate_number")
+  confidence     Float?
+  cameraId       String?         @map("camera_id")
+  imageUrl       String?         @map("image_url")
+  rawPayload     Json?           @map("raw_payload")
+  decision       ParkingDecision @default(PENDING)
+  decidedBy      String?         @map("decided_by")
+  decidedAt      DateTime?       @map("decided_at")
+  denyReason     String?         @map("deny_reason")
+  capturedAt     DateTime        @map("captured_at")
+  createdAt      DateTime        @default(now()) @map("created_at")
+
+  parkingEntries ParkingEntry[]
+
+  @@index([siteId, capturedAt])
+  @@index([plateNumber])
+  @@map("anpr_results")
+  @@schema("parking")
+}
+
+model ParkingEntry {
+  id             String                @id @default(uuid())
+  organizationId String                @map("organization_id")
+  siteId         String                @map("site_id")
+  gateId         String?               @map("gate_id")
+  vehicleId      String?               @map("vehicle_id")
+  plateNumber    String                @map("plate_number")
+  direction      ParkingEntryDirection
+  anprResultId   String?               @map("anpr_result_id")
+  permitId       String?               @map("permit_id")
+  decision       ParkingDecision       @default(ALLOW)
+  recordedBy     String?               @map("recorded_by")
+  clientEventId  String?               @unique @map("client_event_id")
+  recordedAt     DateTime              @default(now()) @map("recorded_at")
+  createdAt      DateTime              @default(now()) @map("created_at")
+
+  anprResult AnprResult? @relation(fields: [anprResultId], references: [id])
+
+  @@index([siteId, recordedAt])
+  @@map("parking_entries")
+  @@schema("parking")
+}
+
+model ParkingViolation {
+  id             String        @id @default(uuid())
+  organizationId String        @map("organization_id")
+  siteId         String        @map("site_id")
+  plateNumber    String        @map("plate_number")
+  vehicleId      String?       @map("vehicle_id")
+  violationType  ViolationType @map("violation_type")
+  description    String?
+  recordedAt     DateTime      @default(now()) @map("recorded_at")
+  createdAt      DateTime      @default(now()) @map("created_at")
+  createdBy      String?       @map("created_by")
+
+  @@index([siteId, recordedAt])
+  @@map("parking_violations")
+  @@schema("parking")
+}
+
+model VehicleBlacklist {
+  id             String   @id @default(uuid())
+  organizationId String   @map("organization_id")
+  plateNumber    String   @map("plate_number")
+  reason         String
+  isActive       Boolean  @default(true) @map("is_active")
+  createdAt      DateTime @default(now()) @map("created_at")
+  createdBy      String?  @map("created_by")
+
+  @@unique([organizationId, plateNumber])
+  @@map("vehicle_blacklist")
+  @@schema("parking")
+}
+
+// ───────────────────────── WORKFORCE HR (extends guard profiles) ─────────────────────────
+
+enum EmployeeStatus {
+  ACTIVE
+  ON_LEAVE
+  SUSPENDED
+  TERMINATED
+
+  @@schema("workforce")
+}
+
+enum EmploymentType {
+  GUARD
+  SUPERVISOR
+  ADMIN
+  OTHER
+
+  @@schema("workforce")
+}
+
+model Employee {
+  id             String         @id @default(uuid())
+  organizationId String         @map("organization_id")
+  userId         String?        @map("user_id")
+  guardProfileId String?        @unique @map("guard_profile_id")
+  employeeNumber String         @map("employee_number")
+  fullName       String         @map("full_name")
+  email          String?
+  phone          String?
+  department     String?
+  employmentType EmploymentType @default(GUARD) @map("employment_type")
+  status         EmployeeStatus @default(ACTIVE)
+  hireDate       DateTime?      @map("hire_date")
+  createdAt      DateTime       @default(now()) @map("created_at")
+  updatedAt      DateTime       @updatedAt @map("updated_at")
+  createdBy      String?        @map("created_by")
+
+  guardProfile     GuardProfile?      @relation(fields: [guardProfileId], references: [id])
+  leaveRequests    LeaveRequest[]
+  salaryAssignments SalaryAssignment[]
+  loans            EmployeeLoan[]
+  payslips         PayslipSnapshot[]
+
+  @@unique([organizationId, employeeNumber])
+  @@index([organizationId, status])
+  @@map("employees")
+  @@schema("workforce")
+}
+
+enum LeaveRequestStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  CANCELLED
+
+  @@schema("workforce")
+}
+
+model LeaveType {
+  id              String   @id @default(uuid())
+  organizationId  String   @map("organization_id")
+  code            String
+  name            String
+  annualQuotaDays Int      @default(21) @map("annual_quota_days")
+  isActive        Boolean  @default(true) @map("is_active")
+  createdAt       DateTime @default(now()) @map("created_at")
+
+  leaveRequests LeaveRequest[]
+
+  @@unique([organizationId, code])
+  @@map("leave_types")
+  @@schema("workforce")
+}
+
+model LeaveRequest {
+  id                 String             @id @default(uuid())
+  organizationId     String             @map("organization_id")
+  employeeId         String             @map("employee_id")
+  leaveTypeId        String             @map("leave_type_id")
+  startDate          DateTime           @map("start_date") @db.Date
+  endDate            DateTime           @map("end_date") @db.Date
+  days               Int
+  reason             String
+  status             LeaveRequestStatus @default(PENDING)
+  approvalInstanceId String?            @map("approval_instance_id")
+  approvedBy         String?            @map("approved_by")
+  approvedAt         DateTime?          @map("approved_at")
+  rejectedReason     String?            @map("rejected_reason")
+  createdAt          DateTime           @default(now()) @map("created_at")
+  createdBy          String?            @map("created_by")
+
+  employee  Employee  @relation(fields: [employeeId], references: [id])
+  leaveType LeaveType @relation(fields: [leaveTypeId], references: [id])
+
+  @@index([employeeId, status])
+  @@map("leave_requests")
+  @@schema("workforce")
+}
+
+model SalaryAssignment {
+  id             String    @id @default(uuid())
+  organizationId String    @map("organization_id")
+  employeeId     String    @map("employee_id")
+  basicSalary    Decimal   @map("basic_salary") @db.Decimal(14, 2)
+  currency       String    @default("TZS")
+  hourlyRate     Decimal?  @map("hourly_rate") @db.Decimal(14, 2)
+  allowances     Json?
+  effectiveFrom  DateTime  @map("effective_from") @db.Date
+  effectiveUntil DateTime? @map("effective_until") @db.Date
+  isActive       Boolean   @default(true) @map("is_active")
+  createdAt      DateTime  @default(now()) @map("created_at")
+  createdBy      String?   @map("created_by")
+
+  employee Employee @relation(fields: [employeeId], references: [id])
+
+  @@index([employeeId, effectiveFrom])
+  @@map("salary_assignments")
+  @@schema("workforce")
+}
+
+// ───────────────────────── RECRUITMENT ─────────────────────────
+
+enum JobPostingStatus {
+  DRAFT
+  OPEN
+  CLOSED
+
+  @@schema("recruitment")
+}
+
+enum ApplicationStatus {
+  SUBMITTED
+  SCREENING
+  INTERVIEW
+  OFFERED
+  HIRED
+  REJECTED
+  WITHDRAWN
+
+  @@schema("recruitment")
+}
+
+model JobPosting {
+  id             String           @id @default(uuid())
+  organizationId String           @map("organization_id")
+  title          String
+  department     String?
+  location       String?
+  description    String
+  requirements   String?
+  status         JobPostingStatus @default(DRAFT)
+  publishedAt    DateTime?        @map("published_at")
+  closesAt       DateTime?        @map("closes_at")
+  createdAt      DateTime         @default(now()) @map("created_at")
+  createdBy      String?          @map("created_by")
+
+  applications JobApplication[]
+
+  @@index([organizationId, status])
+  @@map("job_postings")
+  @@schema("recruitment")
+}
+
+model JobApplication {
+  id              String            @id @default(uuid())
+  organizationId  String            @map("organization_id")
+  postingId       String            @map("posting_id")
+  referenceNumber String            @map("reference_number")
+  applicantName   String            @map("applicant_name")
+  email           String
+  phone           String?
+  resumeUrl       String?           @map("resume_url")
+  coverLetter     String?           @map("cover_letter")
+  status          ApplicationStatus @default(SUBMITTED)
+  notes           String?
+  employeeId      String?           @map("employee_id")
+  screenedBy      String?           @map("screened_by")
+  createdAt       DateTime          @default(now()) @map("created_at")
+
+  posting JobPosting @relation(fields: [postingId], references: [id])
+
+  @@unique([organizationId, referenceNumber])
+  @@index([postingId, status])
+  @@map("job_applications")
+  @@schema("recruitment")
+}
+
+// ───────────────────────── PAYROLL ─────────────────────────
+
+enum PayrollTenantType {
+  INTERNAL_COMPANY
+  CUSTOMER_MANAGED_PAYROLL
+
+  @@schema("payroll")
+}
+
+enum PayrollCycleStatus {
+  DRAFT
+  CALCULATED
+  PENDING_APPROVAL
+  APPROVED
+  PAID
+  VOIDED
+
+  @@schema("payroll")
+}
+
+model PayrollRuleVersion {
+  id             String    @id @default(uuid())
+  organizationId String    @map("organization_id")
+  version        Int
+  name           String
+  rules          Json
+  effectiveFrom  DateTime  @map("effective_from") @db.Date
+  effectiveUntil DateTime? @map("effective_until") @db.Date
+  isCurrent      Boolean   @default(false) @map("is_current")
+  createdAt      DateTime  @default(now()) @map("created_at")
+  createdBy      String?   @map("created_by")
+
+  cycles PayrollCycle[]
+
+  @@unique([organizationId, version])
+  @@map("payroll_rule_versions")
+  @@schema("payroll")
+}
+
+model PayrollCycle {
+  id                 String             @id @default(uuid())
+  organizationId     String             @map("organization_id")
+  tenantType         PayrollTenantType  @map("tenant_type")
+  customerId         String?            @map("customer_id")
+  cycleCode          String             @map("cycle_code")
+  periodStart        DateTime           @map("period_start") @db.Date
+  periodEnd          DateTime           @map("period_end") @db.Date
+  status             PayrollCycleStatus @default(DRAFT)
+  ruleVersionId      String             @map("rule_version_id")
+  approvalInstanceId String?            @map("approval_instance_id")
+  createdBy          String             @map("created_by")
+  reviewedBy         String?            @map("reviewed_by")
+  approvedBy         String?            @map("approved_by")
+  paidAt             DateTime?          @map("paid_at")
+  paymentReference   String?            @map("payment_reference")
+  createdAt          DateTime           @default(now()) @map("created_at")
+  updatedAt          DateTime           @updatedAt @map("updated_at")
+
+  ruleVersion PayrollRuleVersion @relation(fields: [ruleVersionId], references: [id])
+  payslips    PayslipSnapshot[]
+
+  @@unique([organizationId, cycleCode])
+  @@index([organizationId, periodStart])
+  @@map("payroll_cycles")
+  @@schema("payroll")
+}
+
+model PayslipSnapshot {
+  id                  String   @id @default(uuid())
+  organizationId      String   @map("organization_id")
+  cycleId             String   @map("cycle_id")
+  employeeId          String   @map("employee_id")
+  employeeNumber      String   @map("employee_number")
+  employeeName        String   @map("employee_name")
+  inputsSnapshot      Json     @map("inputs_snapshot")
+  allowancesSnapshot  Json     @map("allowances_snapshot")
+  deductionsSnapshot  Json     @map("deductions_snapshot")
+  calculationResult   Json     @map("calculation_result")
+  grossPay            Decimal  @map("gross_pay") @db.Decimal(14, 2)
+  totalDeductions     Decimal  @map("total_deductions") @db.Decimal(14, 2)
+  netPay              Decimal  @map("net_pay") @db.Decimal(14, 2)
+  ruleVersionId       String   @map("rule_version_id")
+  supersededById      String?  @unique @map("superseded_by_id")
+  createdBy           String   @map("created_by")
+  createdAt           DateTime @default(now()) @map("created_at")
+
+  cycle    PayrollCycle @relation(fields: [cycleId], references: [id])
+  employee Employee     @relation(fields: [employeeId], references: [id])
+
+  @@unique([cycleId, employeeId])
+  @@index([organizationId, cycleId])
+  @@map("payslip_snapshots")
+  @@schema("payroll")
+}
+
+// ───────────────────────── EMPLOYEE LOANS ─────────────────────────
+
+enum LoanStatus {
+  DRAFT
+  PENDING_APPROVAL
+  APPROVED
+  ACTIVE
+  REJECTED
+  COMPLETED
+  CANCELLED
+
+  @@schema("employee_loans")
+}
+
+enum InstallmentStatus {
+  PENDING
+  PAID
+  SKIPPED
+
+  @@schema("employee_loans")
+}
+
+model EmployeeLoan {
+  id                 String     @id @default(uuid())
+  organizationId     String     @map("organization_id")
+  employeeId         String     @map("employee_id")
+  loanNumber         String     @map("loan_number")
+  principalAmount    Decimal    @map("principal_amount") @db.Decimal(14, 2)
+  interestRate       Decimal    @default(0) @map("interest_rate") @db.Decimal(5, 2)
+  termMonths         Int        @map("term_months")
+  monthlyInstallment Decimal    @map("monthly_installment") @db.Decimal(14, 2)
+  status             LoanStatus @default(PENDING_APPROVAL)
+  purpose            String
+  approvalInstanceId String?    @map("approval_instance_id")
+  approvedBy         String?    @map("approved_by")
+  approvedAt         DateTime?  @map("approved_at")
+  disbursedAt        DateTime?  @map("disbursed_at")
+  createdAt          DateTime   @default(now()) @map("created_at")
+  createdBy          String     @map("created_by")
+
+  employee     Employee          @relation(fields: [employeeId], references: [id])
+  installments LoanInstallment[]
+
+  @@unique([organizationId, loanNumber])
+  @@index([employeeId, status])
+  @@map("employee_loans")
+  @@schema("employee_loans")
+}
+
+model LoanInstallment {
+  id                String            @id @default(uuid())
+  loanId            String            @map("loan_id")
+  installmentNumber Int               @map("installment_number")
+  dueDate           DateTime          @map("due_date") @db.Date
+  amountDue         Decimal           @map("amount_due") @db.Decimal(14, 2)
+  amountPaid        Decimal           @default(0) @map("amount_paid") @db.Decimal(14, 2)
+  status            InstallmentStatus @default(PENDING)
+  payslipSnapshotId String?           @map("payslip_snapshot_id")
+  paidAt            DateTime?         @map("paid_at")
+  createdAt         DateTime          @default(now()) @map("created_at")
+
+  loan EmployeeLoan @relation(fields: [loanId], references: [id])
+
+  @@unique([loanId, installmentNumber])
+  @@index([dueDate, status])
+  @@map("loan_installments")
+  @@schema("employee_loans")
+}
+
+// ───────────────────────── FINANCE ─────────────────────────
+
+enum InvoiceStatus {
+  DRAFT
+  SENT
+  PARTIALLY_PAID
+  PAID
+  OVERDUE
+  VOIDED
+
+  @@schema("finance")
+}
+
+enum PaymentMethod {
+  BANK_TRANSFER
+  CASH
+  CHEQUE
+  MOBILE_MONEY
+  OTHER
+
+  @@schema("finance")
+}
+
+enum PettyCashVoucherStatus {
+  PENDING
+  APPROVED
+  REIMBURSED
+  REJECTED
+
+  @@schema("finance")
+}
+
+enum PaymentVoucherStatus {
+  DRAFT
+  PENDING_APPROVAL
+  APPROVED
+  PAID
+  REJECTED
+  VOIDED
+
+  @@schema("finance")
+}
+
+model Invoice {
+  id             String        @id @default(uuid())
+  organizationId String        @map("organization_id")
+  customerId     String        @map("customer_id")
+  contractId     String?       @map("contract_id")
+  invoiceNumber  String        @map("invoice_number")
+  issueDate      DateTime      @map("issue_date") @db.Date
+  dueDate        DateTime      @map("due_date") @db.Date
+  subtotal       Decimal       @db.Decimal(14, 2)
+  taxAmount      Decimal       @default(0) @map("tax_amount") @db.Decimal(14, 2)
+  totalAmount    Decimal       @map("total_amount") @db.Decimal(14, 2)
+  amountPaid     Decimal       @default(0) @map("amount_paid") @db.Decimal(14, 2)
+  currency       String        @default("TZS")
+  status         InvoiceStatus @default(DRAFT)
+  notes          String?
+  createdAt      DateTime      @default(now()) @map("created_at")
+  createdBy      String        @map("created_by")
+
+  lines    InvoiceLine[]
+  payments InvoicePayment[]
+
+  @@unique([organizationId, invoiceNumber])
+  @@index([customerId, status])
+  @@map("invoices")
+  @@schema("finance")
+}
+
+model InvoiceLine {
+  id          String  @id @default(uuid())
+  invoiceId   String  @map("invoice_id")
+  description String
+  quantity    Decimal @default(1) @db.Decimal(10, 2)
+  unitPrice   Decimal @map("unit_price") @db.Decimal(14, 2)
+  amount      Decimal @db.Decimal(14, 2)
+
+  invoice Invoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+
+  @@map("invoice_lines")
+  @@schema("finance")
+}
+
+model InvoicePayment {
+  id               String        @id @default(uuid())
+  organizationId   String        @map("organization_id")
+  invoiceId        String        @map("invoice_id")
+  amount           Decimal       @db.Decimal(14, 2)
+  paymentMethod    PaymentMethod @map("payment_method")
+  paymentReference String        @map("payment_reference")
+  recordedBy       String        @map("recorded_by")
+  recordedAt       DateTime      @default(now()) @map("recorded_at")
+  createdAt        DateTime      @default(now()) @map("created_at")
+
+  invoice Invoice @relation(fields: [invoiceId], references: [id])
+
+  @@index([invoiceId])
+  @@map("invoice_payments")
+  @@schema("finance")
+}
+
+model PettyCashFund {
+  id             String   @id @default(uuid())
+  organizationId String   @map("organization_id")
+  branchId       String?  @map("branch_id")
+  name           String
+  imprestAmount  Decimal  @map("imprest_amount") @db.Decimal(14, 2)
+  currentBalance Decimal  @map("current_balance") @db.Decimal(14, 2)
+  custodianId    String?  @map("custodian_id")
+  isActive       Boolean  @default(true) @map("is_active")
+  createdAt      DateTime @default(now()) @map("created_at")
+  createdBy      String?  @map("created_by")
+
+  vouchers PettyCashVoucher[]
+
+  @@map("petty_cash_funds")
+  @@schema("finance")
+}
+
+model PettyCashVoucher {
+  id                 String                 @id @default(uuid())
+  organizationId     String                 @map("organization_id")
+  fundId             String                 @map("fund_id")
+  voucherNumber      String                 @map("voucher_number")
+  amount             Decimal                @db.Decimal(14, 2)
+  purpose            String
+  category           String
+  receiptUrl         String?                @map("receipt_url")
+  status             PettyCashVoucherStatus @default(PENDING)
+  approvalInstanceId String?                @map("approval_instance_id")
+  approvedBy         String?                @map("approved_by")
+  reimbursedAt       DateTime?              @map("reimbursed_at")
+  createdAt          DateTime               @default(now()) @map("created_at")
+  createdBy          String                 @map("created_by")
+
+  fund PettyCashFund @relation(fields: [fundId], references: [id])
+
+  @@unique([organizationId, voucherNumber])
+  @@map("petty_cash_vouchers")
+  @@schema("finance")
+}
+
+model PaymentVoucher {
+  id                 String               @id @default(uuid())
+  organizationId     String               @map("organization_id")
+  voucherNumber      String               @map("voucher_number")
+  payeeName          String               @map("payee_name")
+  supplierId         String?              @map("supplier_id")
+  purchaseOrderId    String?              @map("purchase_order_id")
+  amount             Decimal              @db.Decimal(14, 2)
+  currency           String               @default("TZS")
+  purpose            String
+  status             PaymentVoucherStatus @default(DRAFT)
+  approvalInstanceId String?              @map("approval_instance_id")
+  approvedBy         String?              @map("approved_by")
+  paidAt             DateTime?            @map("paid_at")
+  paymentReference   String?              @map("payment_reference")
+  createdAt          DateTime             @default(now()) @map("created_at")
+  createdBy          String               @map("created_by")
+
+  @@unique([organizationId, voucherNumber])
+  @@index([supplierId, status])
+  @@map("payment_vouchers")
+  @@schema("finance")
+}
+
+// ───────────────────────── PROCUREMENT ─────────────────────────
+
+enum SupplierStatus {
+  PENDING
+  APPROVED
+  SUSPENDED
+
+  @@schema("procurement")
+}
+
+enum PurchaseOrderStatus {
+  DRAFT
+  PENDING_APPROVAL
+  APPROVED
+  ORDERED
+  PARTIALLY_RECEIVED
+  RECEIVED
+  CANCELLED
+
+  @@schema("procurement")
+}
+
+model Supplier {
+  id             String         @id @default(uuid())
+  organizationId String         @map("organization_id")
+  code           String
+  name           String
+  email          String?
+  phone          String?
+  tin            String?
+  address        String?
+  status         SupplierStatus @default(PENDING)
+  createdAt      DateTime       @default(now()) @map("created_at")
+  createdBy      String?        @map("created_by")
+
+  purchaseOrders PurchaseOrder[]
+
+  @@unique([organizationId, code])
+  @@map("suppliers")
+  @@schema("procurement")
+}
+
+model PurchaseOrder {
+  id                 String              @id @default(uuid())
+  organizationId     String              @map("organization_id")
+  supplierId         String              @map("supplier_id")
+  poNumber           String              @map("po_number")
+  status             PurchaseOrderStatus @default(DRAFT)
+  totalAmount        Decimal             @map("total_amount") @db.Decimal(14, 2)
+  currency           String              @default("TZS")
+  expectedDelivery   DateTime?           @map("expected_delivery") @db.Date
+  approvalInstanceId String?             @map("approval_instance_id")
+  approvedBy         String?             @map("approved_by")
+  createdAt          DateTime            @default(now()) @map("created_at")
+  createdBy          String              @map("created_by")
+
+  supplier Supplier            @relation(fields: [supplierId], references: [id])
+  lines    PurchaseOrderLine[]
+  receipts GoodsReceipt[]
+
+  @@unique([organizationId, poNumber])
+  @@map("purchase_orders")
+  @@schema("procurement")
+}
+
+model PurchaseOrderLine {
+  id              String  @id @default(uuid())
+  purchaseOrderId String  @map("purchase_order_id")
+  stockItemId     String? @map("stock_item_id")
+  description     String
+  quantity        Decimal @db.Decimal(10, 2)
+  unitPrice       Decimal @map("unit_price") @db.Decimal(14, 2)
+  amount          Decimal @db.Decimal(14, 2)
+  receivedQty     Decimal @default(0) @map("received_qty") @db.Decimal(10, 2)
+
+  purchaseOrder PurchaseOrder @relation(fields: [purchaseOrderId], references: [id], onDelete: Cascade)
+
+  @@map("purchase_order_lines")
+  @@schema("procurement")
+}
+
+model GoodsReceipt {
+  id              String   @id @default(uuid())
+  organizationId  String   @map("organization_id")
+  purchaseOrderId String   @map("purchase_order_id")
+  grnNumber       String   @map("grn_number")
+  receivedAt      DateTime @default(now()) @map("received_at")
+  receivedBy      String   @map("received_by")
+  notes           String?
+  createdAt       DateTime @default(now()) @map("created_at")
+
+  purchaseOrder PurchaseOrder     @relation(fields: [purchaseOrderId], references: [id])
+  lines         GoodsReceiptLine[]
+
+  @@unique([organizationId, grnNumber])
+  @@map("goods_receipts")
+  @@schema("procurement")
+}
+
+model GoodsReceiptLine {
+  id                  String  @id @default(uuid())
+  goodsReceiptId      String  @map("goods_receipt_id")
+  purchaseOrderLineId String  @map("purchase_order_line_id")
+  quantityReceived    Decimal @map("quantity_received") @db.Decimal(10, 2)
+
+  goodsReceipt GoodsReceipt @relation(fields: [goodsReceiptId], references: [id], onDelete: Cascade)
+
+  @@map("goods_receipt_lines")
+  @@schema("procurement")
+}
+
+// ───────────────────────── INVENTORY ─────────────────────────
+
+enum StockMovementType {
+  IN
+  OUT
+  ADJUST
+
+  @@schema("inventory")
+}
+
+model StockItem {
+  id             String   @id @default(uuid())
+  organizationId String   @map("organization_id")
+  sku            String
+  name           String
+  category       String?
+  unit           String   @default("EA")
+  reorderLevel   Int?     @map("reorder_level")
+  isActive       Boolean  @default(true) @map("is_active")
+  createdAt      DateTime @default(now()) @map("created_at")
+  createdBy      String?  @map("created_by")
+
+  movements StockMovement[]
+
+  @@unique([organizationId, sku])
+  @@map("stock_items")
+  @@schema("inventory")
+}
+
+model StockMovement {
+  id             String            @id @default(uuid())
+  organizationId String            @map("organization_id")
+  stockItemId    String            @map("stock_item_id")
+  siteId         String?           @map("site_id")
+  movementType   StockMovementType @map("movement_type")
+  quantity       Decimal           @db.Decimal(10, 2)
+  referenceType  String?           @map("reference_type")
+  referenceId    String?           @map("reference_id")
+  notes          String?
+  createdAt      DateTime          @default(now()) @map("created_at")
+  createdBy      String?           @map("created_by")
+
+  stockItem StockItem @relation(fields: [stockItemId], references: [id])
+
+  @@index([stockItemId, createdAt])
+  @@map("stock_movements")
+  @@schema("inventory")
+}
+
+// ───────────────────────── ASSETS ─────────────────────────
+
+enum AssetStatus {
+  AVAILABLE
+  ASSIGNED
+  MAINTENANCE
+  DISPOSED
+
+  @@schema("assets")
+}
+
+model Asset {
+  id             String      @id @default(uuid())
+  organizationId String      @map("organization_id")
+  assetTag       String      @map("asset_tag")
+  name           String
+  category       String?
+  purchaseDate   DateTime?   @map("purchase_date") @db.Date
+  purchaseCost   Decimal?    @map("purchase_cost") @db.Decimal(14, 2)
+  serialNumber   String?     @map("serial_number")
+  status         AssetStatus @default(AVAILABLE)
+  createdAt      DateTime    @default(now()) @map("created_at")
+  createdBy      String?     @map("created_by")
+
+  assignments AssetAssignment[]
+
+  @@unique([organizationId, assetTag])
+  @@map("assets")
+  @@schema("assets")
+}
+
+model AssetAssignment {
+  id                    String    @id @default(uuid())
+  organizationId        String    @map("organization_id")
+  assetId               String    @map("asset_id")
+  assignedToEmployeeId  String?   @map("assigned_to_employee_id")
+  assignedToGuardId      String?   @map("assigned_to_guard_id")
+  assignedAt            DateTime  @default(now()) @map("assigned_at")
+  returnedAt            DateTime? @map("returned_at")
+  notes                 String?
+  createdBy             String?   @map("created_by")
+
+  asset Asset @relation(fields: [assetId], references: [id])
+
+  @@index([assetId, assignedAt])
+  @@map("asset_assignments")
+  @@schema("assets")
+}
+
+// ───────────────────────── INTEGRATIONS ─────────────────────────
+
+enum WebhookInboxStatus {
+  RECEIVED
+  PROCESSING
+  PROCESSED
+  FAILED
+  DLQ
+
+  @@schema("integrations")
+}
+
+enum OutboxStatus {
+  PENDING
+  PUBLISHED
+  FAILED
+
+  @@schema("integrations")
+}
+
+enum IntegrationProviderCategory {
+  SMS
+  WHATSAPP
+  EMAIL
+  PAYMENT
+  ANPR
+  GATE
+
+  @@schema("integrations")
+}
+
+model ProviderRegistry {
+  id           String                    @id @default(uuid())
+  code         String                    @unique
+  category     IntegrationProviderCategory
+  adapterClass String                    @map("adapter_class")
+  isEnabled    Boolean                   @default(true) @map("is_enabled")
+  createdAt    DateTime                  @default(now()) @map("created_at")
+
+  @@map("provider_registry")
+  @@schema("integrations")
+}
+
+model WebhookInbox {
+  id              String             @id @default(uuid())
+  organizationId  String?            @map("organization_id")
+  provider        String
+  eventType       String             @map("event_type")
+  idempotencyKey  String             @unique @map("idempotency_key")
+  rawHeaders      Json?              @map("raw_headers")
+  rawBody         Json               @map("raw_body")
+  signatureValid  Boolean            @default(false) @map("signature_valid")
+  status          WebhookInboxStatus @default(RECEIVED)
+  retryCount      Int                @default(0) @map("retry_count")
+  errorMessage    String?            @map("error_message")
+  processedAt     DateTime?          @map("processed_at")
+  createdAt       DateTime           @default(now()) @map("created_at")
+
+  @@index([status, createdAt])
+  @@map("webhook_inbox")
+  @@schema("integrations")
+}
+
+model IntegrationOutbox {
+  id             String       @id @default(uuid())
+  organizationId String       @map("organization_id")
+  eventType      String       @map("event_type")
+  aggregateType  String       @map("aggregate_type")
+  aggregateId    String       @map("aggregate_id")
+  payload        Json
+  status         OutboxStatus @default(PENDING)
+  idempotencyKey String       @unique @map("idempotency_key")
+  retryCount     Int          @default(0) @map("retry_count")
+  nextRetryAt    DateTime     @default(now()) @map("next_retry_at")
+  publishedAt    DateTime?    @map("published_at")
+  errorMessage   String?      @map("error_message")
+  createdAt      DateTime     @default(now()) @map("created_at")
+
+  @@index([status, nextRetryAt])
+  @@map("integration_outbox")
+  @@schema("integrations")
+}
+
+model IntegrationRequestLog {
+  id            String   @id @default(uuid())
+  organizationId String? @map("organization_id")
+  provider      String
+  direction     String
+  correlationId String?  @map("correlation_id")
+  statusCode    Int?     @map("status_code")
+  durationMs    Int?     @map("duration_ms")
+  summary       String?
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  @@index([provider, createdAt])
+  @@map("integration_request_logs")
+  @@schema("integrations")
+}
+
+// ───────────────────────── NOTIFICATIONS ─────────────────────────
+
+enum NotificationChannel {
+  SMS
+  WHATSAPP
+  EMAIL
+  PUSH
+
+  @@schema("notifications")
+}
+
+enum NotificationStatus {
+  PENDING
+  DISPATCHING
+  SENT
+  FAILED
+
+  @@schema("notifications")
+}
+
+model NotificationTemplate {
+  id              String              @id @default(uuid())
+  code            String              @unique
+  channel         NotificationChannel
+  subjectTemplate String?             @map("subject_template")
+  bodyTemplate    String              @map("body_template")
+  createdAt       DateTime            @default(now()) @map("created_at")
+
+  @@map("notification_templates")
+  @@schema("notifications")
+}
+
+model Notification {
+  id             String              @id @default(uuid())
+  organizationId String              @map("organization_id")
+  templateCode   String              @map("template_code")
+  channel        NotificationChannel
+  recipient      String
+  subject        String?
+  body           String
+  payload        Json?
+  status         NotificationStatus  @default(PENDING)
+  resourceType   String?             @map("resource_type")
+  resourceId     String?             @map("resource_id")
+  idempotencyKey String              @unique @map("idempotency_key")
+  correlationId  String?             @map("correlation_id")
+  sentAt         DateTime?           @map("sent_at")
+  createdAt      DateTime            @default(now()) @map("created_at")
+
+  attempts NotificationDeliveryAttempt[]
+
+  @@index([organizationId, status, createdAt])
+  @@map("notifications")
+  @@schema("notifications")
+}
+
+model NotificationDeliveryAttempt {
+  id                String   @id @default(uuid())
+  notificationId    String   @map("notification_id")
+  attemptNumber     Int      @map("attempt_number")
+  provider          String
+  providerMessageId String?  @map("provider_message_id")
+  status            String
+  errorMessage      String?  @map("error_message")
+  durationMs        Int?     @map("duration_ms")
+  createdAt         DateTime @default(now()) @map("created_at")
+
+  notification Notification @relation(fields: [notificationId], references: [id], onDelete: Cascade)
+
+  @@index([notificationId])
+  @@map("notification_delivery_attempts")
+  @@schema("notifications")
+}
+
+// ───────────────────────── REPORTING ─────────────────────────
+
+enum KpiPeriodGranularity {
+  DAY
+  WEEK
+  MONTH
+
+  @@schema("reporting")
+}
+
+enum KpiSnapshotStatus {
+  COMPUTING
+  READY
+  FAILED
+  STALE
+
+  @@schema("reporting")
+}
+
+model KpiDefinition {
+  id             String   @id @default(uuid())
+  organizationId String?  @map("organization_id")
+  code           String   @unique
+  name           String
+  description    String?
+  category       String
+  unit           String
+  isActive       Boolean  @default(true) @map("is_active")
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  @@map("kpi_definitions")
+  @@schema("reporting")
+}
+
+model KpiSnapshot {
+  id             String               @id @default(uuid())
+  organizationId String               @map("organization_id")
+  kpiCode        String               @map("kpi_code")
+  granularity    KpiPeriodGranularity @default(DAY)
+  periodStart    DateTime             @map("period_start") @db.Date
+  periodEnd      DateTime             @map("period_end") @db.Date
+  scopeKey       String               @default("all") @map("scope_key")
+  branchId       String?              @map("branch_id")
+  siteId         String?              @map("site_id")
+  customerId     String?              @map("customer_id")
+  valueNumeric   Decimal              @map("value_numeric") @db.Decimal(18, 4)
+  valueJson      Json?                @map("value_json")
+  status         KpiSnapshotStatus    @default(READY)
+  sourceHash     String?              @map("source_hash")
+  computedAt     DateTime             @default(now()) @map("computed_at")
+  computedBy     String?              @map("computed_by")
+
+  @@unique([organizationId, kpiCode, granularity, periodStart, periodEnd, scopeKey])
+  @@index([organizationId, kpiCode, periodStart])
+  @@map("kpi_snapshots")
+  @@schema("reporting")
+}
+
+model AnalyticsInsight {
+  id             String    @id @default(uuid())
+  organizationId String    @map("organization_id")
+  insightType    String    @map("insight_type")
+  domain         String
+  title          String
+  summary        String
+  score          Decimal?  @db.Decimal(8, 4)
+  payload        Json
+  periodStart    DateTime? @map("period_start")
+  periodEnd      DateTime? @map("period_end")
+  createdAt      DateTime  @default(now()) @map("created_at")
+  createdBy      String?   @map("created_by")
+
+  @@index([organizationId, insightType, createdAt])
+  @@map("analytics_insights")
+  @@schema("reporting")
+}
+
+model DashboardCache {
+  id             String   @id @default(uuid())
+  organizationId String   @map("organization_id")
+  dashboardCode  String   @map("dashboard_code")
+  filtersHash    String   @map("filters_hash")
+  payload        Json
+  expiresAt      DateTime @map("expires_at")
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  @@unique([organizationId, dashboardCode, filtersHash])
+  @@map("dashboard_caches")
+  @@schema("reporting")
+}
+

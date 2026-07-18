@@ -1,0 +1,457 @@
+name: pssms
+
+# HIGHLINK PSSMS — Full stack (infra + backend + frontend portals)
+# Washa yote: ./scripts/docker-up.sh
+# Au: docker compose -f infra/docker/docker-compose.yml --env-file .env up -d --build
+
+x-backend-env: &backend-env
+  NODE_ENV: ${NODE_ENV:-development}
+  DATABASE_URL: postgresql://${POSTGRES_USER:-pssms}:${POSTGRES_PASSWORD:-pssms_dev_password}@postgres:5432/${POSTGRES_DB:-pssms}
+  REDIS_HOST: redis
+  REDIS_PORT: "6379"
+  REDIS_PASSWORD: ${REDIS_PASSWORD:-pssms_redis_password}
+  RABBITMQ_URL: amqp://${RABBITMQ_USER:-pssms}:${RABBITMQ_PASSWORD:-pssms_rabbit_password}@rabbitmq:5672
+  MQTT_URL: mqtt://emqx:1883
+  JWT_SECRET: ${JWT_SECRET:-change_me_long_random_string}
+  JWT_EXPIRES_IN: ${JWT_EXPIRES_IN:-15m}
+  INTEGRATION_SERVICE_TOKEN: ${INTEGRATION_SERVICE_TOKEN:-dev_integration_token}
+  CORE_API_INTERNAL_URL: http://core-api:4001
+  INTEGRATION_GATEWAY_URL: http://integration-gateway:4003
+  VISION_AI_URL: http://vision-ai-service:8000
+  ANALYTICS_AI_URL: http://analytics-ai-service:8001
+  REPORTING_SERVICE_INTERNAL_URL: http://reporting-service:4005
+  REPORTING_SERVICE_PORT: "4005"
+  KPI_REFRESH_ENABLED: ${KPI_REFRESH_ENABLED:-true}
+  KPI_REFRESH_UTC_HOUR: ${KPI_REFRESH_UTC_HOUR:-21}
+  KPI_REFRESH_UTC_MINUTE: ${KPI_REFRESH_UTC_MINUTE:-5}
+  KPI_REFRESH_INTERVAL_MS: ${KPI_REFRESH_INTERVAL_MS:-0}
+  SMS_PROVIDER: ${SMS_PROVIDER:-console}
+  PAYMENT_PROVIDER: ${PAYMENT_PROVIDER:-console}
+  WEBHOOK_VERIFY: ${WEBHOOK_VERIFY:-false}
+
+x-frontend-build: &frontend-build
+  context: ../../frontend
+  dockerfile: Dockerfile
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: pssms-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-pssms}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-pssms_dev_password}
+      POSTGRES_DB: ${POSTGRES_DB:-pssms}
+    ports:
+      - "5433:5432"   # 5433 on host — avoids clash with local Homebrew Postgres on 5432
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-pssms}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: pssms-redis
+    restart: unless-stopped
+    command: redis-server --requirepass ${REDIS_PASSWORD:-pssms_redis_password}
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD:-pssms_redis_password}", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  rabbitmq:
+    image: rabbitmq:3.13-management-alpine
+    container_name: pssms-rabbitmq
+    restart: unless-stopped
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:-pssms}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:-pssms_rabbit_password}
+    ports:
+      - "5672:5672"    # AMQP — business events
+      - "15672:15672"  # Management UI
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+
+  emqx:
+    image: emqx:5
+    container_name: pssms-mqtt
+    restart: unless-stopped
+    ports:
+      - "1883:1883"    # MQTT TCP — biometric devices, gates, guard app
+      - "8083:8083"    # MQTT over WebSocket
+      - "18083:18083"  # EMQX Dashboard
+    volumes:
+      - emqx_data:/opt/emqx/data
+
+  minio:
+    image: minio/minio:latest
+    container_name: pssms-minio
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-pssms}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-pssms_minio_password}
+    ports:
+      - "9000:9000"    # S3 API — documents, evidence, snapshots, payslips
+      - "9001:9001"    # MinIO Console
+    volumes:
+      - minio_data:/data
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.0
+    container_name: pssms-keycloak
+    restart: unless-stopped
+    command: ["start-dev", "--import-realm"]
+    environment:
+      KC_BOOTSTRAP_ADMIN_USERNAME: ${KEYCLOAK_ADMIN:-admin}
+      KC_BOOTSTRAP_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD:-admin_dev_password}
+      KC_DB: postgres
+      KC_DB_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB:-pssms}
+      KC_DB_USERNAME: ${POSTGRES_USER:-pssms}
+      KC_DB_PASSWORD: ${POSTGRES_PASSWORD:-pssms_dev_password}
+      KC_DB_SCHEMA: keycloak
+    ports:
+      - "8080:8080"
+    volumes:
+      - ../keycloak:/opt/keycloak/data/import:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: pssms-prometheus
+    restart: unless-stopped
+    ports:
+      - "9090:9090"
+    volumes:
+      - ../monitoring/prometheus:/etc/prometheus
+      - prometheus_data:/prometheus
+
+  loki:
+    image: grafana/loki:latest
+    container_name: pssms-loki
+    restart: unless-stopped
+    ports:
+      - "3100:3100"
+    volumes:
+      - loki_data:/loki
+
+  grafana:
+    image: grafana/grafana:latest
+    container_name: pssms-grafana
+    restart: unless-stopped
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_PASSWORD:-admin_dev_password}
+      GF_SERVER_HTTP_PORT: "3300"
+    ports:
+      - "3300:3300"
+    volumes:
+      - grafana_data:/var/lib/grafana
+    depends_on:
+      - prometheus
+      - loki
+
+  # ── Database bootstrap (run once per up) ──
+  db-migrate:
+    build:
+      context: ../../backend
+      dockerfile: Dockerfile
+      target: build
+    container_name: pssms-db-migrate
+    restart: "no"
+    environment:
+      <<: *backend-env
+    command: >
+      sh -c "
+        npx prisma db execute --file prisma/migrations/0000_schemas/migration.sql --schema prisma/schema.prisma &&
+        npx prisma db execute --file prisma/migrations/0001_reporting_rls/migration.sql --schema prisma/schema.prisma &&
+        npx prisma db push --schema prisma/schema.prisma &&
+        npm run prisma:seed
+      "
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  # ── Backend apps (Phase 1–6) ──
+  core-api:
+    build:
+      context: ../../backend
+      dockerfile: Dockerfile
+    container_name: pssms-core-api
+    restart: unless-stopped
+    ports:
+      - "4001:4001"
+    environment:
+      <<: *backend-env
+      CORE_API_PORT: "4001"
+    command: ["node", "dist/apps/core-api/main.js"]
+    depends_on:
+      db-migrate:
+        condition: service_completed_successfully
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  reporting-service:
+    build:
+      context: ../../backend
+      dockerfile: Dockerfile
+    container_name: pssms-reporting-service
+    restart: unless-stopped
+    ports:
+      - "4005:4005"
+    environment:
+      <<: *backend-env
+      REPORTING_SERVICE_PORT: "4005"
+    command: ["node", "dist/apps/reporting-service/main.js"]
+    depends_on:
+      db-migrate:
+        condition: service_completed_successfully
+      postgres:
+        condition: service_healthy
+      analytics-ai-service:
+        condition: service_started
+
+  integration-gateway:
+    build:
+      context: ../../backend
+      dockerfile: Dockerfile
+    container_name: pssms-integration-gateway
+    restart: unless-stopped
+    ports:
+      - "4003:4003"
+    environment:
+      <<: *backend-env
+      INTEGRATION_GATEWAY_PORT: "4003"
+    command: ["node", "dist/apps/integration-gateway/main.js"]
+    depends_on:
+      db-migrate:
+        condition: service_completed_successfully
+      core-api:
+        condition: service_started
+
+  background-worker:
+    build:
+      context: ../../backend
+      dockerfile: Dockerfile
+    container_name: pssms-background-worker
+    restart: unless-stopped
+    ports:
+      - "4002:4002"
+    environment:
+      <<: *backend-env
+      BACKGROUND_WORKER_PORT: "4002"
+      REPORTING_SERVICE_INTERNAL_URL: http://reporting-service:4005
+    command: ["node", "dist/apps/background-worker/main.js"]
+    depends_on:
+      db-migrate:
+        condition: service_completed_successfully
+      core-api:
+        condition: service_started
+      reporting-service:
+        condition: service_started
+      integration-gateway:
+        condition: service_started
+      vision-ai-service:
+        condition: service_started
+
+  realtime-gateway:
+    build:
+      context: ../../backend
+      dockerfile: Dockerfile
+    container_name: pssms-realtime-gateway
+    restart: unless-stopped
+    ports:
+      - "4004:4004"
+    environment:
+      <<: *backend-env
+      REALTIME_GATEWAY_PORT: "4004"
+    command: ["node", "dist/apps/realtime-gateway/main.js"]
+    depends_on:
+      db-migrate:
+        condition: service_completed_successfully
+
+  vision-ai-service:
+    build:
+      context: ../../backend/apps/vision-ai-service
+      dockerfile: Dockerfile
+    container_name: pssms-vision-ai
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      VISION_AI_PORT: "8000"
+
+  analytics-ai-service:
+    build:
+      context: ../../backend/apps/analytics-ai-service
+      dockerfile: Dockerfile
+    container_name: pssms-analytics-ai
+    restart: unless-stopped
+    ports:
+      - "8001:8001"
+    environment:
+      ANALYTICS_AI_PORT: "8001"
+
+  # ── Frontend portals (Next.js) — browser hits host localhost ports ──
+  admin-web:
+    build:
+      <<: *frontend-build
+      args:
+        APP_NAME: admin-web
+        APP_PORT: "3000"
+        NEXT_PUBLIC_CORE_API_URL: ${NEXT_PUBLIC_CORE_API_URL:-http://localhost:4001}
+        NEXT_PUBLIC_REPORTING_API_URL: ${NEXT_PUBLIC_REPORTING_API_URL:-http://localhost:4005}
+        NEXT_PUBLIC_OIDC_REDIRECT_URI: ${NEXT_PUBLIC_OIDC_REDIRECT_URI:-http://localhost:3000/auth/callback}
+    container_name: pssms-admin-web
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      PORT: "3000"
+      HOSTNAME: "0.0.0.0"
+    depends_on:
+      core-api:
+        condition: service_started
+
+  executive-web:
+    build:
+      <<: *frontend-build
+      args:
+        APP_NAME: executive-web
+        APP_PORT: "3001"
+        NEXT_PUBLIC_CORE_API_URL: ${NEXT_PUBLIC_CORE_API_URL:-http://localhost:4001}
+        NEXT_PUBLIC_REPORTING_API_URL: ${NEXT_PUBLIC_REPORTING_API_URL:-http://localhost:4005}
+    container_name: pssms-executive-web
+    restart: unless-stopped
+    ports:
+      - "3001:3001"
+    environment:
+      PORT: "3001"
+      HOSTNAME: "0.0.0.0"
+    depends_on:
+      core-api:
+        condition: service_started
+      reporting-service:
+        condition: service_started
+
+  customer-web:
+    build:
+      <<: *frontend-build
+      args:
+        APP_NAME: customer-web
+        APP_PORT: "3002"
+        NEXT_PUBLIC_CORE_API_URL: ${NEXT_PUBLIC_CORE_API_URL:-http://localhost:4001}
+    container_name: pssms-customer-web
+    restart: unless-stopped
+    ports:
+      - "3002:3002"
+    environment:
+      PORT: "3002"
+      HOSTNAME: "0.0.0.0"
+    depends_on:
+      core-api:
+        condition: service_started
+
+  supplier-web:
+    build:
+      <<: *frontend-build
+      args:
+        APP_NAME: supplier-web
+        APP_PORT: "3003"
+        NEXT_PUBLIC_CORE_API_URL: ${NEXT_PUBLIC_CORE_API_URL:-http://localhost:4001}
+    container_name: pssms-supplier-web
+    restart: unless-stopped
+    ports:
+      - "3003:3003"
+    environment:
+      PORT: "3003"
+      HOSTNAME: "0.0.0.0"
+    depends_on:
+      core-api:
+        condition: service_started
+
+  recruitment-web:
+    build:
+      <<: *frontend-build
+      args:
+        APP_NAME: recruitment-web
+        APP_PORT: "3004"
+        NEXT_PUBLIC_CORE_API_URL: ${NEXT_PUBLIC_CORE_API_URL:-http://localhost:4001}
+    container_name: pssms-recruitment-web
+    restart: unless-stopped
+    ports:
+      - "3004:3004"
+    environment:
+      PORT: "3004"
+      HOSTNAME: "0.0.0.0"
+    depends_on:
+      core-api:
+        condition: service_started
+
+  visitor-web:
+    build:
+      <<: *frontend-build
+      args:
+        APP_NAME: visitor-web
+        APP_PORT: "3005"
+        NEXT_PUBLIC_CORE_API_URL: ${NEXT_PUBLIC_CORE_API_URL:-http://localhost:4001}
+    container_name: pssms-visitor-web
+    restart: unless-stopped
+    ports:
+      - "3005:3005"
+    environment:
+      PORT: "3005"
+      HOSTNAME: "0.0.0.0"
+    depends_on:
+      core-api:
+        condition: service_started
+
+  parking-web:
+    build:
+      <<: *frontend-build
+      args:
+        APP_NAME: parking-web
+        APP_PORT: "3006"
+        NEXT_PUBLIC_CORE_API_URL: ${NEXT_PUBLIC_CORE_API_URL:-http://localhost:4001}
+    container_name: pssms-parking-web
+    restart: unless-stopped
+    ports:
+      - "3006:3006"
+    environment:
+      PORT: "3006"
+      HOSTNAME: "0.0.0.0"
+    depends_on:
+      core-api:
+        condition: service_started
+
+volumes:
+  postgres_data:
+  redis_data:
+  rabbitmq_data:
+  emqx_data:
+  minio_data:
+  prometheus_data:
+  loki_data:
+  grafana_data:

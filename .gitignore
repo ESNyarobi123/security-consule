@@ -1,0 +1,36 @@
+# Dependencies
+node_modules/
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# Builds
+dist/
+build/
+.next/
+out/
+.turbo/
+coverage/
+
+# Environment — SIRI, usiweke kwenye git
+.env
+.env.local
+.env.*.local
+*.pem
+*.key
+
+# IDE / OS
+.DS_Store
+.idea/
+*.log
+
+# Prisma
+backend/prisma/*.db
+
+# Expo / React Native
+.expo/
+*.jks
+*.p8
+*.p12
+*.mobileprovision

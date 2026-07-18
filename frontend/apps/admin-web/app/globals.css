@@ -1,0 +1,148 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+body {
+  @apply bg-[#f5f6fa] text-[#323130] antialiased;
+  font-family:
+    'Segoe UI', var(--font-outfit), system-ui, -apple-system,
+    BlinkMacSystemFont, sans-serif;
+}
+
+/* Soft neutral wash for the portal content area (Azure/Fluent) */
+.admin-portal-main {
+  background-color: #f5f6fa;
+  background-image:
+    radial-gradient(ellipse 60% 45% at 0% 0%, rgba(0, 120, 212, 0.06), transparent 60%),
+    radial-gradient(ellipse 55% 40% at 100% 3%, rgba(14, 165, 233, 0.05), transparent 60%);
+}
+
+/* ── Azure sign-in ── */
+.az-brand {
+  background:
+    radial-gradient(120% 90% at 85% 10%, #1a5fb4 0%, transparent 55%),
+    linear-gradient(160deg, #0b2545 0%, #0e2f52 45%, #103a63 100%);
+}
+
+.az-brand-grid {
+  position: absolute;
+  inset: 0;
+  opacity: 0.5;
+  background-image:
+    linear-gradient(rgba(255, 255, 255, 0.05) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.05) 1px, transparent 1px);
+  background-size: 46px 46px;
+  mask-image: radial-gradient(ellipse 80% 70% at 40% 30%, black 0%, transparent 80%);
+  pointer-events: none;
+}
+
+.az-brand-orb {
+  position: absolute;
+  border-radius: 9999px;
+  filter: blur(70px);
+  pointer-events: none;
+}
+
+.az-brand-orb-a {
+  top: -8%;
+  right: -6%;
+  width: 340px;
+  height: 340px;
+  background: radial-gradient(circle, rgba(56, 189, 248, 0.35), transparent 70%);
+  animation: az-float 11s ease-in-out infinite;
+}
+
+.az-brand-orb-b {
+  bottom: -10%;
+  left: -6%;
+  width: 300px;
+  height: 300px;
+  background: radial-gradient(circle, rgba(0, 120, 212, 0.4), transparent 70%);
+  animation: az-float 13s ease-in-out infinite reverse;
+}
+
+.az-input {
+  width: 100%;
+  border-radius: 6px;
+  border: 1px solid #8a8886;
+  background: #fff;
+  padding: 0.65rem 0.85rem;
+  font-size: 0.9rem;
+  color: #1b1a19;
+  outline: none;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+
+.az-input::placeholder {
+  color: #a19f9d;
+}
+
+.az-input:focus {
+  border-color: #0078d4;
+  box-shadow: 0 0 0 1px #0078d4;
+}
+
+.az-submit {
+  width: 100%;
+  margin-top: 0.25rem;
+  border-radius: 6px;
+  border: none;
+  background: #0078d4;
+  padding: 0.72rem 1rem;
+  font-size: 0.92rem;
+  font-weight: 600;
+  color: #fff;
+  letter-spacing: 0.01em;
+  transition: background 0.15s, transform 0.12s, opacity 0.2s;
+}
+
+.az-submit:hover:not(:disabled) {
+  background: #106ebe;
+}
+
+.az-submit:active:not(:disabled) {
+  background: #005a9e;
+  transform: translateY(1px);
+}
+
+.az-submit:disabled {
+  opacity: 0.65;
+  cursor: not-allowed;
+}
+
+@keyframes az-float {
+  0%,
+  100% {
+    transform: translate(0, 0);
+  }
+  50% {
+    transform: translate(14px, -18px);
+  }
+}
+
+@keyframes login-rise {
+  from {
+    opacity: 0;
+    transform: translateY(14px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-login-rise {
+  animation: login-rise 0.55s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+/* Respect users who prefer reduced motion */
+@media (prefers-reduced-motion: reduce) {
+  .az-brand-orb,
+  .animate-login-rise,
+  .animate-pulse {
+    animation: none !important;
+  }
+  * {
+    scroll-behavior: auto !important;
+  }
+}

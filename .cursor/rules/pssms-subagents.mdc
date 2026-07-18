@@ -1,0 +1,29 @@
+---
+description: Which PSSMS subagent to use during development
+alwaysApply: true
+---
+
+# PSSMS Subagents (8) — when to use which
+
+Project agents live in `.cursor/agents/`. Prefer these over inventing new ad-hoc agents. Do **not** create one agent per module (29).
+
+| Subagent | Use when… |
+|---|---|
+| `pssms-backend` | NestJS apps/libs, APIs, workers, Prisma, domain events |
+| `pssms-frontend` | Next.js portals, packages/ui, role-based admin routes |
+| `pssms-iam-governance` | Auth, RBAC+ABAC, Keycloak, RLS, approvals, audit, compliance |
+| `pssms-field-ops` | Guards, shifts, attendance, alertness, patrols, EOB, incidents, mobile apps |
+| `pssms-access-parking` | Visitors, gate codes, customer employee access, parking/ANPR results |
+| `pssms-people-money` | HR, recruitment, payroll, loans, invoices, petty cash, procurement, assets |
+| `pssms-integrations-ai` | Banks/SMS/WhatsApp/webhooks, MQTT devices, Python vision/analytics |
+| `pssms-reviewer` | After a feature/PR — architecture & security boundary review |
+
+## Built-in Cursor agents still useful
+
+- `explore` — find code/files fast (read-only)
+- `shell` — docker, git, migrations commands
+- `security-review` / `bugbot` — when explicitly requested for PR-grade review
+
+## Delegation tip
+
+For a cross-cutting feature (e.g. “boots loan”), primary = `pssms-people-money`, then ask `pssms-reviewer`; if payments/webhooks involved, also `pssms-integrations-ai`.

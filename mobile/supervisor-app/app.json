@@ -1,0 +1,32 @@
+{
+  "expo": {
+    "name": "HIGHLINK Supervisor",
+    "slug": "pssms-supervisor-app",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "scheme": "pssms-supervisor",
+    "userInterfaceStyle": "light",
+    "newArchEnabled": true,
+    "splash": {
+      "resizeMode": "contain",
+      "backgroundColor": "#0f2744"
+    },
+    "ios": {
+      "supportsTablet": false,
+      "bundleIdentifier": "tz.co.highlink.supervisor"
+    },
+    "android": {
+      "adaptiveIcon": {
+        "backgroundColor": "#0f2744"
+      },
+      "package": "tz.co.highlink.supervisor"
+    },
+    "plugins": [
+      "expo-router",
+      "expo-secure-store"
+    ],
+    "experiments": {
+      "typedRoutes": true
+    }
+  }
+}

@@ -1,0 +1,39 @@
+---
+description: PSSMS architecture constraints — backend, portals, data, build order
+alwaysApply: true
+---
+
+# PSSMS Architecture Rules
+
+## Stack
+
+- Core backend: NestJS + Fastify + TypeScript (modular monolith)
+- AI/vision only: Python FastAPI (`vision-ai-service`, `analytics-ai-service`)
+- Frontend: Next.js monorepo — portals are UIs, not microservices
+- Data: PostgreSQL (schema-per-domain + RLS), Redis, RabbitMQ, MQTT, MinIO, Keycloak
+
+## Non-negotiables
+
+- **Portal ≠ service** — do not create one backend per portal; build domain libs
+- **Module isolation** — no direct cross-module repository access; use ports or events
+- **Creator ≠ approver** — use shared `libs/approvals` engine
+- **Data separation** — guard attendance ≠ customer employee attendance; enforce `organization_id` / `customer_id` + RLS
+- **Payroll** — immutable snapshots; never recompute live from attendance on every page load
+- **CCTV** — video stays on NVR/MinIO; Nest receives events/metadata only
+- **Start small** — Phase 1 foundation (IAM → enterprise → audit → approvals → customers/contracts) before ops/payroll/AI
+
+## Build order preference
+
+```text
+backend foundation first → admin-web for E2E → ops/attendance → access/visitors/parking
+→ HR/payroll → finance/procurement → device/AI integrations → executive analytics
+```
+
+## Folder ownership
+
+- Business logic: `backend/libs/<domain>/{domain,application,infrastructure,presentation}`
+- Deployables: `backend/apps/*` (gateway, core-api, workers, gateways, AI)
+- Internal portals: routes inside `frontend/apps/admin-web` where possible
+- External portals: separate apps (`customer-web`, `supplier-web`, `visitor-web`, …)
+
+See `docs/architecture/system-architecture.md` and `docs/architecture/ports-allocation.md`.

@@ -1,0 +1,34 @@
+---
+description: PSSMS System Overview + Main Objective — north star for all development
+alwaysApply: true
+---
+
+# PSSMS Mission (System Overview + Main Objective)
+
+## System Overview
+
+HIGHLINK Private Security Services Management System is a **centralized digital platform** for managing all operations of a private security company.
+
+It shall support: security guard operations, customer & contract management, guard attendance & alertness, visitor management, customer employee access control, parking, CCTV monitoring, incident management, recruitment, HR, payroll, employee loans, customer payroll services, petty cash, payment vouchers, supplier management, customer billing, compliance, reporting, and branch operations.
+
+The system shall be **modular, secure, scalable, auditable**, and suitable for **nationwide** private security operations.
+
+## Main Objective
+
+Create **one integrated system** that **controls, records, automates, verifies, and reports** all security services operations.
+
+It must improve: security, accountability, payroll accuracy, customer service, financial control, staff supervision, visitor access, parking control, recruitment, supplier management, compliance, and operational performance.
+
+## Development checklist (every feature)
+
+Before implementing, ask:
+
+1. Does this serve **one integrated platform** (not a siloed mini-app)?
+2. Does it **control, record, automate, verify, or report** — ideally with audit trail?
+3. Does it improve at least one objective outcome above?
+4. Is it **modular + secure + auditable** (tenant/data separation where needed)?
+
+```text
+❌ Feature that only looks good on a portal menu but skips verify/audit
+✅ Feature with clear domain ownership, verification, and auditability
+```
