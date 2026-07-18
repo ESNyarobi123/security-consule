@@ -5,7 +5,12 @@ import {
   NestFastifyApplication,
 } from '@nestjs/platform-fastify';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
-import { HttpExceptionFilter, ResponseInterceptor } from '@pssms/shared';
+import {
+  HttpExceptionFilter,
+  OrgContextInterceptor,
+  PrismaService,
+  ResponseInterceptor,
+} from '@pssms/shared';
 import { AppModule } from './app.module';
 
 async function bootstrap() {
@@ -23,7 +28,12 @@ async function bootstrap() {
       transform: true,
     }),
   );
-  app.useGlobalInterceptors(new ResponseInterceptor());
+  // OrgContext must wrap ResponseInterceptor so the RLS transaction spans the handler.
+  const prisma = app.get(PrismaService);
+  app.useGlobalInterceptors(
+    new OrgContextInterceptor(prisma),
+    new ResponseInterceptor(),
+  );
   app.useGlobalFilters(new HttpExceptionFilter());
 
   const swaggerConfig = new DocumentBuilder()

@@ -186,7 +186,8 @@ services:
         npx prisma db execute --file prisma/migrations/0000_schemas/migration.sql --schema prisma/schema.prisma &&
         npx prisma db execute --file prisma/migrations/0001_reporting_rls/migration.sql --schema prisma/schema.prisma &&
         npx prisma db push --schema prisma/schema.prisma &&
-        npm run prisma:seed
+        npm run prisma:seed &&
+        npx prisma db execute --file prisma/migrations/0003_rls_core/migration.sql --schema prisma/schema.prisma
       "
     depends_on:
       postgres:
@@ -204,6 +205,8 @@ services:
     environment:
       <<: *backend-env
       CORE_API_PORT: "4001"
+      # Runs as the NON-OWNER app role so PostgreSQL RLS policies apply to every query.
+      DATABASE_URL: postgresql://pssms_app:${PSSMS_APP_PASSWORD:-pssms_app_password}@postgres:5432/${POSTGRES_DB:-pssms}
     command: ["node", "dist/apps/core-api/main.js"]
     depends_on:
       db-migrate:
