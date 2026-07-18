@@ -10,6 +10,7 @@ import { FastifyRequest } from 'fastify';
 import { CurrentUser, Public } from '@pssms/shared';
 import { AuthUser } from '@pssms/shared';
 import { AuthService } from '../application/auth.service';
+import { MfaService } from '../application/mfa.service';
 import { OidcConfigService } from '../application/oidc-config.service';
 import {
   AuthUserProfileDto,
@@ -18,12 +19,18 @@ import {
   RefreshTokenDto,
   AuthTokensDto,
 } from './dto/login.dto';
+import {
+  MfaCodeDto,
+  MfaSetupResponseDto,
+  MfaStatusDto,
+} from './dto/mfa.dto';
 
 @ApiTags('Auth')
 @Controller('auth')
 export class AuthController {
   constructor(
     private readonly authService: AuthService,
+    private readonly mfaService: MfaService,
     private readonly oidcConfig: OidcConfigService,
   ) {}
 
@@ -75,5 +82,33 @@ export class AuthController {
   @ApiOkResponse({ type: AuthUserProfileDto })
   me(@CurrentUser() user: AuthUser) {
     return this.authService.me(user.id);
+  }
+
+  @Post('mfa/setup')
+  @ApiBearerAuth()
+  @ApiOperation({
+    summary: 'Begin MFA enrollment',
+    description:
+      'Generates a TOTP secret and otpauth URI. Scan the QR code in an authenticator app, then confirm with /auth/mfa/enable.',
+  })
+  @ApiOkResponse({ type: MfaSetupResponseDto })
+  mfaSetup(@CurrentUser() user: AuthUser) {
+    return this.mfaService.setup(user);
+  }
+
+  @Post('mfa/enable')
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Confirm and enable MFA with the first TOTP code' })
+  @ApiOkResponse({ type: MfaStatusDto })
+  mfaEnable(@CurrentUser() user: AuthUser, @Body() dto: MfaCodeDto) {
+    return this.mfaService.enable(user, dto.code);
+  }
+
+  @Post('mfa/disable')
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Disable MFA (requires a valid current TOTP code)' })
+  @ApiOkResponse({ type: MfaStatusDto })
+  mfaDisable(@CurrentUser() user: AuthUser, @Body() dto: MfaCodeDto) {
+    return this.mfaService.disable(user, dto.code);
   }
 }

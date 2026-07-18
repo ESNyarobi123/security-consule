@@ -9,6 +9,8 @@ export * from './types/auth-user';
 export * from './utils/geo.util';
 export * from './utils/verification-code.util';
 export * from './utils/payroll.util';
+export * from './utils/totp.util';
+export * from './utils/password-policy.util';
 export * from './utils/customer-scope.util';
 export * from './utils/supplier-scope.util';
 export * from './guards/service-token.guard';

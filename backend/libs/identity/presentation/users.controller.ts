@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Post } from '@nestjs/common';
+import { Body, Controller, Get, Param, Patch, Post } from '@nestjs/common';
 import {
   ApiBearerAuth,
   ApiCreatedResponse,
@@ -8,7 +8,12 @@ import {
 } from '@nestjs/swagger';
 import { AuthUser, CurrentUser } from '@pssms/shared';
 import { UsersService } from '../application/users.service';
-import { CreateUserDto, UserResponseDto } from './dto/user.dto';
+import {
+  CreateUserDto,
+  SetUserRolesDto,
+  SuspendUserDto,
+  UserResponseDto,
+} from './dto/user.dto';
 
 @ApiTags('Users')
 @ApiBearerAuth()
@@ -31,5 +36,40 @@ export class UsersController {
   @ApiOkResponse({ type: [UserResponseDto] })
   list(@CurrentUser() user: AuthUser) {
     return this.usersService.list(user.organizationId);
+  }
+
+  @Patch(':id/suspend')
+  @ApiOperation({
+    summary: 'Suspend a user',
+    description: 'Deactivates the account and blocks login. Audited.',
+  })
+  @ApiOkResponse({ type: UserResponseDto })
+  suspend(
+    @Param('id') id: string,
+    @Body() dto: SuspendUserDto,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.usersService.suspend(id, dto.reason, user);
+  }
+
+  @Patch(':id/reactivate')
+  @ApiOperation({ summary: 'Reactivate a suspended user' })
+  @ApiOkResponse({ type: UserResponseDto })
+  reactivate(@Param('id') id: string, @CurrentUser() user: AuthUser) {
+    return this.usersService.reactivate(id, user);
+  }
+
+  @Patch(':id/roles')
+  @ApiOperation({
+    summary: 'Replace a user\u2019s role assignments',
+    description: 'Sets the exact set of roles for the user. Audited.',
+  })
+  @ApiOkResponse({ type: UserResponseDto })
+  setRoles(
+    @Param('id') id: string,
+    @Body() dto: SetUserRolesDto,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.usersService.setRoles(id, dto.roleCodes, user);
   }
 }

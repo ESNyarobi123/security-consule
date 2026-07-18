@@ -32,6 +32,20 @@ export class CreateUserDto {
   roleCodes!: string[];
 }
 
+export class SuspendUserDto {
+  @ApiPropertyOptional({ example: 'Policy violation — pending investigation' })
+  @IsOptional()
+  @IsString()
+  reason?: string;
+}
+
+export class SetUserRolesDto {
+  @ApiProperty({ type: [String], example: ['HR_OFFICER', 'PAYROLL_OFFICER'] })
+  @IsArray()
+  @IsString({ each: true })
+  roleCodes!: string[];
+}
+
 export class UserResponseDto {
   @ApiProperty()
   id!: string;

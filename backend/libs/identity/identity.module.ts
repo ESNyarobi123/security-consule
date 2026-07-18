@@ -6,11 +6,14 @@ import { AuditModule } from '@pssms/audit';
 import { CustomerPortalGuard, SupplierPortalGuard } from '@pssms/shared';
 import { AuthService } from './application/auth.service';
 import { KeycloakUserMapperService } from './application/keycloak-user-mapper.service';
+import { MfaService } from './application/mfa.service';
 import { OidcConfigService } from './application/oidc-config.service';
+import { RolesService } from './application/roles.service';
 import { UsersService } from './application/users.service';
 import { JwtStrategy } from './infrastructure/jwt.strategy';
 import { JwtAuthGuard } from './infrastructure/jwt-auth.guard';
 import { AuthController } from './presentation/auth.controller';
+import { RolesController } from './presentation/roles.controller';
 import { UsersController } from './presentation/users.controller';
 import { APP_GUARD } from '@nestjs/core';
 
@@ -29,10 +32,12 @@ import { APP_GUARD } from '@nestjs/core';
       }),
     }),
   ],
-  controllers: [AuthController, UsersController],
+  controllers: [AuthController, UsersController, RolesController],
   providers: [
     AuthService,
+    MfaService,
     UsersService,
+    RolesService,
     OidcConfigService,
     KeycloakUserMapperService,
     JwtStrategy,
@@ -40,6 +45,6 @@ import { APP_GUARD } from '@nestjs/core';
     { provide: APP_GUARD, useClass: CustomerPortalGuard },
     { provide: APP_GUARD, useClass: SupplierPortalGuard },
   ],
-  exports: [AuthService, UsersService, OidcConfigService, JwtModule],
+  exports: [AuthService, MfaService, UsersService, RolesService, OidcConfigService, JwtModule],
 })
 export class IdentityModule {}

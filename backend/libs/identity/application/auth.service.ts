@@ -6,7 +6,7 @@ import {
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
 import * as bcrypt from 'bcryptjs';
-import { PrismaService } from '@pssms/shared';
+import { PrismaService, verifyTotp } from '@pssms/shared';
 import { AuthUser } from '@pssms/shared';
 import {
   AuthUserProfileDto,
@@ -67,6 +67,30 @@ export class AuthService {
     const valid = await bcrypt.compare(dto.password, user!.passwordHash);
     if (!valid) {
       await fail();
+    }
+
+    // MFA step-up: when enabled, a valid TOTP code is mandatory.
+    if (user!.mfaEnabled) {
+      if (!dto.mfaCode) {
+        throw new UnauthorizedException({
+          error: 'MFA_REQUIRED',
+          message: 'Multi-factor authentication code is required',
+        });
+      }
+      if (!user!.mfaSecret || !verifyTotp(user!.mfaSecret, dto.mfaCode)) {
+        await this.prisma.loginHistory.create({
+          data: {
+            userId: user!.id,
+            ipAddress: meta?.ip,
+            userAgent: meta?.userAgent,
+            success: false,
+          },
+        });
+        throw new UnauthorizedException({
+          error: 'MFA_INVALID_CODE',
+          message: 'Invalid authentication code',
+        });
+      }
     }
 
     const profile = this.toProfile(user!);
