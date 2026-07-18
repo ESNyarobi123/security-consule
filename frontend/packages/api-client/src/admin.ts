@@ -514,3 +514,166 @@ export const rejectVisitorAppointment = (
 
 export const listVisitorEntries = (token?: string) =>
   coreFetch<VisitorEntry[]>('/api/v1/visitors/entries', { token });
+
+// ── Device integration ──
+export const DEVICE_TYPES = [
+  'FINGERPRINT_SCANNER',
+  'BIOMETRIC_TERMINAL',
+  'FACE_TERMINAL',
+  'QR_SCANNER',
+  'BARCODE_SCANNER',
+  'PRINTER',
+  'RFID_READER',
+  'SMART_CARD_READER',
+  'CCTV_CAMERA',
+] as const;
+export type DeviceType = (typeof DEVICE_TYPES)[number];
+
+export const DEVICE_CONNECTIONS = ['USB', 'SERIAL', 'NETWORK', 'MQTT', 'ONVIF'] as const;
+export type DeviceConnection = (typeof DEVICE_CONNECTIONS)[number];
+
+export const DEVICE_COMMAND_TYPES = [
+  'ENROLL_FINGERPRINT',
+  'ENROLL_FACE',
+  'ENROLL_CARD',
+  'DELETE_USER',
+  'SYNC_USERS',
+  'PRINT',
+  'OPEN_GATE',
+  'REBOOT',
+] as const;
+export type DeviceCommandType = (typeof DEVICE_COMMAND_TYPES)[number];
+
+export type EdgeGateway = {
+  id: string;
+  code: string;
+  name: string;
+  siteId?: string | null;
+  status: string;
+  version?: string | null;
+  lastHeartbeatAt?: string | null;
+  createdAt: string;
+  apiKey?: string;
+};
+
+export type Device = {
+  id: string;
+  code: string;
+  name: string;
+  type: DeviceType;
+  connection: DeviceConnection;
+  siteId?: string | null;
+  gateId?: string | null;
+  edgeGatewayId?: string | null;
+  status: string;
+  vendor?: string | null;
+  model?: string | null;
+  serialNumber?: string | null;
+  lastSeenAt?: string | null;
+  createdAt: string;
+  apiKey?: string;
+};
+
+export type DeviceDetail = Device & {
+  eventCount: number;
+  pendingCommands: number;
+};
+
+export type DeviceCommand = {
+  id: string;
+  deviceId: string;
+  type: DeviceCommandType;
+  status: string;
+  payload?: Record<string, unknown> | null;
+  result?: Record<string, unknown> | null;
+  issuedAt?: string;
+  dispatchedAt?: string | null;
+  acknowledgedAt?: string | null;
+  expiresAt?: string | null;
+};
+
+export const listDevices = (
+  filters?: { type?: string; siteId?: string; status?: string },
+  token?: string,
+) => {
+  const q = new URLSearchParams();
+  if (filters?.type) q.set('type', filters.type);
+  if (filters?.siteId) q.set('siteId', filters.siteId);
+  if (filters?.status) q.set('status', filters.status);
+  const qs = q.toString();
+  return coreFetch<Device[]>(`/api/v1/devices${qs ? `?${qs}` : ''}`, { token });
+};
+
+export const getDevice = (id: string, token?: string) =>
+  coreFetch<DeviceDetail>(`/api/v1/devices/${id}`, { token });
+
+export const registerDevice = (
+  body: {
+    code: string;
+    name: string;
+    type: DeviceType;
+    connection: DeviceConnection;
+    siteId?: string;
+    gateId?: string;
+    edgeGatewayId?: string;
+    vendor?: string;
+    model?: string;
+    serialNumber?: string;
+    directPush?: boolean;
+    config?: Record<string, unknown>;
+  },
+  token?: string,
+) =>
+  coreFetch<Device>('/api/v1/devices', {
+    method: 'POST',
+    body: JSON.stringify(body),
+    token,
+  });
+
+export const updateDevice = (
+  id: string,
+  body: {
+    name?: string;
+    status?: string;
+    siteId?: string;
+    gateId?: string;
+    config?: Record<string, unknown>;
+  },
+  token?: string,
+) =>
+  coreFetch<Device>(`/api/v1/devices/${id}`, {
+    method: 'PATCH',
+    body: JSON.stringify(body),
+    token,
+  });
+
+export const listGateways = (token?: string) =>
+  coreFetch<EdgeGateway[]>('/api/v1/devices/gateways', { token });
+
+export const registerGateway = (
+  body: { code: string; name: string; siteId?: string; version?: string },
+  token?: string,
+) =>
+  coreFetch<EdgeGateway>('/api/v1/devices/gateways', {
+    method: 'POST',
+    body: JSON.stringify(body),
+    token,
+  });
+
+export const listDeviceCommands = (deviceId: string, token?: string) =>
+  coreFetch<DeviceCommand[]>(`/api/v1/devices/${deviceId}/commands`, { token });
+
+export const issueDeviceCommand = (
+  deviceId: string,
+  body: {
+    type: DeviceCommandType;
+    payload?: Record<string, unknown>;
+    expiresInSeconds?: number;
+  },
+  token?: string,
+) =>
+  coreFetch<DeviceCommand>(`/api/v1/devices/${deviceId}/commands`, {
+    method: 'POST',
+    body: JSON.stringify(body),
+    token,
+  });

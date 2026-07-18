@@ -16,6 +16,7 @@ export const ADMIN_PORTALS: NavItem[] = [
   { href: '/operations', label: 'Ops Console', permission: 'operations.manage', group: 'Field' },
   { href: '/operations/guards', label: 'Guards', permission: 'operations.manage', group: 'Field' },
   { href: '/cctv', label: 'CCTV', permission: 'operations.manage', group: 'Field' },
+  { href: '/devices', label: 'Devices', permission: 'operations.manage', group: 'Field' },
   { href: '/branch', label: 'Branch Ops', permission: 'operations.manage', group: 'Field' },
   { href: '/compliance', label: 'Compliance', permission: 'audit.read', group: 'Governance' },
   { href: '/approvals', label: 'Approvals', permission: 'approvals.act', group: 'Governance' },
