@@ -1,0 +1,23 @@
+{
+  "name": "pssms-edge-agent",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "HIGHLINK PSSMS site edge agent — bridges USB devices (fingerprint/QR/barcode/RFID) and network printers to the cloud device-integration API.",
+  "license": "UNLICENSED",
+  "bin": {
+    "pssms-edge-agent": "src/index.js"
+  },
+  "scripts": {
+    "start": "node src/index.js",
+    "simulate": "EDGE_SIMULATE=true node src/index.js",
+    "test:transport": "node test/transport-e2e.mjs"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "optionalDependencies": {
+    "node-hid": "^3.1.2",
+    "ipp": "^2.0.1"
+  }
+}
