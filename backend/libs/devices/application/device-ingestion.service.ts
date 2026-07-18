@@ -1,9 +1,14 @@
 import { BadRequestException, Injectable, Logger } from '@nestjs/common';
-import { Prisma, DeviceEventType } from '@prisma/client';
+import { Prisma, DeviceEventType, Device, AccessMethod } from '@prisma/client';
 import { PrismaService, AuthUser } from '@pssms/shared';
 import { ParkingService } from '@pssms/parking';
+import { AccessControlService } from '@pssms/access-control';
+import { VisitorsService } from '@pssms/visitors';
+import { AttendanceService } from '@pssms/attendance';
 import { DeviceAuthContext } from '../infrastructure/device-auth.guard';
 import { HeartbeatDto, IngestEventDto } from '../presentation/dto/device.dto';
+
+type RouteTarget = 'attendance' | 'access' | 'visitors' | 'parking';
 
 /**
  * Ingests normalized device events (append-only), deduplicates, and routes
@@ -17,6 +22,9 @@ export class DeviceIngestionService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly parking: ParkingService,
+    private readonly access: AccessControlService,
+    private readonly visitors: VisitorsService,
+    private readonly attendance: AttendanceService,
   ) {}
 
   async heartbeat(ctx: DeviceAuthContext, dto: HeartbeatDto) {
@@ -89,7 +97,7 @@ export class DeviceIngestionService {
       });
       accepted++;
 
-      const routedTo = await this.route(ctx, ev, device.id);
+      const routedTo = await this.route(ctx, ev, device);
       if (routedTo) routed++;
       await this.prisma.deviceEvent.update({
         where: { id: record.id },
@@ -114,13 +122,23 @@ export class DeviceIngestionService {
    * Route a recognized event into its owning domain. Returns the domain name
    * when routed, or null when the event is stored-only (still auditable).
    */
+  /**
+   * Route a recognized event into its owning domain. Resolution of physical
+   * identifiers (plate / card / biometric / QR / employee number) belongs to
+   * each domain, so we only normalize + dispatch here.
+   *
+   * Target is chosen by an explicit `device.config.route` hint, else a sensible
+   * default per event type. Routing failures are logged and downgraded to
+   * store-only (returns null) so a misconfigured device never rejects the
+   * whole ingest batch — the raw event is always persisted + auditable.
+   */
   private async route(
     ctx: DeviceAuthContext,
     ev: IngestEventDto,
-    deviceId: string,
+    device: Device,
   ): Promise<string | null> {
     const systemUser: AuthUser = {
-      id: `device:${deviceId}`,
+      id: `device:${device.id}`,
       email: 'device@system.pssms',
       organizationId: ctx.organizationId,
       fullName: 'Device Ingestion',
@@ -130,14 +148,22 @@ export class DeviceIngestionService {
       allowedSiteIds: [],
     };
 
+    const p = ev.payload as Record<string, unknown>;
+    const cfg = (device.config ?? {}) as Record<string, unknown>;
+    const target = this.resolveTarget(ev.type, cfg);
+    if (!target) return null;
+
+    const siteId = device.siteId ?? (p.siteId ? String(p.siteId) : undefined);
+    const gateId = device.gateId ?? (p.gateId ? String(p.gateId) : undefined);
+    const direction = this.parseDirection(p.direction);
+
     try {
-      if (ev.type === DeviceEventType.ANPR_RESULT) {
-        const p = ev.payload as Record<string, unknown>;
+      if (target === 'parking') {
         await this.parking.ingestAnprResult(
           {
-            siteId: String(p.siteId ?? ''),
-            gateId: p.gateId ? String(p.gateId) : undefined,
-            plateNumber: String(p.plateNumber ?? ''),
+            siteId: siteId ?? '',
+            gateId,
+            plateNumber: String(p.plateNumber ?? p.value ?? ''),
             confidence: Number(p.confidence ?? 0),
             cameraId: p.cameraId ? String(p.cameraId) : undefined,
             imageUrl: p.imageUrl ? String(p.imageUrl) : undefined,
@@ -148,18 +174,126 @@ export class DeviceIngestionService {
         );
         return 'parking';
       }
+
+      if (target === 'visitors') {
+        const code = String(p.code ?? p.value ?? '');
+        if (!code || !siteId) return null;
+        await this.visitors.gateVerify(
+          { code, siteId, gateId, clientEventId: ev.dedupeKey },
+          systemUser,
+        );
+        return 'visitors';
+      }
+
+      if (target === 'access') {
+        const entry = await this.access.ingestDeviceEntry(
+          {
+            cardRef: this.pickRef(p, ['cardRef', 'card', 'value'], ev.type === DeviceEventType.CARD_TAP),
+            biometricRef: this.pickRef(
+              p,
+              ['biometricRef', 'templateId', 'value'],
+              ev.type === DeviceEventType.FINGERPRINT_SCAN ||
+                ev.type === DeviceEventType.FACE_RECOGNITION,
+            ),
+            siteId,
+            gateId,
+            direction,
+            accessMethod: this.mapAccessMethod(ev.type),
+            capturedAt: ev.capturedAt,
+            clientEventId: ev.dedupeKey,
+          },
+          systemUser,
+        );
+        return entry ? 'access' : null;
+      }
+
+      if (target === 'attendance') {
+        const res = await this.attendance.ingestDevicePunch(
+          {
+            employeeNumber: String(p.employeeNumber ?? p.userId ?? p.value ?? ''),
+            siteId,
+            direction,
+            eventType: ev.type,
+            capturedAt: ev.capturedAt,
+            clientEventId: ev.dedupeKey,
+          },
+          systemUser,
+        );
+        return res ? 'attendance' : null;
+      }
     } catch (err) {
       this.logger.warn(
-        `Routing failed for ${ev.type}: ${(err as Error).message}`,
+        `Routing to ${target} failed for ${ev.type} (device ${device.code}); ` +
+          `kept store-only: ${(err as Error).message}`,
       );
-      throw err;
+      return null;
     }
 
-    // ATTENDANCE_PUNCH / FINGERPRINT_SCAN / FACE_RECOGNITION / CARD_TAP /
-    // QR_SCAN / CCTV_EVENT / PRINT_JOB_RESULT / ENROLLMENT_RESULT are stored in
-    // the append-only log; domain routing (attendance/access/visitors) is wired
-    // incrementally on top of this foundation.
     return null;
+  }
+
+  private resolveTarget(
+    type: DeviceEventType,
+    cfg: Record<string, unknown>,
+  ): RouteTarget | null {
+    const hint = typeof cfg.route === 'string' ? cfg.route.toLowerCase() : '';
+    if (['attendance', 'access', 'visitors', 'parking'].includes(hint)) {
+      return hint as RouteTarget;
+    }
+    switch (type) {
+      case DeviceEventType.ANPR_RESULT:
+        return 'parking';
+      case DeviceEventType.ATTENDANCE_PUNCH:
+        return 'attendance';
+      case DeviceEventType.CARD_TAP:
+      case DeviceEventType.FINGERPRINT_SCAN:
+      case DeviceEventType.FACE_RECOGNITION:
+        return 'access';
+      case DeviceEventType.QR_SCAN:
+        return 'visitors';
+      default:
+        // CCTV_EVENT / PRINT_JOB_RESULT / ENROLLMENT_RESULT / HEARTBEAT are
+        // store-only (still auditable in the append-only log).
+        return null;
+    }
+  }
+
+  private parseDirection(value: unknown): 'IN' | 'OUT' | undefined {
+    const v = String(value ?? '').toUpperCase();
+    if (v === 'IN' || v === 'CHECK_IN' || v === 'ENTRY') return 'IN';
+    if (v === 'OUT' || v === 'CHECK_OUT' || v === 'EXIT') return 'OUT';
+    return undefined;
+  }
+
+  private pickRef(
+    p: Record<string, unknown>,
+    keys: string[],
+    enabled: boolean,
+  ): string | undefined {
+    if (!enabled) {
+      // Still honor an explicit ref key even when `value` fallback is disabled.
+      for (const k of keys.filter((x) => x !== 'value')) {
+        if (p[k] != null) return String(p[k]);
+      }
+      return undefined;
+    }
+    for (const k of keys) {
+      if (p[k] != null) return String(p[k]);
+    }
+    return undefined;
+  }
+
+  private mapAccessMethod(type: DeviceEventType): AccessMethod {
+    switch (type) {
+      case DeviceEventType.FINGERPRINT_SCAN:
+      case DeviceEventType.FACE_RECOGNITION:
+        return AccessMethod.BIOMETRIC;
+      case DeviceEventType.QR_SCAN:
+        return AccessMethod.QR;
+      case DeviceEventType.CARD_TAP:
+      default:
+        return AccessMethod.CARD;
+    }
   }
 
   private async resolveDevice(ctx: DeviceAuthContext, deviceCode?: string) {

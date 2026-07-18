@@ -4,7 +4,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { AccessEntryType } from '@prisma/client';
+import { AccessEntryType, AccessMethod } from '@prisma/client';
 import { PrismaService, AuthUser } from '@pssms/shared';
 import { AuditService } from '@pssms/audit';
 import {
@@ -13,6 +13,18 @@ import {
   CustomerEmployeeResponseDto,
   AccessEntryResponseDto,
 } from '../presentation/dto/access.dto';
+
+/** Device-normalized access event resolved inside the access domain. */
+export interface DeviceAccessEntryInput {
+  cardRef?: string;
+  biometricRef?: string;
+  siteId?: string;
+  gateId?: string;
+  direction?: 'IN' | 'OUT';
+  accessMethod?: AccessMethod;
+  capturedAt?: string;
+  clientEventId?: string;
+}
 
 @Injectable()
 export class AccessControlService {
@@ -138,6 +150,76 @@ export class AccessControlService {
       take: 100,
     });
     return rows.map((e) => this.toEntryDto(e));
+  }
+
+  /**
+   * Ingest a customer-employee access event from a device (card tap / biometric
+   * match). The device only knows a physical identifier, so employee resolution
+   * (card/biometric ref → customer employee) is owned here, inside the access
+   * domain. Returns null when the ref cannot be resolved so the caller can keep
+   * the raw event store-only (still auditable) rather than failing ingestion.
+   */
+  async ingestDeviceEntry(
+    dto: DeviceAccessEntryInput,
+    user: AuthUser,
+  ): Promise<AccessEntryResponseDto | null> {
+    const or: { accessCardRef?: string; biometricRef?: string }[] = [];
+    if (dto.cardRef) or.push({ accessCardRef: dto.cardRef });
+    if (dto.biometricRef) or.push({ biometricRef: dto.biometricRef });
+    if (or.length === 0 || !dto.siteId) return null;
+
+    const employee = await this.prisma.customerEmployee.findFirst({
+      where: { organizationId: user.organizationId, isActive: true, OR: or },
+    });
+    if (!employee) return null;
+
+    if (dto.clientEventId) {
+      const existing = await this.prisma.accessEntry.findUnique({
+        where: { clientEventId: dto.clientEventId },
+      });
+      if (existing) return this.toEntryDto(existing);
+    }
+
+    // Determine direction: explicit hint wins, else toggle from the last entry.
+    let entryType: AccessEntryType;
+    if (dto.direction === 'IN') entryType = AccessEntryType.CHECK_IN;
+    else if (dto.direction === 'OUT') entryType = AccessEntryType.CHECK_OUT;
+    else {
+      const last = await this.prisma.accessEntry.findFirst({
+        where: { organizationId: user.organizationId, employeeId: employee.id },
+        orderBy: { recordedAt: 'desc' },
+      });
+      entryType =
+        last?.entryType === AccessEntryType.CHECK_IN
+          ? AccessEntryType.CHECK_OUT
+          : AccessEntryType.CHECK_IN;
+    }
+
+    const entry = await this.prisma.accessEntry.create({
+      data: {
+        organizationId: user.organizationId,
+        customerId: employee.customerId,
+        employeeId: employee.id,
+        siteId: dto.siteId,
+        gateId: dto.gateId,
+        entryType,
+        accessMethod: dto.accessMethod ?? AccessMethod.CARD,
+        recordedBy: user.id,
+        clientEventId: dto.clientEventId,
+        recordedAt: dto.capturedAt ? new Date(dto.capturedAt) : new Date(),
+      },
+    });
+
+    await this.audit.record({
+      organizationId: user.organizationId,
+      actorId: user.id,
+      action: `access.entry.${entryType.toLowerCase()}`,
+      resourceType: 'AccessEntry',
+      resourceId: entry.id,
+      after: { ...entry, via: 'device' },
+    });
+
+    return this.toEntryDto(entry);
   }
 
   private async assertCustomerInOrg(

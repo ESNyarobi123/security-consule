@@ -4,13 +4,29 @@ import {
   NotFoundException,
   BadRequestException,
 } from '@nestjs/common';
-import { ShiftStatus } from '@prisma/client';
+import { ShiftStatus, AttendanceMethod } from '@prisma/client';
 import {
   PrismaService,
   AuthUser,
   distanceMeters,
   DEFAULT_GEOFENCE_RADIUS_M,
 } from '@pssms/shared';
+
+/** Device-normalized guard punch resolved inside the attendance domain. */
+export interface DevicePunchInput {
+  employeeNumber?: string;
+  siteId?: string;
+  direction?: 'IN' | 'OUT';
+  eventType?: string;
+  capturedAt?: string;
+  clientEventId?: string;
+}
+
+export interface DevicePunchResult {
+  id: string;
+  action: 'clock-in' | 'clock-out';
+  duplicate?: boolean;
+}
 import { AuditService } from '@pssms/audit';
 import { GuardsService } from '@pssms/workforce';
 import {
@@ -136,6 +152,112 @@ export class AttendanceService {
     // Event stub: attendance.period-closed → payroll snapshot (Phase 4)
 
     return this.toDto(updated, true);
+  }
+
+  /**
+   * Ingest a guard attendance punch from a biometric/card terminal. The device
+   * identifies the guard by employee number (not a logged-in user) and has no
+   * GPS, so this bypasses the geofence path. It toggles clock-in ↔ clock-out
+   * based on the guard's open attendance (explicit `direction` overrides).
+   *
+   * Returns null when the guard cannot be resolved (event kept store-only) so a
+   * misconfigured device never rejects the whole ingest batch.
+   */
+  async ingestDevicePunch(
+    dto: DevicePunchInput,
+    user: AuthUser,
+  ): Promise<DevicePunchResult | null> {
+    if (!dto.employeeNumber || !dto.siteId) return null;
+
+    const guard = await this.prisma.guardProfile.findFirst({
+      where: {
+        organizationId: user.organizationId,
+        employeeNumber: dto.employeeNumber,
+      },
+    });
+    if (!guard) return null;
+
+    if (dto.clientEventId) {
+      const dupIn = await this.prisma.guardAttendance.findUnique({
+        where: { clientEventId: dto.clientEventId },
+      });
+      if (dupIn) return { id: dupIn.id, action: 'clock-in', duplicate: true };
+      const dupOut = await this.prisma.guardAttendance.findUnique({
+        where: { clockOutClientEventId: dto.clientEventId },
+      });
+      if (dupOut) return { id: dupOut.id, action: 'clock-out', duplicate: true };
+    }
+
+    const method = this.mapPunchMethod(dto.eventType);
+    const capturedAt = dto.capturedAt ? new Date(dto.capturedAt) : new Date();
+    const serverNow = new Date();
+
+    const open = await this.prisma.guardAttendance.findFirst({
+      where: {
+        organizationId: user.organizationId,
+        guardId: guard.id,
+        clockOutAt: null,
+      },
+      orderBy: { clockInAt: 'desc' },
+    });
+
+    if (open && dto.direction !== 'IN') {
+      const updated = await this.prisma.guardAttendance.update({
+        where: { id: open.id },
+        data: {
+          clockOutAt: serverNow,
+          clockOutMethod: method,
+          deviceClockOutAt: capturedAt,
+          clockOutClientEventId: dto.clientEventId,
+        },
+      });
+      await this.audit.record({
+        organizationId: user.organizationId,
+        actorId: user.id,
+        action: 'guard.clocked-out',
+        resourceType: 'GuardAttendance',
+        resourceId: updated.id,
+        after: { ...updated, via: 'device' },
+      });
+      return { id: updated.id, action: 'clock-out' };
+    }
+
+    const created = await this.prisma.guardAttendance.create({
+      data: {
+        organizationId: user.organizationId,
+        guardId: guard.id,
+        siteId: dto.siteId,
+        clockInAt: serverNow,
+        clockInMethod: method,
+        deviceClockInAt: capturedAt,
+        serverReceivedAt: serverNow,
+        clientEventId: dto.clientEventId,
+      },
+    });
+    await this.audit.record({
+      organizationId: user.organizationId,
+      actorId: user.id,
+      action: 'guard.clocked-in',
+      resourceType: 'GuardAttendance',
+      resourceId: created.id,
+      after: { ...created, via: 'device' },
+    });
+    return { id: created.id, action: 'clock-in' };
+  }
+
+  private mapPunchMethod(eventType?: string): AttendanceMethod {
+    switch (eventType) {
+      case 'FACE_RECOGNITION':
+        return AttendanceMethod.FACE;
+      case 'CARD_TAP':
+        return AttendanceMethod.NFC;
+      case 'QR_SCAN':
+        return AttendanceMethod.QR;
+      case 'FINGERPRINT_SCAN':
+      case 'ATTENDANCE_PUNCH':
+      default:
+        return AttendanceMethod.FINGERPRINT;
+    }
   }
 
   async list(
