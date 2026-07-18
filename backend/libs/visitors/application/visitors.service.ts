@@ -13,6 +13,7 @@ import {
   AuthUser,
   generateVerificationCode,
   hashVerificationCode,
+  getOrgContext,
 } from '@pssms/shared';
 import { AuditService } from '@pssms/audit';
 import { NotificationsService } from '@pssms/notifications';
@@ -81,6 +82,23 @@ export class VisitorsService {
       throw new BadRequestException('organizationId is required');
     }
 
+    const run = () => this.persistAppointment(dto, organizationId, user);
+
+    // Authenticated requests already run inside an RLS org context set by the
+    // OrgContextInterceptor. Public pre-registration (visitor-web) has none, so
+    // the customer lookup + write would be blocked by fail-closed RLS. Bind the
+    // context to the org supplied in the request — scoped to THAT org only
+    // (never an rls_bypass), keeping the operation tenant-isolated.
+    return getOrgContext()
+      ? run()
+      : this.prisma.runInRequestContext({ organizationId }, run);
+  }
+
+  private async persistAppointment(
+    dto: CreateVisitorAppointmentDto,
+    organizationId: string,
+    user?: AuthUser,
+  ): Promise<VisitorAppointmentResponseDto> {
     await this.assertCustomerInOrg(dto.customerId, organizationId);
 
     const referenceNumber = await this.nextReferenceNumber(organizationId);
