@@ -1,4 +1,4 @@
-import { ValidationPipe } from '@nestjs/common';
+import { RequestMethod, ValidationPipe } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
 import {
   FastifyAdapter,
@@ -14,7 +14,26 @@ async function bootstrap() {
     new FastifyAdapter({ logger: true }),
   );
 
-  app.setGlobalPrefix('api/v1');
+  // ZKTeco terminals push plain-text bodies; capture them raw for the iClock adapter.
+  const fastify = app.getHttpAdapter().getInstance();
+  for (const ct of ['text/plain', 'application/octet-stream']) {
+    fastify.addContentTypeParser(
+      ct,
+      { parseAs: 'string' },
+      (_req: unknown, body: string, done: (e: Error | null, b?: unknown) => void) =>
+        done(null, body),
+    );
+  }
+
+  // iClock endpoints live at the ROOT — terminals hard-code /iclock/... paths.
+  app.setGlobalPrefix('api/v1', {
+    exclude: [
+      { path: 'iclock/cdata', method: RequestMethod.ALL },
+      { path: 'iclock/getrequest', method: RequestMethod.ALL },
+      { path: 'iclock/devicecmd', method: RequestMethod.ALL },
+      { path: 'iclock/registry', method: RequestMethod.ALL },
+    ],
+  });
   app.enableCors({ origin: true, credentials: true });
   app.useGlobalPipes(
     new ValidationPipe({ whitelist: true, transform: true }),

@@ -22,6 +22,10 @@ export class ResponseInterceptor implements NestInterceptor {
         if (data instanceof StreamableFile) {
           return data;
         }
+        // Raw string responses (e.g. ZKTeco iClock plain-text protocol) pass through.
+        if (typeof data === 'string') {
+          return data;
+        }
         if (
           data &&
           typeof data === 'object' &&

@@ -6,6 +6,8 @@ import { ConsolePaymentProvider } from './adapters/payments/console-payment.prov
 import { VisionAiAnprAdapter } from './adapters/anpr/vision-ai-anpr.adapter';
 import { DispatchService } from './dispatch/dispatch.service';
 import { WebhookInboxService } from './webhooks/webhook-inbox.service';
+import { IclockController } from './iclock/iclock.controller';
+import { IclockService } from './iclock/iclock.service';
 import {
   HealthController,
   InternalDispatchController,
@@ -25,6 +27,7 @@ import {
     InternalDispatchController,
     HealthController,
     ProvidersHealthController,
+    IclockController,
   ],
   providers: [
     WebhookInboxService,
@@ -32,6 +35,7 @@ import {
     ConsoleSmsProvider,
     ConsolePaymentProvider,
     VisionAiAnprAdapter,
+    IclockService,
   ],
   exports: [WebhookInboxService, DispatchService],
 })

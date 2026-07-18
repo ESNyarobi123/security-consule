@@ -26,6 +26,7 @@ import { NotificationsModule } from '@pssms/notifications';
 import { DevicesModule } from '@pssms/devices';
 import { HealthController } from './health.controller';
 import { InternalController } from './internal.controller';
+import { DevicesInternalController } from './devices-internal.controller';
 import { join } from 'path';
 
 @Module({
@@ -63,6 +64,6 @@ import { join } from 'path';
     NotificationsModule,
     DevicesModule,
   ],
-  controllers: [HealthController, InternalController],
+  controllers: [HealthController, InternalController, DevicesInternalController],
 })
 export class AppModule {}

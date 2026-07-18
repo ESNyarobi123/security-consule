@@ -122,6 +122,16 @@ export class DeviceRegistryService {
       .then((rows) => rows.map((d) => this.deviceView(d)));
   }
 
+  async findBySerial(serialNumber: string) {
+    const device = await this.prisma.device.findFirst({
+      where: { serialNumber },
+    });
+    if (!device) {
+      throw new NotFoundException(`No device with serial ${serialNumber}`);
+    }
+    return device;
+  }
+
   async getDevice(id: string, user: AuthUser) {
     const device = await this.prisma.device.findFirst({
       where: { id, organizationId: user.organizationId },
