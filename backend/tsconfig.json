@@ -62,7 +62,9 @@
       "@pssms/notifications": ["libs/notifications/index.ts"],
       "@pssms/notifications/*": ["libs/notifications/*"],
       "@pssms/reporting": ["libs/reporting/index.ts"],
-      "@pssms/reporting/*": ["libs/reporting/*"]
+      "@pssms/reporting/*": ["libs/reporting/*"],
+      "@pssms/devices": ["libs/devices/index.ts"],
+      "@pssms/devices/*": ["libs/devices/*"]
     }
   }
 }

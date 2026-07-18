@@ -23,6 +23,7 @@ import { ProcurementModule } from '@pssms/procurement';
 import { InventoryModule } from '@pssms/inventory';
 import { AssetsModule } from '@pssms/assets';
 import { NotificationsModule } from '@pssms/notifications';
+import { DevicesModule } from '@pssms/devices';
 import { HealthController } from './health.controller';
 import { InternalController } from './internal.controller';
 import { join } from 'path';
@@ -60,6 +61,7 @@ import { join } from 'path';
     InventoryModule,
     AssetsModule,
     NotificationsModule,
+    DevicesModule,
   ],
   controllers: [HealthController, InternalController],
 })

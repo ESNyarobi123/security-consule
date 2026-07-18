@@ -5,7 +5,7 @@ generator client {
 datasource db {
   provider = "postgresql"
   url      = env("DATABASE_URL")
-  schemas  = ["iam", "enterprise", "customers", "contracts", "approvals", "audit", "workforce", "operations", "attendance", "incidents", "occurrence", "access", "visitors", "parking", "recruitment", "payroll", "employee_loans", "finance", "procurement", "inventory", "assets", "integrations", "notifications", "reporting", "public"]
+  schemas  = ["iam", "enterprise", "customers", "contracts", "approvals", "audit", "workforce", "operations", "attendance", "incidents", "occurrence", "access", "visitors", "parking", "recruitment", "payroll", "employee_loans", "finance", "procurement", "inventory", "assets", "integrations", "notifications", "reporting", "devices", "public"]
 }
 
 // ───────────────────────── IAM ─────────────────────────
@@ -2126,3 +2126,188 @@ model DashboardCache {
   @@schema("reporting")
 }
 
+
+// ───────────────────────── DEVICES / INTEGRATION ─────────────────────────
+// Unified registry + ingestion for physical devices (fingerprint, biometric
+// terminals, face terminals, QR/barcode scanners, printers, RFID/smart-card
+// readers, CCTV). Network terminals push directly (ADMS-style); USB devices
+// forward via a site EdgeGateway. Video never enters here — events/metadata only.
+
+enum DeviceType {
+  FINGERPRINT_SCANNER
+  BIOMETRIC_TERMINAL
+  FACE_TERMINAL
+  QR_SCANNER
+  BARCODE_SCANNER
+  PRINTER
+  RFID_READER
+  SMART_CARD_READER
+  CCTV_CAMERA
+
+  @@schema("devices")
+}
+
+enum DeviceConnection {
+  USB
+  SERIAL
+  NETWORK
+  MQTT
+  ONVIF
+
+  @@schema("devices")
+}
+
+enum DeviceStatus {
+  PENDING
+  ONLINE
+  OFFLINE
+  DISABLED
+
+  @@schema("devices")
+}
+
+enum DeviceEventType {
+  ATTENDANCE_PUNCH
+  FINGERPRINT_SCAN
+  FACE_RECOGNITION
+  CARD_TAP
+  QR_SCAN
+  BARCODE_SCAN
+  ANPR_RESULT
+  CCTV_EVENT
+  PRINT_JOB_RESULT
+  ENROLLMENT_RESULT
+  HEARTBEAT
+
+  @@schema("devices")
+}
+
+enum DeviceEventStatus {
+  RECEIVED
+  PROCESSED
+  FAILED
+  IGNORED
+
+  @@schema("devices")
+}
+
+enum DeviceCommandType {
+  ENROLL_FINGERPRINT
+  ENROLL_FACE
+  ENROLL_CARD
+  DELETE_USER
+  SYNC_USERS
+  PRINT
+  OPEN_GATE
+  REBOOT
+
+  @@schema("devices")
+}
+
+enum DeviceCommandStatus {
+  PENDING
+  DISPATCHED
+  ACKED
+  FAILED
+  EXPIRED
+
+  @@schema("devices")
+}
+
+model EdgeGateway {
+  id              String       @id @default(uuid())
+  organizationId  String       @map("organization_id")
+  siteId          String?      @map("site_id")
+  code            String
+  name            String
+  apiKeyHash      String       @map("api_key_hash")
+  version         String?
+  ipAddress       String?      @map("ip_address")
+  status          DeviceStatus @default(PENDING)
+  lastHeartbeatAt DateTime?    @map("last_heartbeat_at")
+  createdAt       DateTime     @default(now()) @map("created_at")
+  updatedAt       DateTime     @updatedAt @map("updated_at")
+  createdBy       String?      @map("created_by")
+
+  devices         Device[]
+
+  @@unique([organizationId, code])
+  @@index([apiKeyHash])
+  @@map("edge_gateways")
+  @@schema("devices")
+}
+
+model Device {
+  id             String           @id @default(uuid())
+  organizationId String           @map("organization_id")
+  siteId         String?          @map("site_id")
+  gateId         String?          @map("gate_id")
+  edgeGatewayId  String?          @map("edge_gateway_id")
+  type           DeviceType
+  connection     DeviceConnection
+  code           String
+  name           String
+  vendor         String?
+  model          String?
+  serialNumber   String?          @map("serial_number")
+  apiKeyHash     String?          @map("api_key_hash")
+  config         Json?
+  status         DeviceStatus     @default(PENDING)
+  lastSeenAt     DateTime?        @map("last_seen_at")
+  createdAt      DateTime         @default(now()) @map("created_at")
+  updatedAt      DateTime         @updatedAt @map("updated_at")
+  createdBy      String?          @map("created_by")
+
+  edgeGateway    EdgeGateway?     @relation(fields: [edgeGatewayId], references: [id])
+  events         DeviceEvent[]
+  commands       DeviceCommand[]
+
+  @@unique([organizationId, code])
+  @@index([apiKeyHash])
+  @@index([organizationId, type])
+  @@map("devices")
+  @@schema("devices")
+}
+
+model DeviceEvent {
+  id             String            @id @default(uuid())
+  organizationId String            @map("organization_id")
+  deviceId       String            @map("device_id")
+  type           DeviceEventType
+  dedupeKey      String?           @map("dedupe_key")
+  payload        Json
+  status         DeviceEventStatus @default(RECEIVED)
+  routedTo       String?           @map("routed_to")
+  error          String?
+  capturedAt     DateTime          @map("captured_at")
+  receivedAt     DateTime          @default(now()) @map("received_at")
+  processedAt    DateTime?         @map("processed_at")
+
+  device         Device            @relation(fields: [deviceId], references: [id])
+
+  @@unique([organizationId, dedupeKey])
+  @@index([organizationId, deviceId, type])
+  @@map("device_events")
+  @@schema("devices")
+}
+
+model DeviceCommand {
+  id             String              @id @default(uuid())
+  organizationId String              @map("organization_id")
+  deviceId       String              @map("device_id")
+  type           DeviceCommandType
+  payload        Json?
+  status         DeviceCommandStatus @default(PENDING)
+  result         Json?
+  issuedById     String?             @map("issued_by_id")
+  issuedAt       DateTime            @default(now()) @map("issued_at")
+  dispatchedAt   DateTime?           @map("dispatched_at")
+  acknowledgedAt DateTime?           @map("acknowledged_at")
+  expiresAt      DateTime?           @map("expires_at")
+
+  device         Device              @relation(fields: [deviceId], references: [id])
+
+  @@index([organizationId, deviceId, status])
+  @@map("device_commands")
+  @@schema("devices")
+}
