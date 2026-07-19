@@ -222,7 +222,7 @@ export default function SuperadminPage() {
       {/* Quick access — Azure services row */}
       <GlassCard glow="none">
         <ConsoleSectionHeader title="HIGHLINK services" action={{ label: 'All services', href: '#catalog' }} />
-        <div className="flex gap-1 overflow-x-auto pb-1">
+        <div className="no-scrollbar flex gap-1 overflow-x-auto pb-1">
           <Link
             href="/superadmin/customers"
             className="group flex w-[104px] shrink-0 flex-col items-center gap-2 rounded-xl border border-dashed border-[#c7e0f4] px-2 py-3 text-center transition hover:border-[#0078d4] hover:bg-[#f3f9fd]"

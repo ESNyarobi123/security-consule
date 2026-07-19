@@ -135,6 +135,17 @@ body {
   animation: login-rise 0.55s cubic-bezier(0.22, 1, 0.36, 1) both;
 }
 
+/* Scrollable area with the scrollbar fully hidden (scroll still works) */
+.no-scrollbar {
+  -ms-overflow-style: none; /* IE/Edge legacy */
+  scrollbar-width: none; /* Firefox */
+}
+.no-scrollbar::-webkit-scrollbar {
+  display: none; /* Chrome, Safari, Edge */
+  width: 0;
+  height: 0;
+}
+
 /* Respect users who prefer reduced motion */
 @media (prefers-reduced-motion: reduce) {
   .az-brand-orb,

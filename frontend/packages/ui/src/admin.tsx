@@ -354,7 +354,7 @@ export function AdminShell({
         })}
       </div>
 
-      <nav className="mt-4 flex-1 space-y-4 overflow-y-auto pb-4">
+      <nav className="no-scrollbar mt-4 flex-1 space-y-4 overflow-y-auto pb-4">
         {Object.entries(groups).map(([group, items], gi) => (
           <div key={group}>
             {!collapsed ? (
