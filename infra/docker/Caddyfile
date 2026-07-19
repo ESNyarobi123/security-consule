@@ -1,0 +1,13 @@
+{
+	email admin@hisgc.co.tz
+}
+
+api.hisgc.co.tz {
+	encode gzip
+	reverse_proxy core-api:4001
+}
+
+web.hisgc.co.tz {
+	encode gzip
+	reverse_proxy admin-web:3000
+}
