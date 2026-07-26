@@ -52,13 +52,21 @@ export class MinioStorageService implements OnModuleInit {
 
     this.client = new S3Client({ ...base, endpoint });
 
-    // Presigned URLs must be reachable from the browser (host map 9010→9000).
+    // Presigned URLs must be reachable from the browser. Public TLS can differ
+    // from the in-cluster endpoint (e.g. http://minio:9000 vs https://files…).
     const publicHost =
       this.config.get<string>('MINIO_PUBLIC_ENDPOINT')?.trim() || endpointHost;
     const publicPort = Number(
       this.config.get<string>('MINIO_PUBLIC_PORT') ?? port,
     );
-    const publicEndpoint = `${protocol}://${publicHost}:${publicPort}`;
+    const publicUseSsl =
+      (
+        this.config.get<string>('MINIO_PUBLIC_USE_SSL') ??
+        this.config.get<string>('MINIO_USE_SSL') ??
+        'false'
+      ).toLowerCase() === 'true';
+    const publicProtocol = publicUseSsl ? 'https' : 'http';
+    const publicEndpoint = `${publicProtocol}://${publicHost}:${publicPort}`;
     this.presignClient =
       publicEndpoint === endpoint
         ? this.client

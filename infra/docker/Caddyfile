@@ -12,8 +12,9 @@ web.hisgc.co.tz {
 	reverse_proxy admin-web:3000
 }
 
-# Presigned document downloads (EOB / petty-cash receipts). Requires DNS A/AAAA
-# for files.hisgc.co.tz pointing at this VPS.
+# Presigned document downloads (EOB / petty-cash receipts).
+# Requires DNS A/AAAA for files.hisgc.co.tz → this VPS (Cloudflare DNS-only /
+# grey-cloud). Proxied orange-cloud breaks ACME (521) until origin is reachable.
 files.hisgc.co.tz {
 	encode gzip
 	reverse_proxy minio:9000

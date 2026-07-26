@@ -31,9 +31,11 @@ x-backend-env: &backend-env
   WEBHOOK_VERIFY: "false"
   MINIO_ENDPOINT: minio
   MINIO_PORT: "9000"
+  # In-cluster S3 is plain HTTP; browser presigns use public host/TLS.
+  MINIO_USE_SSL: "false"
   MINIO_PUBLIC_ENDPOINT: ${MINIO_PUBLIC_ENDPOINT:-files.hisgc.co.tz}
   MINIO_PUBLIC_PORT: ${MINIO_PUBLIC_PORT:-443}
-  MINIO_USE_SSL: ${MINIO_USE_SSL:-true}
+  MINIO_PUBLIC_USE_SSL: ${MINIO_PUBLIC_USE_SSL:-true}
   MINIO_ROOT_USER: ${MINIO_ROOT_USER:-pssms}
   MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-pssms_minio_password}
   MINIO_BUCKET_DOCUMENTS: ${MINIO_BUCKET_DOCUMENTS:-pssms-documents}
