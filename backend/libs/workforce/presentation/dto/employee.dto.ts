@@ -8,6 +8,7 @@ import {
   IsString,
   IsUUID,
   MinLength,
+  ValidateIf,
 } from 'class-validator';
 
 export class CreateEmployeeDto {
@@ -55,6 +56,40 @@ export class CreateEmployeeDto {
   @IsOptional()
   @IsDateString()
   hireDate?: string;
+}
+
+export class UpdateEmployeeDto {
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsEmail()
+  email?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  phone?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  department?: string;
+
+  @ApiPropertyOptional({ enum: EmployeeStatus })
+  @IsOptional()
+  @IsEnum(EmployeeStatus)
+  status?: EmployeeStatus;
+
+  @ApiPropertyOptional({ enum: EmploymentType })
+  @IsOptional()
+  @IsEnum(EmploymentType)
+  employmentType?: EmploymentType;
+
+  /** Link login account for ESS (§35.5). Pass null to unlink. */
+  @ApiPropertyOptional({ nullable: true })
+  @IsOptional()
+  @ValidateIf((_, v) => v !== null && v !== undefined)
+  @IsUUID()
+  userId?: string | null;
 }
 
 export class EmployeeResponseDto {

@@ -1,0 +1,46 @@
+---
+description: Careful step-by-step delivery — one slice, prove APIs+UI, then next; ordered backlog after Branch/EOB thin work
+alwaysApply: true
+---
+
+# Careful delivery (step → prove → next)
+
+## Habit (non-negotiable)
+
+1. **One slice only** until smoke + reviewer are green.
+2. **Prove both layers:** backend API (curl/auth/403/SoD) **and** admin-web UI route (auth gate + real R/W).
+3. **Update** `pssms-implementation-status.mdc` when a slice ships.
+4. Prefer **existing libs/APIs** over new microservices. Portal ≠ service.
+5. Use **existing 8 PSSMS subagents** — do not invent one agent per module. Ownership:
+   - Assets / petty-cash / finance → `pssms-people-money` (+ `pssms-frontend`, then `pssms-reviewer`)
+   - EOB history / SoD approve / patrols / incidents → `pssms-field-ops` (+ frontend, reviewer; SoD with `pssms-iam-governance`)
+   - Attachments / MinIO docs → `pssms-people-money` + `pssms-integrations-ai` (MinIO) — fill empty `libs/documents`, do not invent a 9th “documents-only” agent unless the surface becomes huge
+
+## Ordered backlog (admin-first where possible)
+
+Admin should be able to **configure master data** before field/self-service loops.
+
+| Order | Slice | Admin configures | Subagents |
+|---|---|---|---|
+| **A** | Assets register + assign | Register tags, assign to employee/guard | people-money → frontend → reviewer |
+| **B** | Petty cash receipt → REIMBURSED | Retire/receipt after approve | people-money → frontend → reviewer |
+| **C** | EOB history UI | View version lineage (read) — **DONE** | field-ops → frontend → reviewer |
+| **D** | EOB second-person approve | Approver ≠ corrector on corrections — **DONE** | field-ops + iam-governance → reviewer |
+| **E** | Attachments (EOB/evidence) | MinIO buckets + metadata via `libs/documents` — **DONE** | people-money + integrations-ai → frontend |
+| **F** | Patrols thin UI | Checkpoints create/list + scans list — **DONE** | field-ops → frontend → reviewer |
+| **G** | Incidents thin UI | Create/list + escalate path (matrix later) — **DONE** | field-ops → frontend → reviewer |
+| **H** | Petty cash MinIO receipt UI | Finance upload/list/presign on `PettyCashVoucher` — **DONE** | people-money → frontend → reviewer |
+
+## Explicitly out until their turn
+
+Fake KPIs, full DPIA/risk register, Nest MQTT bridge, vision video through Nest, full Employment→CEO matrix, ABAC branch filter (unless required by a slice).
+
+## Done definition per slice
+
+```text
+✅ Prisma/API org-scoped + permission + audit where mutate
+✅ Smoke: happy path + 403 outsider + SoD if applicable
+✅ UI route wired under correct portal/nav permission
+✅ Status memory updated (honest deferrals listed)
+✅ pssms-reviewer: no Critical left unfixed
+```

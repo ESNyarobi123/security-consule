@@ -1,0 +1,43 @@
+---
+description: PSSMS portals, apps, and account types from the design document (§35–36)
+alwaysApply: true
+---
+
+# Portals, Apps & Account Types
+
+No portal operates alone — all share controlled workflows as **one enterprise**. Prefer routes inside `admin-web` for internal portals; separate apps for external-facing portals.
+
+## Portals / applications (design §35)
+
+| ID | Portal / App | Primary users | Core job |
+|---|---|---|---|
+| 35.1 | Super Admin | Super Admin, ICT, DBA, CISO | Users, roles, branches, modules, approvals, backups, audit |
+| 35.2 | Executive Dashboard | CMD, CEO, GM, Dept Heads | Company-wide KPIs, revenue, contracts, risks, compliance |
+| 35.3 | Administration | GM, Admin, Branch/Dept Heads | Company/branch records, files, office ops |
+| 35.4 | HR & Employee Mgmt | HR, Recruitment, Training | Profiles, leave, discipline, training, onboarding |
+| 35.5 | Employee Self-Service | All employees | Profile, payslips, leave, loans, equipment, requests |
+| 35.6 | Guard Mobile App | Guards | Attendance, alertness, patrols, parking patrol, incidents |
+| 35.7 | Supervisor Mobile App | Supervisors, Field Officers, BOM | Verify attendance/alertness, inspections, replacements |
+| 35.8 | Customer Portal | Customer admins/HR/security/finance | Contracts, invoices, guards, SLA, own data only |
+| 35.9 | Customer Employee Access | Customer employees + their admins | Access/attendance via QR/bio/card/PIN — own org only |
+| 35.10 | Visitor Appointment | Guests, contractors, candidates | Online appointment → verification code |
+| 35.11 | Gate Verification App | Gate officers, guards, supervisors | Codes, cards, parking permits, vehicle entry |
+| 35.12 | Parking Management | Parking admins, gate, customer security | Vehicles, permits, violations, billing, blacklist |
+| 35.13 | Recruitment | Applicants + HR/panels | Apply, documents, interview, onboarding |
+| 35.14 | Other Security Company | External security firms | B2B guard recruitment requests |
+| 35.15 | Finance & Accounts | Finance, payroll, cashiers, auditor | Invoices, payments, petty cash, vouchers, recon |
+| 35.16 | Payroll | Payroll/HR/Finance + customer payroll officers | Company + customer payroll, loans, e-payroll alerts |
+| 35.17 | Supplier Portal | Suppliers/vendors | Quotes, POs, invoices, delivery, payment status |
+| 35.18 | Procurement & Inventory | Procurement, storekeepers | PR/PO/GRN, stock, uniforms, boots, devices |
+| 35.19 | Marketing & BD | Marketing/BD/sales | Leads, surveys, quotes, pipeline, commissions |
+| 35.20 | Call Centre / Support | Agents, helpdesk | Complaints, tickets, escalations |
+| 35.21 | Compliance / Audit / DPO | DPO, Compliance, Legal, CISO | Audit logs, breaches, risk register, policies |
+| 35.22 | CCTV / Security Monitoring | CCTV ops, monitoring officers | Cameras, AI alerts, alarms — **video not via Nest** |
+| 35.23 | Branch Operations | Regional/Branch/BOM/Field | Sites, deployment, inspections, branch petty cash |
+| 35.24 | Developer / Integration | Devs, integrators, ICT | APIs, webhooks, devices, banks, SMS, WhatsApp |
+
+## Account types (design §36)
+
+Super Admin · Executive · Management · HR · Payroll · Finance · Procurement · Guard · Supervisor · Customer · Customer Employee · Visitor · Parking · Supplier · Applicant · Other Security Company · Marketing Agent · Support Agent · Compliance · Developer
+
+Map UI + RBAC to these accounts; do not invent parallel account models.

@@ -1,0 +1,60 @@
+---
+description: PSSMS user categories, authority matrix, viewing hierarchy, approval flows (design §4, §35A–D)
+alwaysApply: true
+---
+
+# Roles, Authority & Governance
+
+## User categories (§4)
+
+**Internal:** CMD, CEO, GM, Dept Heads, Ops/Branch Managers, Field Officers, HR, Accounts, Payroll, Legal, Compliance, DPO, CISO, IT, Supervisors, Guards, CCTV/Control Room, Procurement, Storekeepers, Call Centre, Internal Auditors, System Admins.
+
+**External:** Customers, customer employees, guests/visitors, suppliers/vendors/contractors, applicants, other security companies, consultants, approved vehicle owners/drivers.
+
+## Governance principles (§35A.2) — non-negotiable
+
+1. One business owner per process  
+2. Every transaction has a **creator**  
+3. Independently **reviewed**  
+4. Approved by authorized officer  
+5. Remains **auditable**  
+6. **Creator ≠ approver** (unless explicit company policy exception)  
+7. Share only by RBAC/ABAC  
+8. Every decision traceable to an identified officer  
+
+Use shared `libs/approvals` — do not hand-roll per-module approval engines.
+
+## Viewing hierarchy (least privilege)
+
+| User | Scope |
+|---|---|
+| Guard | Own records only |
+| Supervisor | Own + assigned sites |
+| Field Officer | Assigned sites + assigned branch |
+| Branch Ops Manager | Full branch |
+| Branch Manager | Branch + limited company |
+| Dept Head | Department-wide + limited company |
+| GM / CEO / CMD | Company-wide |
+| Customer / Supplier / Applicant | Own org / own transactions / own application only |
+
+## Authorization matrix (summary)
+
+| Activity | Create → … → Final |
+|---|---|
+| Recruitment | Applicant → HR → HR Mgr → GM → **CEO** |
+| Employment | HR → HR Mgr → Dept Head → GM → **CEO** |
+| Leave | Employee → Supervisor → HR → Dept Head → GM (if required) |
+| Payroll | Payroll → HR Mgr → Finance Mgr → GM → **CEO** |
+| Customer contract | Marketing → Legal → GM → CEO → **CMD** (strategic) |
+| Procurement | Dept → Procurement → Proc Mgr → Finance Mgr → **GM** |
+| Payment voucher | Accountant → Finance Mgr → Auditor? → GM → **CEO** (over threshold) |
+| Petty cash | Employee → Supervisor → Finance → Finance Mgr → GM (over threshold) |
+| Incident closure | Guard/Supervisor → Field → BOM → GM → **CEO** (major) |
+| Policy change | Dept Head → Compliance → GM → CEO → **CMD** |
+| System config | SysAdmin → ICT Mgr → CISO → CEO → **CMD** (critical) |
+
+## Standard lifecycle (§35C)
+
+Request → Registration → Verification → Review → Approval → Execution → Monitoring → Reporting → Audit → Management Decision  
+
+Record officer, datetime, action, status at every stage.

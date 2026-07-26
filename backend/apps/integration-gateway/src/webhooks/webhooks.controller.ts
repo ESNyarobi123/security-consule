@@ -1,11 +1,22 @@
-import { Body, Controller, Get, Headers, Param, Post, Query, UseGuards } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  Headers,
+  Param,
+  Post,
+  Query,
+  UseGuards,
+} from '@nestjs/common';
 import {
   ApiBearerAuth,
   ApiOperation,
+  ApiSecurity,
   ApiTags,
 } from '@nestjs/swagger';
 import { ServiceTokenGuard } from '@pssms/shared';
 import { DispatchService } from '../dispatch/dispatch.service';
+import { ProvidersHealthService } from '../providers/providers-health.service';
 import { WebhookInboxService } from '../webhooks/webhook-inbox.service';
 
 @ApiTags('Webhooks')
@@ -23,7 +34,9 @@ export class WebhooksController {
     return this.inbox.receive({
       provider,
       eventType: 'payment.received',
-      idempotencyKey: idempotencyKey ?? `${provider}-${String(body.externalId ?? Date.now())}`,
+      idempotencyKey:
+        idempotencyKey ??
+        `${provider}-${String(body.externalId ?? Date.now())}`,
       body,
     });
   }
@@ -38,26 +51,34 @@ export class WebhooksController {
     return this.inbox.receive({
       provider,
       eventType: 'anpr.captured',
-      idempotencyKey: idempotencyKey ?? `${provider}-${String(body.captured_at ?? Date.now())}`,
+      idempotencyKey:
+        idempotencyKey ??
+        `${provider}-${String(body.captured_at ?? Date.now())}`,
       body,
     });
   }
 }
 
+/**
+ * Admin inbox — service-token only.
+ * Browser/admin-web must use core-api `/api/v1/developer/webhooks/*` (JWT).
+ */
 @ApiTags('Webhooks — Admin')
 @ApiBearerAuth()
+@ApiSecurity('service-token')
+@UseGuards(ServiceTokenGuard)
 @Controller('webhooks/inbox')
 export class WebhookInboxController {
   constructor(private readonly inbox: WebhookInboxService) {}
 
   @Get()
-  @ApiOperation({ summary: 'List webhook inbox entries' })
+  @ApiOperation({ summary: 'List webhook inbox entries (service token)' })
   list(@Query('status') status?: string) {
     return this.inbox.list(status);
   }
 
   @Post(':id/replay')
-  @ApiOperation({ summary: 'Replay failed webhook' })
+  @ApiOperation({ summary: 'Replay failed webhook (service token)' })
   replay(@Param('id') id: string) {
     return this.inbox.replay(id);
   }
@@ -92,18 +113,20 @@ export class HealthController {
   }
 }
 
+/**
+ * Adapter health — service-token only (core-api developer proxy uses this).
+ * CORS exists on :4003 but admin JWT is not accepted here.
+ */
 @ApiTags('Providers')
+@ApiBearerAuth()
+@UseGuards(ServiceTokenGuard)
 @Controller('providers')
 export class ProvidersHealthController {
+  constructor(private readonly providers: ProvidersHealthService) {}
+
   @Get('health')
-  @ApiOperation({ summary: 'Adapter health registry' })
+  @ApiOperation({ summary: 'Adapter health registry (real probes)' })
   health() {
-    return {
-      adapters: [
-        { code: 'console-sms', status: 'UP', category: 'SMS' },
-        { code: 'console-payment', status: 'UP', category: 'PAYMENT' },
-        { code: 'vision-ai-anpr', status: 'UP', category: 'ANPR' },
-      ],
-    };
+    return this.providers.health();
   }
 }

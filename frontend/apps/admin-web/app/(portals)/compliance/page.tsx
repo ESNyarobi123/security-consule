@@ -1,22 +1,40 @@
 'use client';
 
 import { listAuditLogs } from '@pssms/api-client';
-import { DataTable, PageHeader, SectionTitle, StatCard } from '@pssms/ui';
-import { Activity, Clock, Layers, ScrollText } from 'lucide-react';
-import { useEffect, useMemo, useState } from 'react';
+import {
+  DataTable,
+  GlassCard,
+  SectionTitle,
+  StatCard,
+  btnSecondary,
+} from '@pssms/ui';
+import { Activity, Clock, Layers, RefreshCw, ScrollText } from 'lucide-react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { ComplianceShell } from './_components/ComplianceShell';
+import { formatApiError, formatDateTime } from './_components/shared';
 
-export default function CompliancePage() {
+export default function ComplianceOverviewPage() {
   const [rows, setRows] = useState<
     Awaited<ReturnType<typeof listAuditLogs>>
   >([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  const refresh = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      setRows(await listAuditLogs(40));
+    } catch (err) {
+      setError(formatApiError(err));
+    } finally {
+      setLoading(false);
+    }
+  }, []);
 
   useEffect(() => {
-    void listAuditLogs(30).then((logs) => {
-      setRows(logs);
-      setLoading(false);
-    });
-  }, []);
+    void refresh();
+  }, [refresh]);
 
   const stats = useMemo(() => {
     const resourceTypes = new Set(rows.map((r) => r.resourceType)).size;
@@ -41,13 +59,36 @@ export default function CompliancePage() {
   }, [rows]);
 
   return (
-    <>
-      <PageHeader
-        title="Compliance & audit"
-        description="Append-only audit trail of every privileged action across the platform."
-      />
+    <ComplianceShell
+      title="Audit overview"
+      description="Append-only audit trail. Policies and the DPO breach register are under the tabs above. Risk register, DPIA, consent, and backup/DR are deferred."
+      actions={
+        <button
+          type="button"
+          onClick={() => void refresh()}
+          disabled={loading}
+          className={btnSecondary}
+        >
+          <RefreshCw
+            className={`h-3.5 w-3.5 ${loading ? 'animate-spin' : ''}`}
+          />
+          Refresh
+        </button>
+      }
+    >
+      <p className="mb-4 rounded border border-[#e1dfdd] bg-[#faf9f8] px-3 py-2 text-xs text-[#605e5c]">
+        Honest scope: this portal covers audit logs, policy documents (thin
+        COMPLIANCE_OFFICER → GM approval), and the DPO data-breach register.
+        Risk register / DPIA / consent / backup-DR are not built yet.
+      </p>
 
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      {error ? (
+        <p className="mb-3 rounded border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+          {error}
+        </p>
+      ) : null}
+
+      <div className="mb-5 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <StatCard
           label="Events loaded"
           value={stats.events}
@@ -79,25 +120,41 @@ export default function CompliancePage() {
       </div>
 
       <SectionTitle>Audit log</SectionTitle>
-      <DataTable
-        loading={loading}
-        keyField="id"
-        rows={rows}
-        columns={[
-          { key: 'action', label: 'Action' },
-          { key: 'resourceType', label: 'Resource' },
-          {
-            key: 'resourceId',
-            label: 'ID',
-            render: (r) => r.resourceId ?? '—',
-          },
-          {
-            key: 'createdAt',
-            label: 'When',
-            render: (r) => new Date(r.createdAt).toLocaleString(),
-          },
-        ]}
-      />
-    </>
+      <GlassCard className="!p-0 overflow-hidden">
+        <DataTable
+          loading={loading}
+          keyField="id"
+          rows={rows}
+          emptyMessage="No audit events"
+          columns={[
+            { key: 'action', label: 'Action' },
+            { key: 'resourceType', label: 'Resource' },
+            {
+              key: 'resourceId',
+              label: 'ID',
+              render: (r) => (
+                <span className="font-mono text-[11px]">
+                  {r.resourceId ? r.resourceId.slice(0, 8) : '—'}
+                </span>
+              ),
+            },
+            {
+              key: 'actorId',
+              label: 'Actor',
+              render: (r) => (
+                <span className="font-mono text-[11px] text-[#605e5c]">
+                  {r.actorId ? r.actorId.slice(0, 8) : '—'}
+                </span>
+              ),
+            },
+            {
+              key: 'createdAt',
+              label: 'When',
+              render: (r) => formatDateTime(r.createdAt),
+            },
+          ]}
+        />
+      </GlassCard>
+    </ComplianceShell>
   );
 }

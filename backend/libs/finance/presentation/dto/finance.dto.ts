@@ -9,6 +9,7 @@ import {
   IsString,
   IsUUID,
   Min,
+  MinLength,
   ValidateNested,
 } from 'class-validator';
 import { Type } from 'class-transformer';
@@ -172,6 +173,60 @@ export class CreatePettyCashVoucherDto {
   receiptUrl?: string;
 }
 
+/** ESS / thin create — fund resolved by service (default active imprest). */
+export class CreateEssPettyCashVoucherDto {
+  @ApiProperty()
+  @IsNumber()
+  @Min(1)
+  amount!: number;
+
+  @ApiProperty()
+  @IsString()
+  @MinLength(3)
+  purpose!: string;
+
+  @ApiProperty({ example: 'TRANSPORT' })
+  @IsString()
+  @MinLength(2)
+  category!: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  receiptUrl?: string;
+}
+
+export class RejectPettyCashVoucherDto {
+  @ApiProperty({ example: 'Insufficient justification' })
+  @IsString()
+  @MinLength(3)
+  reason!: string;
+}
+
+/**
+ * Mark APPROVED voucher as REIMBURSED (retire/receipt).
+ * At least one of receiptUrl or notes is required (auditable signal).
+ * MinIO files attach via /documents (resourceType PettyCashVoucher); UI stores
+ * receiptUrl as document:{id} when a file is uploaded.
+ */
+export class ReimbursePettyCashVoucherDto {
+  @ApiPropertyOptional({
+    example: 'document:clx… or https://files.example/receipts/pcv-00012.jpg',
+  })
+  @IsOptional()
+  @IsString()
+  @MinLength(1)
+  receiptUrl?: string;
+
+  @ApiPropertyOptional({
+    example: 'Cash receipt #4412 — stationery, HQ store',
+  })
+  @IsOptional()
+  @IsString()
+  @MinLength(1)
+  notes?: string;
+}
+
 export class PettyCashVoucherResponseDto {
   @ApiProperty() id!: string;
   @ApiProperty() organizationId!: string;
@@ -181,9 +236,11 @@ export class PettyCashVoucherResponseDto {
   @ApiProperty() purpose!: string;
   @ApiProperty() category!: string;
   @ApiProperty() status!: string;
+  @ApiPropertyOptional() receiptUrl?: string | null;
   @ApiPropertyOptional() approvalInstanceId?: string | null;
   @ApiPropertyOptional() approvedBy?: string | null;
   @ApiPropertyOptional() reimbursedAt?: Date | null;
+  @ApiProperty() createdBy!: string;
   @ApiProperty() createdAt!: Date;
 }
 

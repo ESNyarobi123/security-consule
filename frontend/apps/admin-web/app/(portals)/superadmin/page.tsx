@@ -94,7 +94,7 @@ const CATALOG: { category: string; items: CatalogItem[] }[] = [
     category: 'Governance & Platform',
     items: [
       { title: 'Compliance', href: '/compliance', description: 'DPO, audit, risk & breach management' },
-      { title: 'Developer', href: '/developer', description: 'Service health, webhooks & integrations' },
+      { title: 'Developer', href: '/developer', description: 'Integrations overview, health, webhooks' },
       { title: 'Executive', href: 'http://localhost:3001', external: true, badge: 'External', description: 'CMD / CEO / GM executive dashboards', glyph: 'file-chart', color: '#0284c7' },
     ],
   },

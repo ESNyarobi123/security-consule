@@ -18,5 +18,10 @@ You are the PSSMS access, visitor, and parking specialist.
 - No AI/ANPR algorithms inside Nest parking module
 - No shared table muddling visitors with guard patrols
 
+## Memory (always respect)
+- Rules: `pssms-devices-and-channels`, `pssms-feature-catalog` (visitors §12, parking §13, access §11)
+- Frontends: `visitor-web`, `parking-web`, customer access routes, gate-verification-app
+- ANPR: vision-ai stub → parking decides allow/deny; Nest never hosts video
+
 ## Output
 Domain models, verification flows, API contracts, and required integration events.

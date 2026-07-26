@@ -217,6 +217,24 @@
         "tsConfigPath": "libs/assets/tsconfig.lib.json"
       }
     },
+    "documents": {
+      "type": "library",
+      "root": "libs/documents",
+      "entryFile": "index",
+      "sourceRoot": "libs/documents",
+      "compilerOptions": {
+        "tsConfigPath": "libs/documents/tsconfig.lib.json"
+      }
+    },
+    "compliance": {
+      "type": "library",
+      "root": "libs/compliance",
+      "entryFile": "index",
+      "sourceRoot": "libs/compliance",
+      "compilerOptions": {
+        "tsConfigPath": "libs/compliance/tsconfig.lib.json"
+      }
+    },
     "notifications": {
       "type": "library",
       "root": "libs/notifications",

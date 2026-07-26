@@ -8,10 +8,11 @@ name: pssms-prod
 # Bring up:
 #   docker compose -f docker-compose.prod.yml --env-file .env.prod up -d --build
 #
-# NOTE: This intentionally omits Keycloak, RabbitMQ, MQTT, MinIO, the extra
-# portals and the Python AI services so the whole thing fits a 2 GB box.
-# core-api runs in AUTH_MODE=local (break-glass POST /auth/login) and only
-# needs Postgres + Redis. Scale up on a larger host with the full compose.
+# NOTE: This intentionally omits Keycloak, RabbitMQ, MQTT, the extra portals
+# and the Python AI services so the whole thing fits a 2 GB box. MinIO is
+# included (lean) for documents / petty-cash receipts. core-api runs in
+# AUTH_MODE=local (break-glass POST /auth/login). Scale up on a larger host
+# with the full compose.
 
 x-backend-env: &backend-env
   NODE_ENV: production
@@ -28,6 +29,14 @@ x-backend-env: &backend-env
   SMS_PROVIDER: console
   PAYMENT_PROVIDER: console
   WEBHOOK_VERIFY: "false"
+  MINIO_ENDPOINT: minio
+  MINIO_PORT: "9000"
+  MINIO_PUBLIC_ENDPOINT: ${MINIO_PUBLIC_ENDPOINT:-files.hisgc.co.tz}
+  MINIO_PUBLIC_PORT: ${MINIO_PUBLIC_PORT:-443}
+  MINIO_USE_SSL: ${MINIO_USE_SSL:-true}
+  MINIO_ROOT_USER: ${MINIO_ROOT_USER:-pssms}
+  MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-pssms_minio_password}
+  MINIO_BUCKET_DOCUMENTS: ${MINIO_BUCKET_DOCUMENTS:-pssms-documents}
 
 services:
   postgres:
@@ -59,6 +68,17 @@ services:
       timeout: 5s
       retries: 5
 
+  minio:
+    image: minio/minio:latest
+    container_name: pssms-minio
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-pssms}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-pssms_minio_password}
+    volumes:
+      - minio_data:/data
+
   db-migrate:
     build:
       context: ../../backend
@@ -77,7 +97,10 @@ services:
         npx prisma db execute --file prisma/migrations/0001_reporting_rls/migration.sql --schema prisma/schema.prisma &&
         npm run prisma:seed &&
         npx prisma db execute --file prisma/migrations/0003_rls_core/migration.sql --schema prisma/schema.prisma &&
-        npx prisma db execute --file prisma/migrations/0004_devices/migration.sql --schema prisma/schema.prisma
+        npx prisma db execute --file prisma/migrations/0004_devices/migration.sql --schema prisma/schema.prisma &&
+        npx prisma db execute --file prisma/migrations/0005_asset_return_confirm/migration.sql --schema prisma/schema.prisma &&
+        npx prisma db execute --file prisma/migrations/0006_compliance/migration.sql --schema prisma/schema.prisma &&
+        npx prisma db execute --file prisma/migrations/0007_documents/migration.sql --schema prisma/schema.prisma
       "
     depends_on:
       postgres:
@@ -103,6 +126,8 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+      minio:
+        condition: service_started
 
   admin-web:
     build:
@@ -138,9 +163,11 @@ services:
     depends_on:
       - core-api
       - admin-web
+      - minio
 
 volumes:
   postgres_data:
   redis_data:
+  minio_data:
   caddy_data:
   caddy_config:

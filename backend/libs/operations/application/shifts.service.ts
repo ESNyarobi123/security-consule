@@ -1,5 +1,5 @@
 import {
-  ConflictException,
+  BadRequestException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
@@ -23,6 +23,37 @@ export class ShiftsService {
     });
     if (!site) throw new NotFoundException('Site not found');
 
+    const uniqueGuardIds = [...new Set(dto.guardIds)];
+    if (uniqueGuardIds.length === 0) {
+      throw new BadRequestException('At least one guard is required');
+    }
+    const orgGuards = await this.prisma.guardProfile.findMany({
+      where: {
+        id: { in: uniqueGuardIds },
+        organizationId: user.organizationId,
+      },
+      select: { id: true },
+    });
+    if (orgGuards.length !== uniqueGuardIds.length) {
+      throw new BadRequestException(
+        'One or more guards are not in your organization',
+      );
+    }
+    if (dto.supervisorId) {
+      const supervisor = await this.prisma.guardProfile.findFirst({
+        where: {
+          id: dto.supervisorId,
+          organizationId: user.organizationId,
+        },
+        select: { id: true },
+      });
+      if (!supervisor) {
+        throw new BadRequestException(
+          'Supervisor is not in your organization',
+        );
+      }
+    }
+
     const shift = await this.prisma.shift.create({
       data: {
         organizationId: user.organizationId,
@@ -33,7 +64,7 @@ export class ShiftsService {
         instructions: dto.instructions,
         createdBy: user.id,
         assignments: {
-          create: dto.guardIds.map((guardId) => ({
+          create: uniqueGuardIds.map((guardId) => ({
             guardId,
             supervisorId: dto.supervisorId,
           })),

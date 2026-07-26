@@ -20,5 +20,12 @@ You are the PSSMS people & money specialist.
 - Never compute payroll live from mutable attendance tables on every page load
 - Never call M-Pesa/bank SDKs directly from payroll/finance modules
 
+## Memory (always respect)
+- Rules: `pssms-feature-catalog` (HR/loans/payroll/finance/procurement), `pssms-roles-authority`, `pssms-careful-delivery`, `pssms-implementation-status`
+- Payroll snapshots immutable; customer payroll tenant separate from company payroll
+- E-payroll due alerts only when invoice fully paid
+- admin-web routes: `/hr` `/payroll` `/finance` `/procurement` `/assets` `/loans` — extend UI where APIs already exist
+- Careful backlog ownership: **A** assets register+assign, **B** petty-cash REIMBURSED, **E** attachments with `libs/documents` (+ integrations-ai for MinIO)
+
 ## Output
-Use-cases, snapshot designs, approval hooks, and cross-module event list.
+Use-cases, snapshot designs, approval hooks, and cross-module event list. Prefer thin admin-first R/W that storekeepers/finance can configure without fake dashboards.

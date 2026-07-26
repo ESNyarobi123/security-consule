@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  ForbiddenException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
@@ -13,6 +14,7 @@ import {
   CreateLeaveTypeDto,
   LeaveRequestResponseDto,
   LeaveTypeResponseDto,
+  RejectLeaveRequestDto,
 } from '../presentation/dto/leave.dto';
 
 @Injectable()
@@ -124,19 +126,34 @@ export class LeaveService {
   }
 
   async approveLeave(id: string, user: AuthUser): Promise<LeaveRequestResponseDto> {
-    const request = await this.prisma.leaveRequest.findFirst({
-      where: { id, organizationId: user.organizationId },
-    });
-    if (!request) throw new NotFoundException('Leave request not found');
+    const request = await this.findPendingOrThrow(id, user.organizationId);
+    this.assertNotCreator(request.createdBy, user);
     if (!request.approvalInstanceId) {
       throw new BadRequestException('No approval instance');
     }
 
-    await this.approvals.act(
+    const approval = await this.approvals.act(
       request.approvalInstanceId,
       { decision: 'APPROVE' },
       user,
     );
+
+    // Only mark leave APPROVED when the workflow instance is fully APPROVED
+    // (multi-step chains may still be PENDING after this act).
+    if (approval.status !== 'APPROVED') {
+      await this.audit.record({
+        organizationId: user.organizationId,
+        actorId: user.id,
+        action: 'leave.approval_step',
+        resourceType: 'LeaveRequest',
+        resourceId: id,
+        after: {
+          approvalStatus: approval.status,
+          currentStepOrder: approval.currentStepOrder,
+        },
+      });
+      return this.toRequestDto(request);
+    }
 
     const updated = await this.prisma.leaveRequest.update({
       where: { id },
@@ -159,6 +176,42 @@ export class LeaveService {
     return this.toRequestDto(updated);
   }
 
+  async rejectLeave(
+    id: string,
+    dto: RejectLeaveRequestDto,
+    user: AuthUser,
+  ): Promise<LeaveRequestResponseDto> {
+    const request = await this.findPendingOrThrow(id, user.organizationId);
+    this.assertNotCreator(request.createdBy, user);
+
+    if (request.approvalInstanceId) {
+      await this.approvals.act(
+        request.approvalInstanceId,
+        { decision: 'REJECT', remarks: dto.reason },
+        user,
+      );
+    }
+
+    const updated = await this.prisma.leaveRequest.update({
+      where: { id },
+      data: {
+        status: LeaveRequestStatus.REJECTED,
+        rejectedReason: dto.reason,
+      },
+    });
+
+    await this.audit.record({
+      organizationId: user.organizationId,
+      actorId: user.id,
+      action: 'leave.rejected',
+      resourceType: 'LeaveRequest',
+      resourceId: id,
+      after: updated,
+    });
+
+    return this.toRequestDto(updated);
+  }
+
   async listLeaveRequests(
     organizationId: string,
     employeeId?: string,
@@ -172,6 +225,30 @@ export class LeaveService {
       take: 100,
     });
     return rows.map((r) => this.toRequestDto(r));
+  }
+
+  private async findPendingOrThrow(id: string, organizationId: string) {
+    const request = await this.prisma.leaveRequest.findFirst({
+      where: { id, organizationId },
+    });
+    if (!request) throw new NotFoundException('Leave request not found');
+    if (request.status !== LeaveRequestStatus.PENDING) {
+      throw new BadRequestException('Only pending leave requests can be acted on');
+    }
+    return request;
+  }
+
+  private assertNotCreator(createdBy: string | null, user: AuthUser) {
+    if (
+      createdBy &&
+      createdBy === user.id &&
+      !user.roles.includes('SUPER_ADMIN')
+    ) {
+      throw new ForbiddenException({
+        error: 'CREATOR_CANNOT_APPROVE',
+        message: 'Creator cannot approve or reject their own request',
+      });
+    }
   }
 
   private toTypeDto(t: {
@@ -203,6 +280,7 @@ export class LeaveService {
     reason: string;
     status: LeaveRequestStatus;
     approvalInstanceId: string | null;
+    createdBy: string | null;
     approvedBy: string | null;
     approvedAt: Date | null;
     rejectedReason: string | null;
@@ -219,6 +297,7 @@ export class LeaveService {
       reason: r.reason,
       status: r.status,
       approvalInstanceId: r.approvalInstanceId,
+      createdBy: r.createdBy,
       approvedBy: r.approvedBy,
       approvedAt: r.approvedAt,
       rejectedReason: r.rejectedReason,

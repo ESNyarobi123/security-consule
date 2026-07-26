@@ -1,0 +1,50 @@
+---
+description: Condensed feature catalog per design module — consult before implementing incomplete PSSMS features
+alwaysApply: true
+---
+
+# Feature Catalog (Design Modules §5–34)
+
+When finishing incomplete work, implement the **capabilities below**, not a thinner substitute. Full narrative remains in the design docx.
+
+| # | Module | Must support |
+|---|---|---|
+| 5 | Admin / Users | Registration, roles, permissions, password policy, MFA, login history, audit, suspension, approvals, access restriction |
+| 6 | Customers | Profile, sites, contacts, services, billing, employees, assigned guards, invoices, complaints, incidents, parking/access, **customer portal** |
+| 7 | Contracts | Guard, CCTV, recruitment, payroll, visitor, access, parking, alarm, technical — dates, fees, SLA, docs, status, renewals |
+| 8 | Guard Mgmt | Profile→deployment: ID, training, clearances, uniform/equipment, firearm auth, site/shift, leave, discipline, status |
+| 9 | Guard Attendance | Bio/GPS/QR/NFC/device; site/shift/in-out/late/OT; **company users only** — never customer staff |
+| 10 | Alertness | Post clock-in confirmations (scheduled/random); miss escalations; feeds payroll/performance/audit |
+| 11 | Customer Employee Access | Separate from guards; registration, access level, bio/QR/card, gate/office; **customer sees own only** |
+| 12 | Visitors | Online appointment, host approve/reject, unique code, gate verify, entry/exit log, deny+alert on bad code |
+| 13 | Parking | Vehicles, access, allocation, entry/exit, CCTV/ANPR/RFID, patrols, violations, permits, billing, reports |
+| 14 | Recruitment (internal) | Apply, docs, screen, interview, background, medical, train, onboard → employee/guard |
+| 15 | Recruitment B2B | Other security cos request guards by criteria; screening; invoice for service |
+| 16 | HR | Profile, contract, dept/position/branch, leave, training, performance, discipline, transfer, exit, docs |
+| 17 | Employee Loans | Boots/phone/cash/uniform/emergency/advance; approve; issue; schedule; payroll deduct; statements |
+| 18 | Company Payroll | Salary+attendance+alertness+OT+allowances+loans+statutory; register/payslip/bank/mobile file; **approval before pay**; snapshots |
+| 19 | Customer Payroll Svc | Separate calculation; customer sees own only |
+| 20 | E-Payroll Due Alerts | Due 1st of next month **only if invoice fully paid**; block unpaid/partial/disputed unless exception |
+| 21 | Invoices & Payments | All service types; statuses draft→closed; overdue/unpaid/payroll-due alerts |
+| 22 | Petty Cash | Request→approve→issue→receipt→retire; **no issue without approval** |
+| 23 | Payment Vouchers | Payee, refs, docs, multi-stage approval, bank/mobile money, audit |
+| 24 | Suppliers | Register+portal; docs, quotes, invoices, DNs; own data only |
+| 25 | Procurement & Inventory | PR, compare, PO, GRN, stock alerts; uniforms/boots/radios/CCTV/access devices |
+| 26 | Assets | Register, assign to guards, return, damage, maintain, transfer, dispose |
+| 27 | Branch & Field Ops | BOM/Field supervise sites, attendance, alertness, complaints, patrols, parking, incidents |
+| 28 | CCTV / Security Systems | Monitoring, AI alerts, ANPR, access devices — **authorized users**; Nest = metadata/events |
+| 29 | Patrol / Checkpoints | Schedules, routes, QR/NFC/GPS, miss/delay, supervisor oversight via guard app |
+| 30 | EOB | Daily events; attachments; **no delete/alter without approval + audit** |
+| 31 | Incidents & Risk | Breach, theft, fake code, misconduct, parking, payroll/supplier disputes, data breach; evidence→closure |
+| 32 | Compliance / DPO | Laws, consent, encryption, backup/DR, breach mgmt, accountability |
+| 33 | Data Separation | Strict tenant/party isolation (see devices rule) |
+| 34 | Reports & Dashboards | All domains above + executive views |
+
+## Cross-flows to preserve
+
+Ops: Guard app → Supervisor → Branch Ops → Executive  
+HR: Recruitment → HR → Payroll → ESS → Executive  
+Visitor: Appointment → Host → Gate → EOB → Reports  
+Finance: Marketing → Contract → Finance → Invoice → Pay → Payroll → Executive  
+Procurement: Dept → Procurement → Supplier → Finance → Assets  
+Compliance: All portals → DPO/Audit → Executive → CMD

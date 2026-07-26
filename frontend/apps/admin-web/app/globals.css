@@ -146,12 +146,37 @@ body {
   height: 0;
 }
 
+/* CCTV control-room drawer */
+@keyframes cctv-drawer-in {
+  from {
+    transform: translateX(100%);
+    opacity: 0.88;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+.cctv-drawer {
+  animation: cctv-drawer-in 280ms ease-out;
+}
+
+/* Ops guard roster cards — subtle lift already via Tailwind; respect reduced motion */
+.guard-card {
+  will-change: transform;
+}
+
 /* Respect users who prefer reduced motion */
 @media (prefers-reduced-motion: reduce) {
   .az-brand-orb,
   .animate-login-rise,
-  .animate-pulse {
+  .animate-pulse,
+  .cctv-drawer {
     animation: none !important;
+  }
+  .guard-card {
+    transition: none !important;
+    transform: none !important;
   }
   * {
     scroll-behavior: auto !important;

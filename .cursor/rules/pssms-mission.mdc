@@ -32,3 +32,7 @@ Before implementing, ask:
 ❌ Feature that only looks good on a portal menu but skips verify/audit
 ✅ Feature with clear domain ownership, verification, and auditability
 ```
+
+## Design memory (always loaded)
+
+Before design/implement also follow: `pssms-before-you-build`, `pssms-feature-catalog`, `pssms-portals-and-accounts`, `pssms-roles-authority`, `pssms-devices-and-channels`. Full narrative: `PRIVATE SECURITY SERVICES MANAGEMENT SYSTEM DESIGN.docx`.

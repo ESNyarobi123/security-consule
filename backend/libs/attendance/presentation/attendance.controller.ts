@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Post, Query } from '@nestjs/common';
+import { Body, Controller, Get, Param, Post, Query, UseGuards } from '@nestjs/common';
 import {
   ApiBearerAuth,
   ApiCreatedResponse,
@@ -7,7 +7,12 @@ import {
   ApiQuery,
   ApiTags,
 } from '@nestjs/swagger';
-import { AuthUser, CurrentUser } from '@pssms/shared';
+import {
+  AuthUser,
+  CurrentUser,
+  PermissionsGuard,
+  RequireAnyPermissions,
+} from '@pssms/shared';
 import { AttendanceService } from '../application/attendance.service';
 import {
   AttendanceListItemDto,
@@ -18,6 +23,7 @@ import {
 
 @ApiTags('Attendance')
 @ApiBearerAuth()
+@UseGuards(PermissionsGuard)
 @Controller('attendance')
 export class AttendanceController {
   constructor(private readonly service: AttendanceService) {}
@@ -41,6 +47,7 @@ export class AttendanceController {
   }
 
   @Post(':id/approve')
+  @RequireAnyPermissions('operations.manage', 'attendance.manage')
   @ApiOperation({
     summary: 'Supervisor approve guard attendance',
     description:
@@ -52,18 +59,35 @@ export class AttendanceController {
   }
 
   @Get()
-  @ApiOperation({ summary: 'List guard attendance records' })
+  @RequireAnyPermissions('operations.manage', 'attendance.manage')
+  @ApiOperation({
+    summary: 'List guard attendance records (org-scoped)',
+    description:
+      'Requires operations.manage or attendance.manage. Optional from/to filter on clockInAt (ISO).',
+  })
   @ApiQuery({ name: 'siteId', required: false })
   @ApiQuery({
     name: 'supervisorApproved',
     required: false,
     enum: ['true', 'false'],
   })
+  @ApiQuery({
+    name: 'from',
+    required: false,
+    description: 'ISO datetime — clockInAt >= from',
+  })
+  @ApiQuery({
+    name: 'to',
+    required: false,
+    description: 'ISO datetime — clockInAt < to',
+  })
   @ApiOkResponse({ type: [AttendanceListItemDto] })
   list(
     @CurrentUser() user: AuthUser,
     @Query('siteId') siteId?: string,
     @Query('supervisorApproved') supervisorApproved?: string,
+    @Query('from') from?: string,
+    @Query('to') to?: string,
   ) {
     const approved =
       supervisorApproved === 'true'
@@ -71,6 +95,12 @@ export class AttendanceController {
         : supervisorApproved === 'false'
           ? false
           : undefined;
-    return this.service.list(user.organizationId, siteId, approved);
+    return this.service.list(
+      user.organizationId,
+      siteId,
+      approved,
+      from ? new Date(from) : undefined,
+      to ? new Date(to) : undefined,
+    );
   }
 }

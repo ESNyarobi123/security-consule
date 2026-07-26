@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Post, Query } from '@nestjs/common';
+import { Body, Controller, Get, Post, Query, UseGuards } from '@nestjs/common';
 import {
   ApiBearerAuth,
   ApiCreatedResponse,
@@ -7,12 +7,19 @@ import {
   ApiQuery,
   ApiTags,
 } from '@nestjs/swagger';
-import { AuthUser, CurrentUser } from '@pssms/shared';
+import {
+  AuthUser,
+  CurrentUser,
+  PermissionsGuard,
+  RequirePermissions,
+} from '@pssms/shared';
 import { ShiftsService } from '../application/shifts.service';
 import { CreateShiftDto, ShiftResponseDto } from './dto/operations.dto';
 
 @ApiTags('Operations')
 @ApiBearerAuth()
+@UseGuards(PermissionsGuard)
+@RequirePermissions('operations.manage')
 @Controller('operations/shifts')
 export class ShiftsController {
   constructor(private readonly service: ShiftsService) {}

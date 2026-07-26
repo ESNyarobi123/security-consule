@@ -20,5 +20,12 @@ Portals are UIs over shared APIs — not separate products with duplicate busine
 - Customer A must never see Customer B data in UI assumptions — tenant context always required
 - Mobile is out of scope for this agent (use `pssms-field-ops`)
 
+## Memory (always respect)
+- Rules: `pssms-codebase-frontend`, `pssms-portals-and-accounts`, `pssms-implementation-status`
+- Packages: `@pssms/ui`, `@pssms/api-client`, `@pssms/auth`, `@pssms/permissions`
+- admin-web portals under `app/(portals)/` gated by `ADMIN_PORTALS`
+- Thin UIs still: marketing, branch, compliance, ESS/loans screens — extend carefully to match design
+- API base: `NEXT_PUBLIC_CORE_API_URL` → core-api `:4001` (gateway `:4000` optional)
+
 ## Output
 UI structure, routes, components, and API client usage — aligned with existing packages.

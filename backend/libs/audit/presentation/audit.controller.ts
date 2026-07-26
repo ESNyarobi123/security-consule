@@ -1,17 +1,24 @@
-import { Controller, Get, Query } from '@nestjs/common';
+import { Controller, Get, Query, UseGuards } from '@nestjs/common';
 import {
   ApiBearerAuth,
   ApiOkResponse,
   ApiOperation,
   ApiProperty,
+  ApiPropertyOptional,
   ApiQuery,
   ApiTags,
 } from '@nestjs/swagger';
-import { AuthUser, CurrentUser } from '@pssms/shared';
+import {
+  AuthUser,
+  CurrentUser,
+  PermissionsGuard,
+  RequirePermissions,
+} from '@pssms/shared';
 import { AuditService } from '../application/audit.service';
 
 class AuditLogResponseDto {
   @ApiProperty() id!: string;
+  @ApiPropertyOptional() actorId?: string | null;
   @ApiProperty() action!: string;
   @ApiProperty() resourceType!: string;
   @ApiProperty({ required: false }) resourceId?: string | null;
@@ -20,6 +27,8 @@ class AuditLogResponseDto {
 
 @ApiTags('Audit')
 @ApiBearerAuth()
+@UseGuards(PermissionsGuard)
+@RequirePermissions('audit.read')
 @Controller('audit')
 export class AuditController {
   constructor(private readonly audit: AuditService) {}

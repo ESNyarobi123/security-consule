@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  ForbiddenException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
@@ -13,6 +14,14 @@ import {
   ConfirmAlertnessDto,
   ScheduleAlertnessDto,
 } from '../presentation/dto/attendance.dto';
+
+function canManageAlertness(user: AuthUser): boolean {
+  if (user.roles.includes('SUPER_ADMIN')) return true;
+  return (
+    user.permissions.includes('operations.manage') ||
+    user.permissions.includes('attendance.manage')
+  );
+}
 
 @Injectable()
 export class AlertnessService {
@@ -143,13 +152,33 @@ export class AlertnessService {
   }
 
   async listPending(user: AuthUser, guardId?: string) {
+    const manage = canManageAlertness(user);
     let resolvedGuardId = guardId;
-    if (!resolvedGuardId) {
-      const guard = await this.guards.getByUserId(
+
+    if (!manage) {
+      // Guard self-service only — never org-wide or another guard's queue
+      const self = await this.guards.getByUserId(
         user.id,
         user.organizationId,
       );
-      if (guard) resolvedGuardId = guard.id;
+      if (!self) {
+        throw new ForbiddenException(
+          'Missing permission(s): operations.manage or attendance.manage',
+        );
+      }
+      if (guardId && guardId !== self.id) {
+        throw new ForbiddenException(
+          'Cannot list pending alertness for another guard',
+        );
+      }
+      resolvedGuardId = self.id;
+    } else if (guardId) {
+      const target = await this.prisma.guardProfile.findFirst({
+        where: { id: guardId, organizationId: user.organizationId },
+        select: { id: true },
+      });
+      if (!target) throw new NotFoundException('Guard not found');
+      resolvedGuardId = target.id;
     }
 
     return this.prisma.alertnessCheck.findMany({

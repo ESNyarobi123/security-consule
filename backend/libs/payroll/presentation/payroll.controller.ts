@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Post } from '@nestjs/common';
+import { Body, Controller, Get, Param, Post, UseGuards } from '@nestjs/common';
 import {
   ApiBearerAuth,
   ApiCreatedResponse,
@@ -6,7 +6,12 @@ import {
   ApiOperation,
   ApiTags,
 } from '@nestjs/swagger';
-import { AuthUser, CurrentUser } from '@pssms/shared';
+import {
+  AuthUser,
+  CurrentUser,
+  PermissionsGuard,
+  RequirePermissions,
+} from '@pssms/shared';
 import { PayrollService } from '../application/payroll.service';
 import {
   CreatePayrollCycleDto,
@@ -17,6 +22,8 @@ import {
 
 @ApiTags('Payroll')
 @ApiBearerAuth()
+@UseGuards(PermissionsGuard)
+@RequirePermissions('payroll.manage')
 @Controller('payroll')
 export class PayrollController {
   constructor(private readonly service: PayrollService) {}

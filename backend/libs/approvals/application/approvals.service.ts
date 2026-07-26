@@ -83,8 +83,11 @@ export class ApprovalsService {
       throw new BadRequestException('Approval is not pending');
     }
 
-    // Governance: creator cannot approve own request
-    if (instance.createdBy === user.id) {
+    // Governance: creator cannot approve own request (SUPER_ADMIN exception)
+    if (
+      instance.createdBy === user.id &&
+      !user.roles.includes('SUPER_ADMIN')
+    ) {
       throw new ForbiddenException({
         error: 'CREATOR_CANNOT_APPROVE',
         message: 'Creator cannot approve or reject their own request',

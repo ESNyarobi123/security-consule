@@ -22,11 +22,15 @@ import { FinanceModule } from '@pssms/finance';
 import { ProcurementModule } from '@pssms/procurement';
 import { InventoryModule } from '@pssms/inventory';
 import { AssetsModule } from '@pssms/assets';
+import { DocumentsModule } from '@pssms/documents';
+import { ComplianceModule } from '@pssms/compliance';
 import { NotificationsModule } from '@pssms/notifications';
 import { DevicesModule } from '@pssms/devices';
 import { HealthController } from './health.controller';
 import { InternalController } from './internal.controller';
 import { DevicesInternalController } from './devices-internal.controller';
+import { DeveloperIntegrationsController } from './developer/developer-integrations.controller';
+import { DeveloperIntegrationsService } from './developer/developer-integrations.service';
 import { join } from 'path';
 
 @Module({
@@ -61,9 +65,17 @@ import { join } from 'path';
     ProcurementModule,
     InventoryModule,
     AssetsModule,
+    DocumentsModule,
+    ComplianceModule,
     NotificationsModule,
     DevicesModule,
   ],
-  controllers: [HealthController, InternalController, DevicesInternalController],
+  controllers: [
+    HealthController,
+    InternalController,
+    DevicesInternalController,
+    DeveloperIntegrationsController,
+  ],
+  providers: [DeveloperIntegrationsService],
 })
 export class AppModule {}

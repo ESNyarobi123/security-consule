@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Post, Query } from '@nestjs/common';
+import { Body, Controller, Get, Post, Query, UseGuards } from '@nestjs/common';
 import {
   ApiBearerAuth,
   ApiCreatedResponse,
@@ -7,7 +7,12 @@ import {
   ApiQuery,
   ApiTags,
 } from '@nestjs/swagger';
-import { AuthUser, CurrentUser } from '@pssms/shared';
+import {
+  AuthUser,
+  CurrentUser,
+  PermissionsGuard,
+  RequirePermissions,
+} from '@pssms/shared';
 import { CheckpointsService } from '../application/checkpoints.service';
 import {
   CheckpointResponseDto,
@@ -16,6 +21,8 @@ import {
 
 @ApiTags('Operations')
 @ApiBearerAuth()
+@UseGuards(PermissionsGuard)
+@RequirePermissions('operations.manage')
 @Controller('operations/checkpoints')
 export class CheckpointsController {
   constructor(private readonly service: CheckpointsService) {}
@@ -28,10 +35,14 @@ export class CheckpointsController {
   }
 
   @Get()
-  @ApiOperation({ summary: 'List checkpoints for a site' })
-  @ApiQuery({ name: 'siteId', required: true })
+  @ApiOperation({
+    summary: 'List patrol checkpoints',
+    description:
+      'Requires operations.manage. Optional siteId filter; omit for org-wide active checkpoints.',
+  })
+  @ApiQuery({ name: 'siteId', required: false })
   @ApiOkResponse({ type: [CheckpointResponseDto] })
-  list(@CurrentUser() user: AuthUser, @Query('siteId') siteId: string) {
-    return this.service.list(siteId, user.organizationId);
+  list(@CurrentUser() user: AuthUser, @Query('siteId') siteId?: string) {
+    return this.service.list(user.organizationId, siteId);
   }
 }

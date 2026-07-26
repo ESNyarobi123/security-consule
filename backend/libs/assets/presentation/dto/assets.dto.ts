@@ -2,12 +2,16 @@ import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { AssetStatus } from '@prisma/client';
 import {
   IsDateString,
+  IsIn,
   IsNumber,
   IsOptional,
   IsString,
   IsUUID,
   Min,
 } from 'class-validator';
+
+export const RETURN_CONDITIONS = ['GOOD', 'DAMAGED', 'LOST'] as const;
+export type ReturnCondition = (typeof RETURN_CONDITIONS)[number];
 
 export class CreateAssetDto {
   @ApiProperty({ example: 'AST-RADIO-001' })
@@ -40,6 +44,13 @@ export class CreateAssetDto {
   serialNumber?: string;
 }
 
+export class ActiveAssignmentSummaryDto {
+  @ApiProperty() id!: string;
+  @ApiPropertyOptional() assignedToEmployeeId?: string | null;
+  @ApiPropertyOptional() assignedToGuardId?: string | null;
+  @ApiProperty() assignedAt!: Date;
+}
+
 export class AssetResponseDto {
   @ApiProperty() id!: string;
   @ApiProperty() organizationId!: string;
@@ -51,6 +62,22 @@ export class AssetResponseDto {
   @ApiPropertyOptional() serialNumber?: string | null;
   @ApiProperty({ enum: AssetStatus }) status!: AssetStatus;
   @ApiProperty() createdAt!: Date;
+  @ApiPropertyOptional({ type: ActiveAssignmentSummaryDto })
+  activeAssignment?: ActiveAssignmentSummaryDto | null;
+}
+
+export class AssetAssigneeOptionDto {
+  @ApiProperty() id!: string;
+  @ApiProperty() employeeNumber!: string;
+  @ApiProperty() fullName!: string;
+}
+
+export class AssetAssigneeOptionsDto {
+  @ApiProperty({ type: [AssetAssigneeOptionDto] })
+  employees!: AssetAssigneeOptionDto[];
+
+  @ApiProperty({ type: [AssetAssigneeOptionDto] })
+  guards!: AssetAssigneeOptionDto[];
 }
 
 export class AssignAssetDto {
@@ -70,6 +97,29 @@ export class AssignAssetDto {
   notes?: string;
 }
 
+export class ConfirmReturnDto {
+  @ApiProperty({ enum: RETURN_CONDITIONS })
+  @IsIn(RETURN_CONDITIONS)
+  condition!: ReturnCondition;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  receiptNote?: string;
+}
+
+export class WalkInReturnDto {
+  @ApiPropertyOptional({ enum: RETURN_CONDITIONS })
+  @IsOptional()
+  @IsIn(RETURN_CONDITIONS)
+  condition?: ReturnCondition;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  receiptNote?: string;
+}
+
 export class AssetAssignmentResponseDto {
   @ApiProperty() id!: string;
   @ApiProperty() organizationId!: string;
@@ -79,4 +129,14 @@ export class AssetAssignmentResponseDto {
   @ApiProperty() assignedAt!: Date;
   @ApiPropertyOptional() returnedAt?: Date | null;
   @ApiPropertyOptional() notes?: string | null;
+  @ApiPropertyOptional() returnRequestedAt?: Date | null;
+  @ApiPropertyOptional() returnRequestedBy?: string | null;
+  @ApiPropertyOptional() returnCondition?: string | null;
+  @ApiPropertyOptional() returnReceiptNote?: string | null;
+  @ApiPropertyOptional() returnConfirmedBy?: string | null;
+  @ApiPropertyOptional() returnConfirmedAt?: Date | null;
+  @ApiPropertyOptional() assetTag?: string | null;
+  @ApiPropertyOptional() assetName?: string | null;
+  @ApiPropertyOptional() assetCategory?: string | null;
+  @ApiPropertyOptional({ enum: AssetStatus }) assetStatus?: AssetStatus | null;
 }

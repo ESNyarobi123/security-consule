@@ -1,0 +1,33 @@
+---
+description: Mandatory pre-flight before any PSSMS design, decision, or implementation
+alwaysApply: true
+---
+
+# Before You Design / Decide / Implement
+
+**Source of truth:** `PRIVATE SECURITY SERVICES MANAGEMENT SYSTEM DESIGN.docx`  
+(Company: HIGHLINK Investigation and Security Guard Company Limited — PSSMS)
+
+You already have foundation APIs/backend; many features are still incomplete. **Do not invent product scope.** Finish or extend only what the design document requires.
+
+## Pre-flight checklist (every task)
+
+1. **Which of the 29 modules?** (see `pssms-modules.mdc`) — name it before coding.
+2. **Which portal/app/account?** (see `pssms-portals-and-accounts.mdc`) — portal ≠ microservice.
+3. **Who creates / reviews / approves?** (see `pssms-roles-authority.mdc`) — creator ≠ approver.
+4. **Data separation?** Guards ≠ customer employees ≠ visitors ≠ suppliers ≠ other security companies.
+5. **Device/channel?** Fingerprint, face, GPS, QR, NFC, RFID, ANPR, CCTV metadata, SMS/WhatsApp — see `pssms-devices-and-channels.mdc`.
+6. **Does it control, record, automate, verify, or report — with audit?** If only UI chrome, stop.
+
+```text
+❌ New silo app / duplicate attendance table / approve own request / Nest streaming CCTV video
+✅ Domain lib + shared approvals + RLS tenant keys + events/metadata + audit trail
+```
+
+## Product in one sentence
+
+One **integrated enterprise platform** that controls, records, automates, verifies, and reports **all** private security company operations nationwide — modular, secure, scalable, auditable.
+
+## When unsure
+
+Re-read the matching section in the design docx (modules §3–34, portals §35, accounts §36, design principles §37) before proposing architecture or writing code.

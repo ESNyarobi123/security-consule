@@ -1,4 +1,12 @@
-import { Body, Controller, Get, Param, Post, Query } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  Param,
+  Post,
+  Query,
+  UseGuards,
+} from '@nestjs/common';
 import {
   ApiBearerAuth,
   ApiCreatedResponse,
@@ -7,7 +15,14 @@ import {
   ApiQuery,
   ApiTags,
 } from '@nestjs/swagger';
-import { AuthUser, CurrentUser, resolveCustomerScope } from '@pssms/shared';
+import { PettyCashVoucherStatus } from '@prisma/client';
+import {
+  AuthUser,
+  CurrentUser,
+  PermissionsGuard,
+  RequirePermissions,
+  resolveCustomerScope,
+} from '@pssms/shared';
 import { InvoicesService } from '../application/invoices.service';
 import { FinanceOpsService } from '../application/finance-ops.service';
 import {
@@ -21,6 +36,8 @@ import {
   PettyCashFundResponseDto,
   PettyCashVoucherResponseDto,
   RecordInvoicePaymentDto,
+  RejectPettyCashVoucherDto,
+  ReimbursePettyCashVoucherDto,
 } from './dto/finance.dto';
 
 @ApiTags('Finance — Invoices')
@@ -67,6 +84,8 @@ export class InvoicesController {
 
 @ApiTags('Finance — Petty Cash')
 @ApiBearerAuth()
+@UseGuards(PermissionsGuard)
+@RequirePermissions('finance.manage')
 @Controller('finance/petty-cash')
 export class PettyCashController {
   constructor(private readonly service: FinanceOpsService) {}
@@ -88,6 +107,17 @@ export class PettyCashController {
     return this.service.listPettyCashFunds(user.organizationId);
   }
 
+  @Get('vouchers')
+  @ApiOperation({ summary: 'List petty cash vouchers (org-wide)' })
+  @ApiQuery({ name: 'status', required: false, enum: PettyCashVoucherStatus })
+  @ApiOkResponse({ type: [PettyCashVoucherResponseDto] })
+  listVouchers(
+    @CurrentUser() user: AuthUser,
+    @Query('status') status?: PettyCashVoucherStatus,
+  ) {
+    return this.service.listPettyCashVouchers(user.organizationId, status);
+  }
+
   @Post('vouchers')
   @ApiOperation({ summary: 'Create petty cash voucher (starts approval)' })
   @ApiCreatedResponse({ type: PettyCashVoucherResponseDto })
@@ -99,14 +129,40 @@ export class PettyCashController {
   }
 
   @Post('vouchers/:id/approve')
-  @ApiOperation({ summary: 'Approve petty cash voucher' })
+  @ApiOperation({ summary: 'Approve petty cash voucher (creator ≠ approver)' })
   approve(@Param('id') id: string, @CurrentUser() user: AuthUser) {
     return this.service.approvePettyCashVoucher(id, user);
+  }
+
+  @Post('vouchers/:id/reject')
+  @ApiOperation({ summary: 'Reject petty cash voucher (creator ≠ approver)' })
+  reject(
+    @Param('id') id: string,
+    @Body() dto: RejectPettyCashVoucherDto,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.service.rejectPettyCashVoucher(id, dto, user);
+  }
+
+  @Post('vouchers/:id/reimburse')
+  @ApiOperation({
+    summary:
+      'Mark approved voucher REIMBURSED (receipt URL and/or notes; creator ≠ reimbursedBy)',
+  })
+  @ApiOkResponse({ type: PettyCashVoucherResponseDto })
+  reimburse(
+    @Param('id') id: string,
+    @Body() dto: ReimbursePettyCashVoucherDto,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.service.reimbursePettyCashVoucher(id, dto, user);
   }
 }
 
 @ApiTags('Finance — Payment Vouchers')
 @ApiBearerAuth()
+@UseGuards(PermissionsGuard)
+@RequirePermissions('finance.manage')
 @Controller('finance/payment-vouchers')
 export class PaymentVouchersController {
   constructor(private readonly service: FinanceOpsService) {}

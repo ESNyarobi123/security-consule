@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   ConflictException,
   Injectable,
   NotFoundException,
@@ -9,7 +10,10 @@ import { AuditService } from '@pssms/audit';
 import {
   CreateEmployeeDto,
   EmployeeResponseDto,
+  UpdateEmployeeDto,
 } from '../presentation/dto/employee.dto';
+
+// note: userId link validated in update()
 
 @Injectable()
 export class EmployeesService {
@@ -40,6 +44,26 @@ export class EmployeesService {
       if (!guard) throw new NotFoundException('Guard profile not found');
     }
 
+    if (dto.userId) {
+      const loginUser = await this.prisma.user.findFirst({
+        where: { id: dto.userId, organizationId: user.organizationId },
+      });
+      if (!loginUser) {
+        throw new NotFoundException('User account not found in this organization');
+      }
+      const linked = await this.prisma.employee.findFirst({
+        where: {
+          organizationId: user.organizationId,
+          userId: dto.userId,
+        },
+      });
+      if (linked) {
+        throw new ConflictException(
+          `User already linked to employee ${linked.employeeNumber}`,
+        );
+      }
+    }
+
     const employee = await this.prisma.employee.create({
       data: {
         organizationId: user.organizationId,
@@ -68,12 +92,88 @@ export class EmployeesService {
     return this.toDto(employee);
   }
 
-  async list(organizationId: string): Promise<EmployeeResponseDto[]> {
+  async list(
+    organizationId: string,
+    status?: EmployeeStatus,
+  ): Promise<EmployeeResponseDto[]> {
     const rows = await this.prisma.employee.findMany({
-      where: { organizationId, status: { not: EmployeeStatus.TERMINATED } },
+      where: {
+        organizationId,
+        ...(status
+          ? { status }
+          : { status: { not: EmployeeStatus.TERMINATED } }),
+      },
       orderBy: { fullName: 'asc' },
     });
     return rows.map((e) => this.toDto(e));
+  }
+
+  async get(
+    id: string,
+    organizationId: string,
+  ): Promise<EmployeeResponseDto> {
+    return this.toDto(await this.getById(id, organizationId));
+  }
+
+  async update(
+    id: string,
+    dto: UpdateEmployeeDto,
+    user: AuthUser,
+  ): Promise<EmployeeResponseDto> {
+    const before = await this.getById(id, user.organizationId);
+
+    if (dto.status === EmployeeStatus.TERMINATED) {
+      throw new BadRequestException(
+        'Use HR Movements (EXIT) to terminate an employee — direct PATCH to TERMINATED is not allowed',
+      );
+    }
+
+    if (dto.userId !== undefined && dto.userId !== null) {
+      const loginUser = await this.prisma.user.findFirst({
+        where: { id: dto.userId, organizationId: user.organizationId },
+      });
+      if (!loginUser) {
+        throw new NotFoundException('User account not found in this organization');
+      }
+      const linked = await this.prisma.employee.findFirst({
+        where: {
+          organizationId: user.organizationId,
+          userId: dto.userId,
+          NOT: { id },
+        },
+      });
+      if (linked) {
+        throw new ConflictException(
+          `User already linked to employee ${linked.employeeNumber}`,
+        );
+      }
+    }
+
+    const employee = await this.prisma.employee.update({
+      where: { id },
+      data: {
+        ...(dto.email !== undefined ? { email: dto.email } : {}),
+        ...(dto.phone !== undefined ? { phone: dto.phone } : {}),
+        ...(dto.department !== undefined ? { department: dto.department } : {}),
+        ...(dto.status !== undefined ? { status: dto.status } : {}),
+        ...(dto.employmentType !== undefined
+          ? { employmentType: dto.employmentType }
+          : {}),
+        ...(dto.userId !== undefined ? { userId: dto.userId } : {}),
+      },
+    });
+
+    await this.audit.record({
+      organizationId: user.organizationId,
+      actorId: user.id,
+      action: 'employee.updated',
+      resourceType: 'Employee',
+      resourceId: id,
+      before,
+      after: employee,
+    });
+
+    return this.toDto(employee);
   }
 
   async getById(id: string, organizationId: string) {
@@ -82,6 +182,17 @@ export class EmployeesService {
     });
     if (!employee) throw new NotFoundException('Employee not found');
     return employee;
+  }
+
+  /** Minimal user directory for HR ESS linking (hr.manage). */
+  async listLinkableUsers(organizationId: string) {
+    const users = await this.prisma.user.findMany({
+      where: { organizationId, isActive: true },
+      select: { id: true, email: true, fullName: true, isActive: true },
+      orderBy: { fullName: 'asc' },
+      take: 500,
+    });
+    return users;
   }
 
   private toDto(e: {

@@ -45,11 +45,17 @@ export class CreateCheckpointDto {
 export class CheckpointResponseDto {
   @ApiProperty() id!: string;
   @ApiProperty() siteId!: string;
+  @ApiPropertyOptional() siteCode?: string;
+  @ApiPropertyOptional() siteName?: string;
   @ApiProperty() code!: string;
   @ApiProperty() name!: string;
+  @ApiPropertyOptional() zone?: string | null;
   @ApiPropertyOptional() qrCode?: string | null;
   @ApiPropertyOptional() nfcTagId?: string | null;
+  @ApiPropertyOptional() latitude?: number | null;
+  @ApiPropertyOptional() longitude?: number | null;
   @ApiProperty() isActive!: boolean;
+  @ApiPropertyOptional() createdAt?: Date;
 }
 
 export class CreateDeploymentDto {
@@ -66,4 +72,5 @@ export class DeploymentResponseDto {
   @ApiProperty() siteId!: string;
   @ApiProperty() status!: string;
   @ApiProperty() startDate!: Date;
+  @ApiPropertyOptional() endDate?: Date | null;
 }

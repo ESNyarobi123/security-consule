@@ -6,6 +6,7 @@ import {
   Patch,
   Post,
   Query,
+  UseGuards,
 } from '@nestjs/common';
 import {
   ApiBearerAuth,
@@ -15,10 +16,17 @@ import {
   ApiQuery,
   ApiTags,
 } from '@nestjs/swagger';
-import { AuthUser, CurrentUser } from '@pssms/shared';
+import {
+  AuthUser,
+  CurrentUser,
+  PermissionsGuard,
+  RequirePermissions,
+} from '@pssms/shared';
 import { DeviceRegistryService } from '../application/device-registry.service';
 import { DeviceCommandService } from '../application/device-command.service';
 import {
+  DeviceResponseDto,
+  EdgeGatewayResponseDto,
   IssueCommandDto,
   RegisterDeviceDto,
   RegisterEdgeGatewayDto,
@@ -27,6 +35,8 @@ import {
 
 @ApiTags('Devices')
 @ApiBearerAuth()
+@UseGuards(PermissionsGuard)
+@RequirePermissions('operations.manage')
 @Controller('devices')
 export class DeviceController {
   constructor(
@@ -46,9 +56,28 @@ export class DeviceController {
   }
 
   @Get('gateways')
-  @ApiOperation({ summary: 'List edge gateways' })
+  @ApiOperation({ summary: 'List edge gateways (ops-enriched site labels)' })
+  @ApiOkResponse({ type: [EdgeGatewayResponseDto] })
   listGateways(@CurrentUser() user: AuthUser) {
     return this.registry.listGateways(user);
+  }
+
+  // ── Events (before /:id) ─────────────────────────────────────
+  @Get('events')
+  @ApiOperation({
+    summary: 'List recent device events (org-scoped, take 50)',
+    description:
+      'AI/control-room alert inbox. Filter by type (e.g. CCTV_EVENT) and deviceId. Metadata only — no video.',
+  })
+  @ApiQuery({ name: 'type', required: false, example: 'CCTV_EVENT' })
+  @ApiQuery({ name: 'deviceId', required: false })
+  @ApiOkResponse({ description: 'Device event list' })
+  listEvents(
+    @CurrentUser() user: AuthUser,
+    @Query('type') type?: string,
+    @Query('deviceId') deviceId?: string,
+  ) {
+    return this.registry.listEvents(user, { type, deviceId });
   }
 
   // ── Devices ──────────────────────────────────────────────────
@@ -63,11 +92,11 @@ export class DeviceController {
   }
 
   @Get()
-  @ApiOperation({ summary: 'List devices' })
+  @ApiOperation({ summary: 'List devices (ops-enriched site labels)' })
   @ApiQuery({ name: 'type', required: false })
   @ApiQuery({ name: 'siteId', required: false })
   @ApiQuery({ name: 'status', required: false })
-  @ApiOkResponse({ description: 'Device list' })
+  @ApiOkResponse({ type: [DeviceResponseDto], description: 'Device list' })
   listDevices(
     @CurrentUser() user: AuthUser,
     @Query('type') type?: string,

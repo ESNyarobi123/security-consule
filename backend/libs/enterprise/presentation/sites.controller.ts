@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Post } from '@nestjs/common';
+import { Body, Controller, Get, Post, UseGuards } from '@nestjs/common';
 import {
   ApiBearerAuth,
   ApiCreatedResponse,
@@ -6,12 +6,19 @@ import {
   ApiOperation,
   ApiTags,
 } from '@nestjs/swagger';
-import { AuthUser, CurrentUser } from '@pssms/shared';
+import {
+  AuthUser,
+  CurrentUser,
+  PermissionsGuard,
+  RequireAnyPermissions,
+} from '@pssms/shared';
 import { SitesService } from '../application/sites.service';
 import { CreateSiteDto, SiteResponseDto } from './dto/enterprise.dto';
 
 @ApiTags('Enterprise')
 @ApiBearerAuth()
+@UseGuards(PermissionsGuard)
+@RequireAnyPermissions('enterprise.manage', 'operations.manage')
 @Controller('enterprise/sites')
 export class SitesController {
   constructor(private readonly service: SitesService) {}

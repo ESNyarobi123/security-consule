@@ -5,6 +5,7 @@ import { ConsoleSmsProvider } from './adapters/messaging/console-sms.provider';
 import { ConsolePaymentProvider } from './adapters/payments/console-payment.provider';
 import { VisionAiAnprAdapter } from './adapters/anpr/vision-ai-anpr.adapter';
 import { DispatchService } from './dispatch/dispatch.service';
+import { ProvidersHealthService } from './providers/providers-health.service';
 import { WebhookInboxService } from './webhooks/webhook-inbox.service';
 import { IclockController } from './iclock/iclock.controller';
 import { IclockService } from './iclock/iclock.service';
@@ -32,6 +33,7 @@ import {
   providers: [
     WebhookInboxService,
     DispatchService,
+    ProvidersHealthService,
     ConsoleSmsProvider,
     ConsolePaymentProvider,
     VisionAiAnprAdapter,

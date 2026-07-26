@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Post } from '@nestjs/common';
+import { Body, Controller, Get, Param, Post, UseGuards } from '@nestjs/common';
 import {
   ApiBearerAuth,
   ApiCreatedResponse,
@@ -6,7 +6,12 @@ import {
   ApiOperation,
   ApiTags,
 } from '@nestjs/swagger';
-import { AuthUser, CurrentUser } from '@pssms/shared';
+import {
+  AuthUser,
+  CurrentUser,
+  PermissionsGuard,
+  RequirePermissions,
+} from '@pssms/shared';
 import { DeploymentsService } from '../application/deployments.service';
 import {
   CreateDeploymentDto,
@@ -15,6 +20,8 @@ import {
 
 @ApiTags('Operations')
 @ApiBearerAuth()
+@UseGuards(PermissionsGuard)
+@RequirePermissions('operations.manage')
 @Controller('operations/deployments')
 export class DeploymentsController {
   constructor(private readonly service: DeploymentsService) {}
@@ -31,5 +38,14 @@ export class DeploymentsController {
   @ApiOkResponse({ type: [DeploymentResponseDto] })
   list(@CurrentUser() user: AuthUser) {
     return this.service.list(user.organizationId);
+  }
+
+  @Post(':id/end')
+  @ApiOperation({
+    summary: 'End an active deployment (idempotent if already ENDED)',
+  })
+  @ApiOkResponse({ type: DeploymentResponseDto })
+  end(@Param('id') id: string, @CurrentUser() user: AuthUser) {
+    return this.service.end(id, user);
   }
 }

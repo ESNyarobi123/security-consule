@@ -1,5 +1,5 @@
 ---
-description: Which PSSMS subagent to use during development
+description: PSSMS Subagents (8) — when to use which; do not invent one agent per module
 alwaysApply: true
 ---
 
@@ -12,11 +12,17 @@ Project agents live in `.cursor/agents/`. Prefer these over inventing new ad-hoc
 | `pssms-backend` | NestJS apps/libs, APIs, workers, Prisma, domain events |
 | `pssms-frontend` | Next.js portals, packages/ui, role-based admin routes |
 | `pssms-iam-governance` | Auth, RBAC+ABAC, Keycloak, RLS, approvals, audit, compliance |
-| `pssms-field-ops` | Guards, shifts, attendance, alertness, patrols, EOB, incidents, mobile apps |
+| `pssms-field-ops` | Guards, shifts, attendance, alertness, patrols, EOB, incidents, **mobile apps** |
 | `pssms-access-parking` | Visitors, gate codes, customer employee access, parking/ANPR results |
 | `pssms-people-money` | HR, recruitment, payroll, loans, invoices, petty cash, procurement, assets |
 | `pssms-integrations-ai` | Banks/SMS/WhatsApp/webhooks, MQTT devices, Python vision/analytics |
 | `pssms-reviewer` | After a feature/PR — architecture & security boundary review |
+
+## Always-on memory (read before coding)
+
+Design: `pssms-before-you-build`, `pssms-feature-catalog`, `pssms-portals-and-accounts`, `pssms-roles-authority`, `pssms-devices-and-channels`  
+Code: `pssms-codebase-backend`, `pssms-codebase-frontend`, `pssms-implementation-status`  
+Stack: `pssms-architecture`, `pssms-mission`, `pssms-modules`
 
 ## Built-in Cursor agents still useful
 
@@ -26,4 +32,6 @@ Project agents live in `.cursor/agents/`. Prefer these over inventing new ad-hoc
 
 ## Delegation tip
 
-For a cross-cutting feature (e.g. “boots loan”), primary = `pssms-people-money`, then ask `pssms-reviewer`; if payments/webhooks involved, also `pssms-integrations-ai`.
+For a cross-cutting feature (e.g. “boots loan”), primary = `pssms-people-money`, then ask `pssms-reviewer`; if payments/webhooks involved, also `pssms-integrations-ai`. Mobile work stays under `pssms-field-ops` (do not add a 9th “mobile-only” agent unless field-ops becomes too broad later).
+
+**Documents/attachments:** stay under `pssms-people-money` + `pssms-integrations-ai` (MinIO) filling `libs/documents` — do not create a 9th documents-only agent yet. Follow `pssms-careful-delivery` order (attachments after assets + petty-cash close loops).

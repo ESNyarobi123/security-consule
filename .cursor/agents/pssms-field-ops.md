@@ -20,5 +20,13 @@ You are the PSSMS field operations specialist.
 - Do not let customers read guard attendance
 - Prefer events into payroll/finance rather than cross-table writes
 
+## Memory (always respect)
+- Rules: `pssms-feature-catalog` (attendance/alertness/patrol/EOB), `pssms-codebase-frontend` (mobile section), `pssms-careful-delivery`, `pssms-implementation-status`
+- Mobile v1 exists: guard (Phase 12), gate (13), supervisor (13b) — extend, don’t rewrite greenfield
+- Guard attendance ≠ customer access schemas; alertness miss → escalate → payroll via events/snapshots
+- No Nest MQTT bridge yet; mobile talks HTTP to core-api / field sync
+- Careful backlog ownership: **C** EOB history UI, **D** EOB second-person approve (with iam-governance), **F** patrols thin, **G** incidents thin
+- Occurrence book remains append-only; never silent overwrite
+
 ## Output
 Domain flows, APIs, mobile sync design, and event contracts for payroll/notifications.

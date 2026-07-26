@@ -5,6 +5,7 @@ import {
   NestFastifyApplication,
 } from '@nestjs/platform-fastify';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
+import multipart from '@fastify/multipart';
 import {
   HttpExceptionFilter,
   OrgContextInterceptor,
@@ -18,6 +19,13 @@ async function bootstrap() {
     AppModule,
     new FastifyAdapter({ logger: true }),
   );
+
+  await app.register(multipart, {
+    limits: {
+      fileSize: 10 * 1024 * 1024,
+      files: 1,
+    },
+  });
 
   app.setGlobalPrefix('api/v1');
   app.enableCors({ origin: true, credentials: true });
@@ -75,7 +83,10 @@ async function bootstrap() {
     .addTag('Procurement — Purchase Orders')
     .addTag('Inventory')
     .addTag('Assets')
+    .addTag('Documents')
     .addTag('Notifications')
+    .addTag('Devices')
+    .addTag('Developer — Integrations')
     .addTag('Internal')
     .build();
 

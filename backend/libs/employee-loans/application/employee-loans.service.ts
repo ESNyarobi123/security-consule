@@ -17,6 +17,7 @@ import {
   ApproveLoanResponseDto,
   EmployeeLoanResponseDto,
   LoanInstallmentResponseDto,
+  RejectLoanDto,
 } from '../presentation/dto/loan.dto';
 
 @Injectable()
@@ -77,19 +78,32 @@ export class EmployeeLoansService {
   }
 
   async approve(id: string, user: AuthUser): Promise<ApproveLoanResponseDto> {
-    const loan = await this.prisma.employeeLoan.findFirst({
-      where: { id, organizationId: user.organizationId },
-    });
-    if (!loan) throw new NotFoundException('Loan not found');
+    const loan = await this.findPendingOrThrow(id, user.organizationId);
     if (!loan.approvalInstanceId) {
       throw new BadRequestException('No approval instance');
     }
 
-    await this.approvals.act(
+    const approval = await this.approvals.act(
       loan.approvalInstanceId,
       { decision: 'APPROVE' },
       user,
     );
+
+    // Multi-step safe: only activate when workflow is fully APPROVED
+    if (approval.status !== 'APPROVED') {
+      await this.audit.record({
+        organizationId: user.organizationId,
+        actorId: user.id,
+        action: 'loan.approval_step',
+        resourceType: 'EmployeeLoan',
+        resourceId: id,
+        after: {
+          approvalStatus: approval.status,
+          currentStepOrder: approval.currentStepOrder,
+        },
+      });
+      return { loan: this.toLoanDto(loan), installments: [] };
+    }
 
     const updated = await this.prisma.employeeLoan.update({
       where: { id },
@@ -116,6 +130,70 @@ export class EmployeeLoansService {
       loan: this.toLoanDto(updated),
       installments: installments.map((i) => this.toInstallmentDto(i)),
     };
+  }
+
+  async reject(
+    id: string,
+    dto: RejectLoanDto,
+    user: AuthUser,
+  ): Promise<EmployeeLoanResponseDto> {
+    const loan = await this.findPendingOrThrow(id, user.organizationId);
+
+    if (loan.approvalInstanceId) {
+      await this.approvals.act(
+        loan.approvalInstanceId,
+        { decision: 'REJECT', remarks: dto.reason },
+        user,
+      );
+    }
+
+    const updated = await this.prisma.employeeLoan.update({
+      where: { id },
+      data: { status: LoanStatus.REJECTED },
+    });
+
+    await this.audit.record({
+      organizationId: user.organizationId,
+      actorId: user.id,
+      action: 'loan.rejected',
+      resourceType: 'EmployeeLoan',
+      resourceId: id,
+      after: { ...updated, rejectedReason: dto.reason },
+    });
+
+    return this.toLoanDto(updated);
+  }
+
+  private async findPendingOrThrow(id: string, organizationId: string) {
+    const loan = await this.prisma.employeeLoan.findFirst({
+      where: { id, organizationId },
+    });
+    if (!loan) throw new NotFoundException('Loan not found');
+    if (loan.status !== LoanStatus.PENDING_APPROVAL) {
+      throw new BadRequestException(
+        'Only loans pending approval can be acted on',
+      );
+    }
+    return loan;
+  }
+
+  /** Minimal employee directory for loans UI (loans.manage — no hr.manage required). */
+  async listEmployeeOptions(organizationId: string) {
+    const rows = await this.prisma.employee.findMany({
+      where: {
+        organizationId,
+        status: { not: 'TERMINATED' },
+      },
+      select: {
+        id: true,
+        employeeNumber: true,
+        fullName: true,
+        department: true,
+      },
+      orderBy: { fullName: 'asc' },
+      take: 300,
+    });
+    return rows;
   }
 
   async listLoans(
@@ -211,6 +289,7 @@ export class EmployeeLoansService {
     status: LoanStatus;
     purpose: string;
     approvalInstanceId: string | null;
+    createdBy: string | null;
     approvedBy: string | null;
     approvedAt: Date | null;
     disbursedAt: Date | null;
@@ -228,6 +307,7 @@ export class EmployeeLoansService {
       status: l.status,
       purpose: l.purpose,
       approvalInstanceId: l.approvalInstanceId,
+      createdBy: l.createdBy,
       approvedBy: l.approvedBy,
       approvedAt: l.approvedAt,
       disbursedAt: l.disbursedAt,

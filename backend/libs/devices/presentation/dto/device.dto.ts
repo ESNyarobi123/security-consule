@@ -206,3 +206,59 @@ export class AckCommandDto {
   @IsObject()
   result?: Record<string, unknown>;
 }
+
+/** Ops-enriched list/detail view — site labels when siteId set. */
+export class DeviceResponseDto {
+  @ApiProperty() id!: string;
+  @ApiProperty() code!: string;
+  @ApiProperty() name!: string;
+  @ApiProperty({ enum: DeviceType }) type!: DeviceType;
+  @ApiProperty({ enum: DeviceConnection }) connection!: DeviceConnection;
+  @ApiPropertyOptional({ nullable: true }) siteId!: string | null;
+  @ApiPropertyOptional({
+    nullable: true,
+    description: 'Org site code when siteId is set',
+  })
+  siteCode!: string | null;
+  @ApiPropertyOptional({
+    nullable: true,
+    description: 'Org site name when siteId is set',
+  })
+  siteName!: string | null;
+  @ApiPropertyOptional({ nullable: true }) gateId!: string | null;
+  @ApiPropertyOptional({ nullable: true }) edgeGatewayId!: string | null;
+  @ApiProperty({ enum: DeviceStatus }) status!: DeviceStatus;
+  @ApiPropertyOptional({ nullable: true }) vendor!: string | null;
+  @ApiPropertyOptional({ nullable: true }) model!: string | null;
+  @ApiPropertyOptional({ nullable: true }) serialNumber!: string | null;
+  @ApiPropertyOptional({ nullable: true }) lastSeenAt!: Date | null;
+  @ApiProperty() createdAt!: Date;
+  @ApiPropertyOptional({
+    nullable: true,
+    type: Object,
+    description:
+      'CCTV mosaic metadata (embedUrl/streamUrl/snapshotUrl/zone) — never video bytes',
+  })
+  config!: Record<string, unknown> | null;
+}
+
+export class EdgeGatewayResponseDto {
+  @ApiProperty() id!: string;
+  @ApiProperty() code!: string;
+  @ApiProperty() name!: string;
+  @ApiPropertyOptional({ nullable: true }) siteId!: string | null;
+  @ApiPropertyOptional({
+    nullable: true,
+    description: 'Org site code when siteId is set',
+  })
+  siteCode!: string | null;
+  @ApiPropertyOptional({
+    nullable: true,
+    description: 'Org site name when siteId is set',
+  })
+  siteName!: string | null;
+  @ApiProperty() status!: string;
+  @ApiPropertyOptional({ nullable: true }) version!: string | null;
+  @ApiPropertyOptional({ nullable: true }) lastHeartbeatAt!: Date | null;
+  @ApiProperty() createdAt!: Date;
+}

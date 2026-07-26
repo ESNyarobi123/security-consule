@@ -54,6 +54,11 @@ export class AttendanceService {
 
     const guard = await this.guards.getByUserId(user.id, user.organizationId);
     if (!guard) throw new BadRequestException('User is not a registered guard');
+    if (guard.status === 'TERMINATED' || guard.status === 'SUSPENDED') {
+      throw new BadRequestException(
+        `Guard status ${guard.status} cannot clock in`,
+      );
+    }
 
     const site = await this.prisma.site.findFirst({
       where: { id: dto.siteId, organizationId: user.organizationId },
@@ -264,13 +269,25 @@ export class AttendanceService {
     organizationId: string,
     siteId?: string,
     supervisorApproved?: boolean,
+    from?: Date,
+    to?: Date,
   ): Promise<AttendanceListItemDto[]> {
+    const fromOk = from && !Number.isNaN(from.getTime()) ? from : undefined;
+    const toOk = to && !Number.isNaN(to.getTime()) ? to : undefined;
     const rows = await this.prisma.guardAttendance.findMany({
       where: {
         organizationId,
         ...(siteId ? { siteId } : {}),
         ...(typeof supervisorApproved === 'boolean'
           ? { supervisorApproved }
+          : {}),
+        ...(fromOk || toOk
+          ? {
+              clockInAt: {
+                ...(fromOk ? { gte: fromOk } : {}),
+                ...(toOk ? { lt: toOk } : {}),
+              },
+            }
           : {}),
       },
       orderBy: { clockInAt: 'desc' },

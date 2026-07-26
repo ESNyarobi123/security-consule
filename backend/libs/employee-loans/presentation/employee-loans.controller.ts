@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Post, Query } from '@nestjs/common';
+import { Body, Controller, Get, Param, Post, Query, UseGuards } from '@nestjs/common';
 import {
   ApiBearerAuth,
   ApiCreatedResponse,
@@ -7,23 +7,31 @@ import {
   ApiQuery,
   ApiTags,
 } from '@nestjs/swagger';
-import { AuthUser, CurrentUser } from '@pssms/shared';
+import {
+  AuthUser,
+  CurrentUser,
+  PermissionsGuard,
+  RequirePermissions,
+} from '@pssms/shared';
 import { EmployeeLoansService } from '../application/employee-loans.service';
 import {
   ApplyLoanDto,
   ApproveLoanResponseDto,
   EmployeeLoanResponseDto,
   LoanInstallmentResponseDto,
+  RejectLoanDto,
 } from './dto/loan.dto';
 
 @ApiTags('Employee Loans')
 @ApiBearerAuth()
+@UseGuards(PermissionsGuard)
+@RequirePermissions('loans.manage')
 @Controller('loans')
 export class EmployeeLoansController {
   constructor(private readonly service: EmployeeLoansService) {}
 
   @Post()
-  @ApiOperation({ summary: 'Apply for employee loan' })
+  @ApiOperation({ summary: 'Apply for employee loan (HR / loans admin)' })
   @ApiCreatedResponse({ type: EmployeeLoanResponseDto })
   apply(@Body() dto: ApplyLoanDto, @CurrentUser() user: AuthUser) {
     return this.service.apply(dto, user);
@@ -34,6 +42,25 @@ export class EmployeeLoansController {
   @ApiOkResponse({ type: ApproveLoanResponseDto })
   approve(@Param('id') id: string, @CurrentUser() user: AuthUser) {
     return this.service.approve(id, user);
+  }
+
+  @Post(':id/reject')
+  @ApiOperation({ summary: 'Reject loan request (creator ≠ approver)' })
+  @ApiOkResponse({ type: EmployeeLoanResponseDto })
+  reject(
+    @Param('id') id: string,
+    @Body() dto: RejectLoanDto,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.service.reject(id, dto, user);
+  }
+
+  @Get('employee-options')
+  @ApiOperation({
+    summary: 'List employees for loan create/filter (loans.manage)',
+  })
+  listEmployeeOptions(@CurrentUser() user: AuthUser) {
+    return this.service.listEmployeeOptions(user.organizationId);
   }
 
   @Get()

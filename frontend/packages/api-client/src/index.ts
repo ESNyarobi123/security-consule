@@ -174,8 +174,17 @@ export async function downloadExecutiveExport(
 }
 
 export * from './admin';
+export * from './hr';
+export * from './ess';
+export * from './loans';
+export * from './assets';
+export * from './finance';
 export * from './customer';
 export * from './supplier';
 export * from './visitor';
 export * from './recruitment';
 export * from './parking-ops';
+export * from './developer';
+export * from './compliance';
+export * from './branch-ops';
+export * from './documents';

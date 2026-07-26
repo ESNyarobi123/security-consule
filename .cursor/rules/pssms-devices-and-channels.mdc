@@ -1,0 +1,61 @@
+---
+description: PSSMS devices, verification methods, integrations, and hard data-separation rules from the design doc
+alwaysApply: true
+---
+
+# Devices, Channels & Data Separation
+
+## Capture / verification methods (use where design requires)
+
+| Method | Typical use |
+|---|---|
+| Fingerprint / facial recognition | Guard attendance & alertness; customer employee access; parking driver verify |
+| GPS mobile check-in | Guard attendance, alertness, patrols |
+| QR code | Attendance, visitor codes, parking permits, checkpoints |
+| NFC checkpoint / tags | Patrols, alertness, attendance |
+| RFID card / tag | Parking, access, vehicles |
+| Smart parking permit | Parking access |
+| ANPR cameras | Parking / vehicle entry (results → Nest; processing in vision AI) |
+| Barrier gates / access controllers | Parking & premises entry |
+| CCTV + AI alerts | Monitoring portal; **Nest receives events/metadata only** — video on NVR/MinIO |
+| Supervisor confirmation | Attendance / alertness / shift verification |
+| Photo / selfie / short security task | Alertness confirmation |
+| Manual gate officer approval | Exception / suspicious cases |
+
+## Notification & payment channels
+
+SMS · Email · WhatsApp · Push · system notification  
+Banks · Mobile money (M-Pesa, TigoPesa, Airtel Money, HaloPesa) · payment gateways  
+
+Wire through `integration-gateway` + adapters — not hard-coded into domain libs.
+
+## Mobile apps (field)
+
+- **Guard app** — attendance, alertness, patrols, parking patrol, incidents (offline-first)
+- **Supervisor app** — verify attendance/alertness, inspections, replacements
+- **Gate verification app** — visitor codes, staff cards, parking permits, vehicle entry
+
+## Hard data separation (§33) — never mix
+
+Keep separate models/schemas/permissions for:
+
+company employees · guards · **guard attendance** · **guard alertness** · **customer employee attendance/access** · customer payroll · visitors · parking · suppliers · applicants · other security companies · customers · vehicles · service providers
+
+```text
+❌ Shared attendance table for guards + customer staff
+✅ attendance.* (guards) vs access.* (customer employees) + organization_id/customer_id + RLS
+```
+
+## Module feature anchors (do not drop when finishing incomplete work)
+
+- **Alertness:** post clock-in; scheduled/random; miss → alert Supervisor/Field/BOM/Control Room; feeds payroll/discipline/customer reports  
+- **Visitors:** online appointment → host approve → unique code (SMS/email/WhatsApp) → gate scan → deny if invalid/expired/used  
+- **Parking:** register vehicles, allocate spaces, entry/exit, violations, permits, optional billing, ANPR/RFID/CCTV alerts, blacklist  
+- **Payroll:** company vs **customer-managed** payroll separate; e-payroll due only if invoice **fully paid**; immutable snapshots  
+- **Loans:** boots, smartphone, cash, uniform, emergency, salary advance — approval + payroll deduction  
+- **EOB:** append-only; no silent delete/edit without approval + audit  
+- **Petty cash / vouchers:** no issue without approval workflow  
+
+## Design §37 reminder
+
+One integrated platform + web portals + mobile + biometrics/QR/RFID/NFC/ANPR/CCTV + notifications + payments — **nationwide**, secure, scalable, auditable.

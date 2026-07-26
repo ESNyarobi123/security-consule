@@ -559,6 +559,13 @@ export function moduleVisual(href: string): { glyph: GlyphName; color: string } 
     ['/approvals', { glyph: 'check-circle', color: '#7c3aed' }],
     ['/callcentre', { glyph: 'headset', color: '#e11d48' }],
     ['/marketing', { glyph: 'megaphone', color: '#db2777' }],
+    ['/developer/health', { glyph: 'terminal', color: '#0ea5e9' }],
+    ['/developer/adapters', { glyph: 'layers', color: '#6366f1' }],
+    ['/developer/webhooks', { glyph: 'box', color: '#f59e0b' }],
+    ['/developer/outbox', { glyph: 'clipboard', color: '#16a34a' }],
+    ['/developer/notifications', { glyph: 'bell', color: '#e11d48' }],
+    ['/developer/logs', { glyph: 'terminal', color: '#64748b' }],
+    ['/developer/config', { glyph: 'gear', color: '#0d9488' }],
     ['/developer', { glyph: 'code', color: '#475569' }],
   ];
   const hit = map.find(([prefix]) => href === prefix || href.startsWith(`${prefix}/`));

@@ -30,6 +30,11 @@ async function main() {
     { code: 'visitors.manage', name: 'Manage visitors', module: 'visitors' },
     { code: 'parking.manage', name: 'Manage parking', module: 'parking' },
     { code: 'hr.manage', name: 'Manage HR', module: 'workforce' },
+    {
+      code: 'ess.access',
+      name: 'Employee self-service portal',
+      module: 'workforce',
+    },
     { code: 'recruitment.manage', name: 'Manage recruitment', module: 'recruitment' },
     { code: 'payroll.manage', name: 'Manage payroll', module: 'payroll' },
     { code: 'loans.manage', name: 'Manage employee loans', module: 'employee-loans' },
@@ -39,6 +44,21 @@ async function main() {
     { code: 'assets.manage', name: 'Manage assets', module: 'assets' },
     { code: 'notifications.manage', name: 'Manage notifications', module: 'notifications' },
     { code: 'reporting.read', name: 'Read executive reports', module: 'reporting' },
+    {
+      code: 'integrations.manage',
+      name: 'Manage integrations & developer portal',
+      module: 'integrations',
+    },
+    {
+      code: 'compliance.manage',
+      name: 'Manage compliance policies & breach register',
+      module: 'compliance',
+    },
+    {
+      code: 'documents.manage',
+      name: 'Upload and read document attachments (MinIO)',
+      module: 'documents',
+    },
   ];
 
   for (const p of permissions) {
@@ -61,6 +81,16 @@ async function main() {
     { code: 'SUPERVISOR', name: 'Site Supervisor', isSystem: true },
     { code: 'CUSTOMER_PORTAL', name: 'Customer Portal User', isSystem: true },
     { code: 'SUPPLIER_PORTAL', name: 'Supplier Portal User', isSystem: true },
+    {
+      code: 'DEVELOPER',
+      name: 'Developer / ICT Integrator',
+      isSystem: true,
+    },
+    {
+      code: 'COMPLIANCE_OFFICER',
+      name: 'Compliance / DPO Officer',
+      isSystem: true,
+    },
   ];
 
   const portalPermCodes = new Set([
@@ -89,6 +119,31 @@ async function main() {
     'attendance.manage',
     'incidents.manage',
     'enterprise.manage',
+    'ess.access',
+    'documents.manage',
+  ]);
+
+  const guardPermCodes = new Set([
+    'ess.access',
+    'attendance.manage',
+    'operations.manage',
+    'incidents.manage',
+    'documents.manage',
+  ]);
+
+  // devices.manage does not exist — operations.manage covers /devices portal access
+  const developerPermCodes = new Set([
+    'integrations.manage',
+    'users.manage',
+    'audit.read',
+    'notifications.manage',
+    'operations.manage',
+  ]);
+
+  const complianceOfficerPermCodes = new Set([
+    'compliance.manage',
+    'audit.read',
+    'approvals.act',
   ]);
 
   for (const r of roleDefs) {
@@ -116,7 +171,15 @@ async function main() {
               ? allPerms.filter((p) => parkingOfficerPermCodes.has(p.code))
               : r.code === 'SUPERVISOR'
                 ? allPerms.filter((p) => supervisorPermCodes.has(p.code))
-                : allPerms;
+                : r.code === 'GUARD'
+                  ? allPerms.filter((p) => guardPermCodes.has(p.code))
+                  : r.code === 'DEVELOPER'
+                    ? allPerms.filter((p) => developerPermCodes.has(p.code))
+                    : r.code === 'COMPLIANCE_OFFICER'
+                      ? allPerms.filter((p) =>
+                          complianceOfficerPermCodes.has(p.code),
+                        )
+                      : allPerms;
 
     for (const perm of permsForRole) {
       await prisma.rolePermission.upsert({
@@ -125,6 +188,27 @@ async function main() {
         },
         update: {},
         create: { roleId: role.id, permissionId: perm.id },
+      });
+    }
+
+    // Keep restricted roles honest on re-seed (drop stale grants).
+    if (
+      [
+        'GUARD',
+        'SUPERVISOR',
+        'GATE_OFFICER',
+        'PARKING_OFFICER',
+        'DEVELOPER',
+        'COMPLIANCE_OFFICER',
+        'CUSTOMER_PORTAL',
+        'SUPPLIER_PORTAL',
+      ].includes(r.code)
+    ) {
+      await prisma.rolePermission.deleteMany({
+        where: {
+          roleId: role.id,
+          permissionId: { notIn: permsForRole.map((p) => p.id) },
+        },
       });
     }
   }
@@ -146,6 +230,9 @@ async function main() {
   });
   const supervisorRole = await prisma.role.findFirstOrThrow({
     where: { organizationId: org.id, code: 'SUPERVISOR' },
+  });
+  const complianceOfficerRole = await prisma.role.findFirstOrThrow({
+    where: { organizationId: org.id, code: 'COMPLIANCE_OFFICER' },
   });
 
   const passwordHash = await bcrypt.hash('ChangeMe123!', 12);
@@ -210,7 +297,7 @@ async function main() {
     },
   });
 
-  await prisma.user.upsert({
+  const supervisorUser = await prisma.user.upsert({
     where: { email: 'supervisor1@highlink.co.tz' },
     update: {},
     create: {
@@ -219,6 +306,18 @@ async function main() {
       passwordHash,
       organizationId: org.id,
       roles: { create: [{ roleId: supervisorRole.id }] },
+    },
+  });
+
+  const complianceUser = await prisma.user.upsert({
+    where: { email: 'compliance1@highlink.co.tz' },
+    update: {},
+    create: {
+      email: 'compliance1@highlink.co.tz',
+      fullName: 'Clara Compliance',
+      passwordHash,
+      organizationId: org.id,
+      roles: { create: [{ roleId: complianceOfficerRole.id }] },
     },
   });
 
@@ -450,6 +549,26 @@ async function main() {
     },
   });
 
+  const existingActiveDeployment = await prisma.guardDeployment.findFirst({
+    where: {
+      organizationId: org.id,
+      guardId: guardProfile.id,
+      status: 'ACTIVE',
+    },
+  });
+  if (!existingActiveDeployment) {
+    await prisma.guardDeployment.create({
+      data: {
+        organizationId: org.id,
+        guardId: guardProfile.id,
+        siteId: site.id,
+        startDate: new Date('2024-06-01'),
+        status: 'ACTIVE',
+        createdBy: admin.id,
+      },
+    });
+  }
+
   const existingDemoAlert = await prisma.fieldAlert.findFirst({
     where: {
       organizationId: org.id,
@@ -472,18 +591,83 @@ async function main() {
     });
   }
 
+  // Branch Ops EOB — demo append-only entries at SITE-WAREHOUSE-A
+  const existingEobRoutine = await prisma.occurrenceEntry.findFirst({
+    where: {
+      organizationId: org.id,
+      siteId: site.id,
+      category: 'ROUTINE',
+      description: 'Demo: Night patrol completed — all gates secure',
+      isCurrent: true,
+    },
+  });
+  if (!existingEobRoutine) {
+    const eobAt = new Date();
+    eobAt.setHours(eobAt.getHours() - 3);
+    await prisma.occurrenceEntry.create({
+      data: {
+        organizationId: org.id,
+        siteId: site.id,
+        officerId: supervisorUser.id,
+        category: 'ROUTINE',
+        description: 'Demo: Night patrol completed — all gates secure',
+        recordedAt: eobAt,
+      },
+    });
+  }
+
+  const existingEobVisitor = await prisma.occurrenceEntry.findFirst({
+    where: {
+      organizationId: org.id,
+      siteId: site.id,
+      category: 'VISITOR_ISSUE',
+      description:
+        'Demo: Visitor arrived without host confirmation; verified at GATE-MAIN',
+      isCurrent: true,
+    },
+  });
+  if (!existingEobVisitor) {
+    const eobAt = new Date();
+    eobAt.setHours(eobAt.getHours() - 1);
+    await prisma.occurrenceEntry.create({
+      data: {
+        organizationId: org.id,
+        siteId: site.id,
+        officerId: supervisorUser.id,
+        category: 'VISITOR_ISSUE',
+        description:
+          'Demo: Visitor arrived without host confirmation; verified at GATE-MAIN',
+        recordedAt: eobAt,
+      },
+    });
+  }
+
   const existingPendingAlertness = await prisma.alertnessCheck.findFirst({
     where: { referenceNumber: 'ALT-DEMO-PENDING' },
   });
+  const pendingScheduledAt = new Date(Date.now() - 5 * 60 * 1000);
   if (!existingPendingAlertness) {
     await prisma.alertnessCheck.create({
       data: {
         organizationId: org.id,
         guardId: guardProfile.id,
         siteId: site.id,
-        scheduledAt: new Date(Date.now() - 5 * 60 * 1000),
+        scheduledAt: pendingScheduledAt,
         status: 'SCHEDULED',
         referenceNumber: 'ALT-DEMO-PENDING',
+      },
+    });
+  } else {
+    // Refresh for Branch Ops attendance board smoke (keep SCHEDULED pending)
+    await prisma.alertnessCheck.update({
+      where: { id: existingPendingAlertness.id },
+      data: {
+        guardId: guardProfile.id,
+        siteId: site.id,
+        scheduledAt: pendingScheduledAt,
+        status: 'SCHEDULED',
+        confirmedAt: null,
+        method: null,
       },
     });
   }
@@ -495,7 +679,11 @@ async function main() {
         employeeNumber: 'GRD-0001',
       },
     },
-    update: { guardProfileId: guardProfile.id },
+    update: {
+      guardProfileId: guardProfile.id,
+      userId: guardUser.id,
+      fullName: 'John Guard',
+    },
     create: {
       organizationId: org.id,
       userId: guardUser.id,
@@ -527,6 +715,91 @@ async function main() {
         effectiveFrom: salaryFrom,
         createdBy: admin.id,
       },
+    });
+  }
+
+  // Office staff ESS demo (§35.5) — supervisor linked to employee (non-guard)
+  await prisma.employee.upsert({
+    where: {
+      organizationId_employeeNumber: {
+        organizationId: org.id,
+        employeeNumber: 'OFF-SUP-001',
+      },
+    },
+    update: {
+      userId: supervisorUser.id,
+      fullName: 'Sam Supervisor',
+      email: 'supervisor1@highlink.co.tz',
+      employmentType: 'SUPERVISOR',
+      department: 'Field Operations',
+    },
+    create: {
+      organizationId: org.id,
+      userId: supervisorUser.id,
+      employeeNumber: 'OFF-SUP-001',
+      fullName: 'Sam Supervisor',
+      email: 'supervisor1@highlink.co.tz',
+      phone: '+255713000001',
+      department: 'Field Operations',
+      employmentType: 'SUPERVISOR',
+      hireDate: new Date('2023-06-01'),
+      createdBy: admin.id,
+    },
+  });
+
+  // Demo asset on guard for ESS equipment return / storekeeper confirm smoke.
+  // Re-assign if previously returned so re-seed stays usable.
+  const radio = await prisma.asset.upsert({
+    where: {
+      organizationId_assetTag: {
+        organizationId: org.id,
+        assetTag: 'AST-RADIO-001',
+      },
+    },
+    update: { name: 'Handheld Radio R1', category: 'RADIO' },
+    create: {
+      organizationId: org.id,
+      assetTag: 'AST-RADIO-001',
+      name: 'Handheld Radio R1',
+      category: 'RADIO',
+      status: 'AVAILABLE',
+      createdBy: admin.id,
+    },
+  });
+  const activeRadio = await prisma.assetAssignment.findFirst({
+    where: {
+      organizationId: org.id,
+      assetId: radio.id,
+      returnedAt: null,
+    },
+  });
+  if (!activeRadio) {
+    // Demo radio may be DISPOSED/AVAILABLE after return smokes — reset + re-issue.
+    await prisma.asset.update({
+      where: { id: radio.id },
+      data: { status: 'AVAILABLE' },
+    });
+    await prisma.assetAssignment.create({
+      data: {
+        organizationId: org.id,
+        assetId: radio.id,
+        assignedToEmployeeId: employee.id,
+        assignedToGuardId: guardProfile.id,
+        notes: 'Demo ESS returnable radio',
+        createdBy: admin.id,
+      },
+    });
+    await prisma.asset.update({
+      where: { id: radio.id },
+      data: { status: 'ASSIGNED' },
+    });
+  } else if (
+    radio.status !== 'ASSIGNED' &&
+    radio.status !== 'RETURN_PENDING'
+  ) {
+    await prisma.asset.update({
+      where: { id: radio.id },
+      data: { status: 'ASSIGNED' },
     });
   }
 
@@ -631,6 +904,41 @@ async function main() {
     });
   }
 
+  // Branch Ops attendance board — open clock-in for "today" (refresh on re-seed)
+  const todayClockIn = new Date();
+  todayClockIn.setHours(6, 15, 0, 0);
+  const existingTodayAtt = await prisma.guardAttendance.findFirst({
+    where: { clientEventId: 'seed-branch-att-today-open' },
+  });
+  if (!existingTodayAtt) {
+    await prisma.guardAttendance.create({
+      data: {
+        organizationId: org.id,
+        guardId: guardProfile.id,
+        siteId: site.id,
+        clockInAt: todayClockIn,
+        clockInMethod: 'MOBILE_GPS',
+        clockInLatitude: -6.7924,
+        clockInLongitude: 39.2083,
+        supervisorApproved: false,
+        clientEventId: 'seed-branch-att-today-open',
+        remarks: 'Demo: on duty for Branch Ops attendance board',
+      },
+    });
+  } else {
+    await prisma.guardAttendance.update({
+      where: { id: existingTodayAtt.id },
+      data: {
+        siteId: site.id,
+        guardId: guardProfile.id,
+        clockInAt: todayClockIn,
+        clockOutAt: null,
+        supervisorApproved: false,
+        remarks: 'Demo: on duty for Branch Ops attendance board',
+      },
+    });
+  }
+
   void gate;
   void vehicleGate;
   void customerEmployee;
@@ -656,6 +964,188 @@ async function main() {
       longitude: 39.2083,
     },
   });
+
+  // CCTV control-room demo — Device type CCTV_CAMERA + config JSON (URLs/metadata only; no Nest video)
+  const cctvCameras: Array<{
+    code: string;
+    name: string;
+    vendor: string;
+    model: string;
+    status: 'ONLINE' | 'OFFLINE';
+    gateId?: string;
+    config: Record<string, unknown>;
+  }> = [
+    {
+      code: 'CAM-GATE-01',
+      name: 'Main Gate Camera',
+      vendor: 'Hikvision',
+      model: 'DS-2CD2143G2',
+      status: 'ONLINE',
+      gateId: gate.id,
+      config: {
+        streamUrl: '',
+        embedUrl: '',
+        snapshotUrl: '',
+        zone: 'Gate',
+        gridOrder: 1,
+        nvrChannel: 'CH01',
+      },
+    },
+    {
+      code: 'CAM-YARD-01',
+      name: 'Yard Overview Camera',
+      vendor: 'Dahua',
+      model: 'IPC-HFW2431S',
+      status: 'ONLINE',
+      config: {
+        streamUrl: '',
+        embedUrl: '',
+        snapshotUrl: '',
+        zone: 'Yard',
+        gridOrder: 2,
+        nvrChannel: 'CH02',
+      },
+    },
+    {
+      code: 'CAM-WH-01',
+      name: 'Warehouse Interior Camera',
+      vendor: 'Hikvision',
+      model: 'DS-2CD2387G2',
+      status: 'ONLINE',
+      config: {
+        streamUrl: '',
+        embedUrl: '',
+        snapshotUrl: '',
+        zone: 'Warehouse',
+        gridOrder: 3,
+        nvrChannel: 'CH03',
+      },
+    },
+    {
+      code: 'CAM-PARK-01',
+      name: 'Parking Lot Camera',
+      vendor: 'Dahua',
+      model: 'IPC-HDW2431T',
+      status: 'OFFLINE',
+      config: {
+        streamUrl: '',
+        embedUrl: '',
+        snapshotUrl: '',
+        zone: 'Parking',
+        gridOrder: 4,
+        nvrChannel: 'CH04',
+      },
+    },
+  ];
+
+  const seededCameras: Record<string, { id: string }> = {};
+  for (const cam of cctvCameras) {
+    const row = await prisma.device.upsert({
+      where: {
+        organizationId_code: { organizationId: org.id, code: cam.code },
+      },
+      update: {
+        name: cam.name,
+        vendor: cam.vendor,
+        model: cam.model,
+        status: cam.status,
+        siteId: site.id,
+        gateId: cam.gateId ?? null,
+        type: 'CCTV_CAMERA',
+        connection: 'ONVIF',
+        config: cam.config,
+      },
+      create: {
+        organizationId: org.id,
+        siteId: site.id,
+        gateId: cam.gateId,
+        type: 'CCTV_CAMERA',
+        connection: 'ONVIF',
+        code: cam.code,
+        name: cam.name,
+        vendor: cam.vendor,
+        model: cam.model,
+        status: cam.status,
+        config: cam.config,
+        createdBy: admin.id,
+      },
+    });
+    seededCameras[cam.code] = { id: row.id };
+  }
+
+  const cctvEvents: Array<{
+    dedupeKey: string;
+    deviceCode: string;
+    payload: Record<string, unknown>;
+    minutesAgo: number;
+  }> = [
+    {
+      dedupeKey: 'seed-cctv-intrusion-gate',
+      deviceCode: 'CAM-GATE-01',
+      minutesAgo: 12,
+      payload: {
+        event_type: 'INTRUSION',
+        confidence: 0.91,
+        snapshot_url: '',
+        note: 'Demo AI alert — person in restricted zone near Main Gate (metadata only)',
+        zone: 'Gate',
+      },
+    },
+    {
+      dedupeKey: 'seed-cctv-loitering-yard',
+      deviceCode: 'CAM-YARD-01',
+      minutesAgo: 45,
+      payload: {
+        event_type: 'LOITERING',
+        confidence: 0.78,
+        snapshot_url: '',
+        note: 'Demo AI alert — loitering detected in yard',
+        zone: 'Yard',
+      },
+    },
+    {
+      dedupeKey: 'seed-cctv-linecross-wh',
+      deviceCode: 'CAM-WH-01',
+      minutesAgo: 90,
+      payload: {
+        event_type: 'LINE_CROSSING',
+        confidence: 0.86,
+        snapshot_url: '',
+        note: 'Demo AI alert — line crossing at warehouse aisle',
+        zone: 'Warehouse',
+      },
+    },
+  ];
+
+  for (const ev of cctvEvents) {
+    const deviceId = seededCameras[ev.deviceCode]?.id;
+    if (!deviceId) continue;
+    const capturedAt = new Date(Date.now() - ev.minutesAgo * 60_000);
+    await prisma.deviceEvent.upsert({
+      where: {
+        organizationId_dedupeKey: {
+          organizationId: org.id,
+          dedupeKey: ev.dedupeKey,
+        },
+      },
+      update: {
+        payload: ev.payload,
+        capturedAt,
+        status: 'RECEIVED',
+        deviceId,
+        type: 'CCTV_EVENT',
+      },
+      create: {
+        organizationId: org.id,
+        deviceId,
+        type: 'CCTV_EVENT',
+        dedupeKey: ev.dedupeKey,
+        payload: ev.payload,
+        status: 'RECEIVED',
+        capturedAt,
+      },
+    });
+  }
 
   const shiftStart = new Date();
   shiftStart.setHours(shiftStart.getHours() + 1);
@@ -723,6 +1213,116 @@ async function main() {
   await ensureWorkflow('petty-cash-approval', 'Petty Cash Approval');
   await ensureWorkflow('payment-voucher-approval', 'Payment Voucher Approval');
   await ensureWorkflow('purchase-order-approval', 'Purchase Order Approval');
+  await ensureWorkflow('employee-transfer-approval', 'Employee Transfer Approval');
+  await ensureWorkflow('employee-exit-approval', 'Employee Exit Approval');
+
+  // Thin policy-change: CO drafts/submits; GM alone publishes (CEO/CMD deferred).
+  // Avoid CO→GM two-step deadlock when the only CO is also the submitter (creator≠approver).
+  {
+    const def = await prisma.workflowDefinition.upsert({
+      where: {
+        organizationId_code: {
+          organizationId: org.id,
+          code: 'policy-change-approval',
+        },
+      },
+      update: {
+        description:
+          'Thin policy change: Compliance Officer submits → GM publishes (CEO/CMD deferred)',
+      },
+      create: {
+        organizationId: org.id,
+        code: 'policy-change-approval',
+        name: 'Policy Change Approval',
+        description:
+          'Thin policy change: Compliance Officer submits → GM publishes (CEO/CMD deferred)',
+      },
+    });
+    const ver = await prisma.workflowVersion.findFirst({
+      where: { definitionId: def.id, isCurrent: true },
+      include: { steps: { orderBy: { stepOrder: 'asc' } } },
+    });
+    const thinOk =
+      !!ver &&
+      ver.steps.length === 1 &&
+      ver.steps[0]?.requiredRole === 'GENERAL_MANAGER';
+    if (!thinOk) {
+      if (ver) {
+        await prisma.workflowVersion.update({
+          where: { id: ver.id },
+          data: { isCurrent: false },
+        });
+      }
+      await prisma.workflowVersion.create({
+        data: {
+          definitionId: def.id,
+          version: (ver?.version ?? 0) + 1,
+          isCurrent: true,
+          steps: {
+            create: [
+              {
+                stepOrder: 1,
+                name: 'General Manager Approval',
+                requiredRole: 'GENERAL_MANAGER',
+                minApprovers: 1,
+              },
+            ],
+          },
+        },
+      });
+    }
+  }
+
+  // Demo published policy + reported breach (idempotent by unique codes).
+  await prisma.policyDocument.upsert({
+    where: {
+      organizationId_code: {
+        organizationId: org.id,
+        code: 'POL-DPP-001',
+      },
+    },
+    update: {},
+    create: {
+      organizationId: org.id,
+      code: 'POL-DPP-001',
+      title: 'Data Protection Policy',
+      category: 'DATA_PROTECTION',
+      summary: 'HIGHLINK baseline data protection and personal data handling rules.',
+      body:
+        'This policy sets out how HIGHLINK collects, processes, stores, and shares personal data in line with applicable data protection law. ' +
+        'All staff must report suspected personal-data breaches to the Compliance / DPO register promptly.',
+      version: 1,
+      status: 'PUBLISHED',
+      createdBy: admin.id,
+      publishedAt: new Date(),
+      publishedBy: admin.id,
+    },
+  });
+
+  const existingBreach = await prisma.dataBreachCase.findFirst({
+    where: {
+      organizationId: org.id,
+      referenceCode: 'BRCH-00001',
+    },
+  });
+  if (!existingBreach) {
+    await prisma.dataBreachCase.create({
+      data: {
+        organizationId: org.id,
+        referenceCode: 'BRCH-00001',
+        title: 'Demo — misplaced USB with staff contact list',
+        description:
+          'A USB drive containing a staff contact spreadsheet was reported missing from HQ admin. ' +
+          'No evidence of external access yet; investigation opened for DPO register demo.',
+        severity: 'MEDIUM',
+        status: 'REPORTED',
+        discoveredAt: new Date('2026-07-15T09:00:00.000Z'),
+        affectedDataCategories: 'Staff contact details (names, phones, emails)',
+        estimatedRecords: 120,
+        createdBy: complianceUser.id,
+      },
+    });
+  }
 
   const supplier = await prisma.supplier.upsert({
     where: {
@@ -910,11 +1510,19 @@ async function main() {
   console.log('  guard1@highlink.co.tz / ChangeMe123! (guard profile GRD-0001)');
   console.log('  gate1@highlink.co.tz / ChangeMe123! (GATE_OFFICER)');
   console.log('  parking1@highlink.co.tz / ChangeMe123! (PARKING_OFFICER)');
-  console.log('  supervisor1@highlink.co.tz / ChangeMe123! (SUPERVISOR)');
+  console.log('  supervisor1@highlink.co.tz / ChangeMe123! (SUPERVISOR + ESS office OFF-SUP-001)');
+  console.log('  compliance1@highlink.co.tz / ChangeMe123! (COMPLIANCE_OFFICER)');
   console.log('  Demo customer: CUST-DEMO, site SITE-WAREHOUSE-A, gates GATE-MAIN / GATE-VEHICLE');
   console.log('  Demo employee: jane.doe@demo-mfg.co.tz, vehicle T123ABC permit PRM-DEMO-001');
   console.log('  HR: employee GRD-0001 (John Guard), salary 850k TZS, job posting open');
+  console.log('  Branch Ops: ACTIVE deployment GRD-0001 → SITE-WAREHOUSE-A; open FieldAlert; today open attendance seed-branch-att-today-open; EOB demo ×2 at SITE-WAREHOUSE-A');
+  console.log('  CCTV: CAM-GATE-01 / CAM-YARD-01 / CAM-WH-01 / CAM-PARK-01 at SITE-WAREHOUSE-A + 3 CCTV_EVENT AI alerts (metadata only)');
+  console.log('  ESS: AST-RADIO-001 assigned to GRD-0001 (request return → admin confirms)');
   console.log('  Integrations: console-sms, VISITOR_GATE_CODE template, service token ready');
+  console.log('  Role DEVELOPER: integrations.manage + users.manage + audit.read + notifications.manage + operations.manage');
+  console.log('  Role COMPLIANCE_OFFICER: compliance.manage + audit.read + approvals.act');
+  console.log('  Compliance demo: policy POL-DPP-001 (PUBLISHED), breach BRCH-00001 (REPORTED)');
+  console.log('  Workflow policy-change-approval: CO submits → GENERAL_MANAGER publishes');
   console.log('  Reporting: 24 KPI definitions seeded (executive dashboard)');
 }
 

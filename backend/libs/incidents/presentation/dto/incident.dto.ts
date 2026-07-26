@@ -29,9 +29,14 @@ export class IncidentResponseDto {
   @ApiProperty() id!: string;
   @ApiProperty() incidentNumber!: string;
   @ApiProperty() siteId!: string;
+  @ApiPropertyOptional() siteCode?: string;
+  @ApiPropertyOptional() siteName?: string;
   @ApiProperty() category!: string;
   @ApiProperty({ enum: IncidentSeverity }) severity!: IncidentSeverity;
   @ApiProperty({ enum: IncidentStatus }) status!: IncidentStatus;
   @ApiProperty() title!: string;
+  @ApiProperty() description!: string;
+  @ApiPropertyOptional() assignedTo?: string | null;
+  @ApiPropertyOptional() resolvedAt?: Date | null;
   @ApiProperty() createdAt!: Date;
 }

@@ -1,4 +1,12 @@
-import { Body, Controller, Get, Param, Patch, Post } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  Param,
+  Patch,
+  Post,
+  UseGuards,
+} from '@nestjs/common';
 import {
   ApiBearerAuth,
   ApiCreatedResponse,
@@ -6,7 +14,12 @@ import {
   ApiOperation,
   ApiTags,
 } from '@nestjs/swagger';
-import { AuthUser, CurrentUser } from '@pssms/shared';
+import {
+  AuthUser,
+  CurrentUser,
+  PermissionsGuard,
+  RequirePermissions,
+} from '@pssms/shared';
 import { GuardsService } from '../application/guards.service';
 import {
   CreateGuardDto,
@@ -16,6 +29,8 @@ import {
 
 @ApiTags('Guards')
 @ApiBearerAuth()
+@UseGuards(PermissionsGuard)
+@RequirePermissions('operations.manage')
 @Controller('guards')
 export class GuardsController {
   constructor(private readonly service: GuardsService) {}
@@ -28,7 +43,7 @@ export class GuardsController {
   }
 
   @Get()
-  @ApiOperation({ summary: 'List guard profiles' })
+  @ApiOperation({ summary: 'List guard profiles (ops-enriched)' })
   @ApiOkResponse({ type: [GuardResponseDto] })
   list(@CurrentUser() user: AuthUser) {
     return this.service.list(user.organizationId);

@@ -160,27 +160,65 @@ export const updateContractStatus = (
   });
 
 // ── Guards ──
+export type GuardActiveDeployment = {
+  id: string;
+  siteCode?: string;
+  siteName?: string;
+  status?: string;
+};
+
 export type Guard = {
   id: string;
   employeeNumber: string;
   status: string;
   deploymentEligible: boolean;
   userId: string;
+  /** Present when backend joins employee / profile fields */
+  phone?: string | null;
+  photoUrl?: string | null;
+  fullName?: string | null;
+  employeeId?: string | null;
+  activeDeployment?: GuardActiveDeployment | null;
+  createdAt?: string;
+  organizationId?: string;
 };
 
-export const listGuards = (token?: string) =>
-  coreFetch<Guard[]>('/api/v1/guards', { token });
+type GuardApiRow = Guard & {
+  employee?: { employeeId: string; fullName: string } | null;
+};
 
-export const updateGuardStatus = (
+/** Flatten nested employee join for ops UI. */
+function normalizeGuard(row: GuardApiRow): Guard {
+  const { employee, ...rest } = row;
+  return {
+    ...rest,
+    fullName: rest.fullName ?? employee?.fullName ?? null,
+    employeeId: rest.employeeId ?? employee?.employeeId ?? null,
+  };
+}
+
+export const listGuards = async (token?: string) => {
+  const rows = await coreFetch<GuardApiRow[]>('/api/v1/guards', { token });
+  return rows.map(normalizeGuard);
+};
+
+export const updateGuardStatus = async (
   id: string,
   status: string,
-  token?: string,
-) =>
-  coreFetch<Guard>(`/api/v1/guards/${id}/status`, {
+  options?: { deploymentEligible?: boolean; token?: string },
+) => {
+  const row = await coreFetch<GuardApiRow>(`/api/v1/guards/${id}/status`, {
     method: 'PATCH',
-    body: JSON.stringify({ status }),
-    token,
+    body: JSON.stringify({
+      status,
+      ...(options?.deploymentEligible !== undefined
+        ? { deploymentEligible: options.deploymentEligible }
+        : {}),
+    }),
+    token: options?.token,
   });
+  return normalizeGuard(row);
+};
 
 // ── Finance ──
 export type Invoice = {
@@ -214,31 +252,6 @@ export const recordInvoicePayment = (
     token,
   });
 
-// ── HR ──
-export type Employee = {
-  id: string;
-  employeeNumber: string;
-  fullName: string;
-  email?: string | null;
-  status: string;
-  department?: string | null;
-};
-
-export type LeaveRequest = {
-  id: string;
-  employeeId: string;
-  status: string;
-  startDate: string;
-  endDate: string;
-  reason?: string | null;
-};
-
-export const listEmployees = (token?: string) =>
-  coreFetch<Employee[]>('/api/v1/hr/employees', { token });
-
-export const listLeaveRequests = (token?: string) =>
-  coreFetch<LeaveRequest[]>('/api/v1/hr/leave/requests', { token });
-
 // ── Enterprise ──
 export type Branch = {
   id: string;
@@ -253,6 +266,7 @@ export const listBranches = (token?: string) =>
 // ── Audit ──
 export type AuditLog = {
   id: string;
+  actorId?: string | null;
   action: string;
   resourceType: string;
   resourceId?: string | null;
@@ -263,6 +277,19 @@ export const listAuditLogs = (take = 20, token?: string) =>
   coreFetch<AuditLog[]>(`/api/v1/audit/logs?take=${take}`, { token });
 
 // ── Health ──
+/**
+ * Browser-side probe of a single service health URL.
+ * Prefer `getPlatformServicesHealth()` from `./developer` (JWT → core-api probes)
+ * so CORS and mixed ports are handled server-side.
+ *
+ * Defaults used by admin-web when wiring optional client probes:
+ *   NEXT_PUBLIC_CORE_API_URL            → http://localhost:4001
+ *   NEXT_PUBLIC_REPORTING_API_URL       → http://localhost:4005
+ *   NEXT_PUBLIC_VISION_AI_URL           → http://localhost:8000
+ *   NEXT_PUBLIC_ANALYTICS_AI_URL        → http://localhost:8001
+ *   NEXT_PUBLIC_INTEGRATION_GATEWAY_URL → http://localhost:4003
+ *   NEXT_PUBLIC_REALTIME_GATEWAY_URL    → http://localhost:4004
+ */
 export async function checkServiceHealth(
   baseUrl: string,
   path = '/api/v1/health',
@@ -549,6 +576,8 @@ export type EdgeGateway = {
   code: string;
   name: string;
   siteId?: string | null;
+  siteCode?: string | null;
+  siteName?: string | null;
   status: string;
   version?: string | null;
   lastHeartbeatAt?: string | null;
@@ -563,15 +592,33 @@ export type Device = {
   type: DeviceType;
   connection: DeviceConnection;
   siteId?: string | null;
+  siteCode?: string | null;
+  siteName?: string | null;
   gateId?: string | null;
   edgeGatewayId?: string | null;
   status: string;
   vendor?: string | null;
   model?: string | null;
   serialNumber?: string | null;
+  /** Camera stream/embed/snapshot URLs, NVR zone, etc. — never Nest-proxied video. */
+  config?: Record<string, unknown> | null;
   lastSeenAt?: string | null;
   createdAt: string;
   apiKey?: string;
+};
+
+export type DeviceEvent = {
+  id: string;
+  organizationId: string;
+  deviceId: string;
+  type: string;
+  payload: Record<string, unknown>;
+  status: string;
+  routedTo?: string | null;
+  error?: string | null;
+  capturedAt: string;
+  receivedAt: string;
+  processedAt?: string | null;
 };
 
 export type DeviceDetail = Device & {
@@ -659,6 +706,22 @@ export const registerGateway = (
     body: JSON.stringify(body),
     token,
   });
+
+/** GET /devices/events — may 404 until backend lands; callers should catch. */
+export const listDeviceEvents = (
+  filters?: { type?: string; deviceId?: string; limit?: number },
+  token?: string,
+) => {
+  const q = new URLSearchParams();
+  if (filters?.type) q.set('type', filters.type);
+  if (filters?.deviceId) q.set('deviceId', filters.deviceId);
+  if (filters?.limit != null) q.set('limit', String(filters.limit));
+  const qs = q.toString();
+  return coreFetch<DeviceEvent[]>(
+    `/api/v1/devices/events${qs ? `?${qs}` : ''}`,
+    { token },
+  );
+};
 
 export const listDeviceCommands = (deviceId: string, token?: string) =>
   coreFetch<DeviceCommand[]>(`/api/v1/devices/${deviceId}/commands`, { token });

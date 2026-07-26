@@ -1,0 +1,75 @@
+---
+description: Honest implementation status — what works vs incomplete vs empty; finish design gaps here first
+alwaysApply: true
+---
+
+# Implementation Status (do not pretend everything is done)
+
+Foundation is strong (APIs + most domain libs + portals wired). Many design features are **partial** or **stubbed**. Prefer finishing these over inventing new product areas.
+
+## Strong / largely real
+
+- IAM dual auth, users/roles, enterprise master data, customers/contracts
+- Approvals engine + audit log API
+- Guards/HR basics, operations (deployments/shifts/checkpoints); **Guards API** `GET/POST /guards` + `PATCH …/status` gated `operations.manage` — list enriched with phone/photoUrl/createdAt, linked employee `{employeeId,fullName}`, latest ACTIVE deployment + org site code/name; SUSPENDED/TERMINATED force `deploymentEligible: false`
+- Attendance clock + alertness + patrols APIs; field sync
+- Visitors appointments/codes/gate verify; access-control; parking + ANPR result path
+- Recruitment postings/apply; payroll cycles/snapshots; loans API
+- Finance invoices/petty cash/vouchers; procurement/inventory/assets APIs
+- Devices registry/ingest/commands + iClock; notifications + outbox worker; **list/gateways ops-enriched** `siteCode`/`siteName` (org-scoped site batch; `operations.manage`; CCTV `config` unchanged)
+- Reporting KPIs/exports service; admin/customer/supplier/parking/visitor/recruitment UIs
+- Mobile guard / gate / supervisor v1
+
+## Thin / partial UI vs design
+
+- Marketing ≈ customer directory (no full BD pipeline)
+- **Branch Ops `/branch` (thin):** shell + **Overview control-room UI** (navy/teal hero Portal 35.23 / §27, colored KPI cards, quick-link grid, branches table, optional ACTIVE deployments strip, refresh + error banner, honest deferral footer — live from `listBranches`/`listSites`/`listDeployments`/`listShifts`/`listFieldAlerts`); sub-routes still thin as listed. **Sites** create/list (`enterprise.manage` OR `operations.manage`); **Deployments** create + **end** (`POST …/deployments/:id/end`, audit `deployment.ended`, overlapping ACTIVE rejected); **Shifts** create/list; **Attendance board** `/branch/attendance` — today’s `GET /attendance` (+ optional site/`from`/`to`), pending alertness, open field alerts + ack (`operations.manage`; list also accepts `attendance.manage`); seed open today clock `seed-branch-att-today-open` + FieldAlert. **Field alerts** list + acknowledge. **EOB** `/branch/eob` — append-only create/list/correct via `libs/occurrence-book` (`operations.manage`; audit `occurrence.created` / `occurrence.corrected`); **History** modal via `GET /occurrence-book/:id/history` (full lineage; Approved / Pending approval); **Approve** `POST /occurrence-book/:id/approve` (current + `approvedBy` null; recorder ≠ approver SoD; audit `occurrence.approved`; originals + corrections); **Attachments** modal via `libs/documents` + MinIO (`documents.manage`; upload/list/presign; audit `document.uploaded`; pdf/png/jpeg/webp ≤10MB); site filter; seed demo ×2 at SITE-WAREHOUSE-A. **Patrols** `/branch/patrols` — Checkpoints create/list (`operations.manage` on `POST/GET /operations/checkpoints`; site filter; seed `CP-GATE-01`); **Scans** list-only (`operations.manage` OR `attendance.manage` on `GET /attendance/patrols`; includes checkpoint + site labels); field scan remains `POST …/patrols/scan` (`attendance.manage`, guard profile). **Incidents** `/branch/incidents` — create/list + thin status escalate OPEN→INVESTIGATING→RESOLVED→CLOSED via `libs/incidents` (`incidents.manage`; org site validation; audit `incident.created` / `incident.status.*`). `/operations` remains guard readiness console. Deferred: Live SSE, route builder UI, GPS map, missed-patrol alerts matrix, mobile offline patrol, full incident escalation matrix, risk register, CCTV link, incident attachments (reuse documents later), parking, branch petty cash UI, gates CRUD UI, ABAC branch filter, full EOB approvals-lib workflow / mobile EOB, virus scan / delete workflow / rich search, fake KPIs
+- **Compliance `/compliance` (thin):** shell — Overview (audit.log + `audit.read`), **Policies** + **Breaches** (`compliance.manage`); Prisma `compliance` schema + RLS; workflow `policy-change-approval` (CO submits → **GM publishes**; CEO/CMD deferred; avoids CO self-approve deadlock); breach close SoD (reporter ≠ closer); role `COMPLIANCE_OFFICER` + user `compliance1@…`; demo `POL-DPP-001` / `BRCH-00001`. Distinct from ops `SECURITY_BREACH`. Still deferred vs §28/§32: risk register, DPIA, consent, backup/DR, full matrix, archive-via-approval
+- **CCTV `/cctv` (thin control-room):** **UI** monitoring wall mosaic (1/4/9/16), Connect camera modal, focus drawer, KPI strip, AI inbox + ANPR panels (`operations.manage`). **API** `CCTV_CAMERA` + `config` JSON (`streamUrl`/`embedUrl`/`snapshotUrl`/zone…); `GET /devices/events?type=CCTV_EVENT`; seed CAM-GATE-01/YARD/WH/PARK + demo alerts. Tiles: http(s) iframe/embed or NVR placeholder + live pulse — **no Nest video.** Deferred: NVR vendor SDK, MQTT barriers, snapshot virus scan, live SSE mosaic, real vision AI
+- **Ops Guards `/operations/guards` (thin control-room):** navy/teal hero (Guard Mgmt §8), KPI strip Total/Active/Deployable/Suspended, search + filter chips, card grid (avatar initials, guard #, optional name/phone/deployment) + list view, Suspend/Reactivate, toggle deployable (`PATCH …/status` + optional `deploymentEligible`), detail drawer (id/employeeNumber/userId/phone/status/deployable/createdAt + links to `/branch/deployments` + `/operations`). Graceful when enriched list fields missing. Deferred: create-guard UI (needs user picker), training/firearm/equipment (HR + assets), full §8 employment matrix
+- **Devices `/devices` (thin control-room):** navy/teal hero (“Field devices”), type chips (Fingerprint/Face/RFID/QR/Printer/CCTV), KPI strip Total/Online/Offline/Gateways, tabs Gateways | Devices | Recent events (`listDeviceEvents` limit 40). Devices: search + status chips + type dropdown, card grid (online pulse, vendor/last seen) + list; drawer + `/devices/[id]`; CCTV_CAMERA → `/cctv`. Gateways cards/table + register modal (one-time API key). New device modal restyled; detail page hero/KPIs + command modal kept. `operations.manage`. Deferred: MQTT Nest bridge, live map, virus scan
+- **Developer `/developer` (Phase A–C):** health, adapters (+ ping), webhook/outbox filters+replay, notifications, devices summary, **logs**, **config** (non-secret); RBAC `integrations.manage`; DEVELOPER role seeded. Still missing: real WhatsApp/banks/mobile-money vendors, import/export bulk tools, MQTT Nest bridge
+- **HR `/hr` (Phase A–C):** shell + Overview; employees create/edit/list (`hr.manage`); leave types/apply + approve/reject; salary assignments; **training** records; **discipline** cases; **transfer/exit movements** via approvals (`employee-transfer-approval` / `employee-exit-approval`; EXIT → TERMINATED + guard not deployment-eligible + **ACTIVE deployments ended** via `DeploymentsService.endAllActiveForGuard` port; PATCH TERMINATED blocked). Still missing vs §16: performance reviews, employee docs, full Employment→CEO matrix UX
+- **ESS `/ess` (Phase A–B):** self-scoped (`ess.access`) — profile, leave, payslips, loans, **petty cash request**, equipment + **return request** (sets `RETURN_PENDING`; storekeeper confirms), **requests inbox** (leave/loan/movement/petty cash); HR can **link userId** for ESS; seed office `OFF-SUP-001` ↔ supervisor1 + demo radio on guard. Still missing: AP payment-voucher self-create (design: accountant-only — deferred)
+- **Loans `/loans` (thin admin):** org-wide list/create, approve/reject (`loans.manage`, multi-step-safe + creator≠approver), installment schedule view; ESS self-apply remains `/ess/loans`. Still missing: statements, issue/disbursement UX beyond approve, loan-type catalog
+- **Assets `/assets` + returns (thin):** shell Register | Returns; register create/list (`assets.manage`); assign AVAILABLE → employee/guard via `GET /assets/assignee-options` (org-validated); list includes active assignment summary; audit `asset.created` / `asset.assigned`. **Returns `/assets/returns`:** pending ESS queue + storekeeper confirm (condition + receipt; creator≠confirmer); walk-in `POST /assets/:id/return` kept. Deferred: transfer, dispose, maintenance, damage charges, inventory sync, MinIO photos
+- **Petty cash `/finance/petty-cash` + ESS `/ess/petty-cash` (thin):** employee requests against HQ imprest (fund auto-picked); finance list/approve/reject (`finance.manage` UI; seeded step role `GENERAL_MANAGER` / SUPER_ADMIN; multi-step-safe + creator≠approver; balance checked before final approve/debit); **REIMBURSED** after APPROVED via `POST …/vouchers/:id/reimburse` (receiptUrl and/or notes; creator≠reimburser; audit `petty_cash.voucher.reimbursed`); finance UI Mark reimbursed + status filter; **MinIO receipts** — Receipts modal + reimburse upload/list/presign via `libs/documents` (`PettyCashVoucher`; `documents.manage` + `finance.manage`; stores `receiptUrl` as `document:{id}`); ESS shows REIMBURSED + date + receipt-on-file hint (read-only; no ESS upload — parent authz is finance). AP payment vouchers remain accountant-created. Still deferred: float replenishment, full Supervisor→Finance→GM matrix, branch petty cash UI, ESS self-upload of receipts
+- **Documents `/api/v1/documents` (thin):** `libs/documents` + MinIO bucket `pssms-documents` (createIfNotExists); `DocumentObject` metadata in `documents` schema + RLS; upload/list/presign; `documents.manage` on SUPER_ADMIN/GM (allPerms) + SUPERVISOR/GUARD. **Authz harden:** after org ownership, parent capability required — `OccurrenceEntry` → `operations.manage`, `PettyCashVoucher` → `finance.manage` (upload/list/presign). Wired on Branch EOB Attachments **and** Finance petty-cash Receipts / Mark reimbursed. Deferred: virus scan, soft-delete, CCTV snapshots / payslip buckets, public CDN
+
+- B2B “other security company” portal not a dedicated mature app
+- Guard mobile: no full face/NFC/QR stack yet
+
+## Empty or deferred (known)
+
+| Gap | Notes |
+|---|---|
+| `libs/compliance` | Partially filled — policies + breach register + audit overview; risk/DPIA/consent/DR still empty |
+| `libs/documents` | Filled thin (metadata + MinIO); payslip/CCTV buckets & delete deferred |
+| RabbitMQ publish | Infra only; app uses DB outbox + HTTP |
+| MQTT Nest bridge | EMQX up; realtime is SSE only today |
+| Vision/analytics AI | Stub algorithms |
+| Console SMS/payment | Swap for real providers via integration-gateway |
+| Social login buttons | Admin “coming soon” |
+
+## Local Docker host remaps (busy machines)
+
+Internal container ports unchanged. Host may use: Postgres **5433**, Redis **6381**, MinIO **9010/9011**, executive-web **3011**. See compose + `.env`.
+
+## Careful backlog (A–H — see `pssms-careful-delivery`)
+
+Work **one slice at a time**; prove API + UI before the next. **Careful backlog A–H is complete.**
+
+| # | Slice | Status |
+|---|---|---|
+| A | Assets register + assign (admin) | **DONE** |
+| B | Petty cash receipt → REIMBURSED | **DONE** |
+| C | EOB history UI (lineage) | **DONE** |
+| D | EOB second-person approve (corrector ≠ approver) | **DONE** |
+| E | Attachments / `libs/documents` + MinIO | **DONE** |
+| F | Patrols thin UI | **DONE** |
+| G | Incidents thin UI | **DONE** |
+| H | Petty cash MinIO receipt UI | **DONE** |
+
+## Agent habit
+
+Before implementing: name module + portal + owning lib/app from maps; check this status + `pssms-careful-delivery` so you extend real code instead of duplicating scaffolds.

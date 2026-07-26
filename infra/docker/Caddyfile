@@ -11,3 +11,10 @@ web.hisgc.co.tz {
 	encode gzip
 	reverse_proxy admin-web:3000
 }
+
+# Presigned document downloads (EOB / petty-cash receipts). Requires DNS A/AAAA
+# for files.hisgc.co.tz pointing at this VPS.
+files.hisgc.co.tz {
+	encode gzip
+	reverse_proxy minio:9000
+}

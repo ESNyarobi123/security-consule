@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Patch, Post } from '@nestjs/common';
+import { Body, Controller, Get, Param, Patch, Post, UseGuards } from '@nestjs/common';
 import {
   ApiBearerAuth,
   ApiCreatedResponse,
@@ -6,7 +6,12 @@ import {
   ApiOperation,
   ApiTags,
 } from '@nestjs/swagger';
-import { AuthUser, CurrentUser } from '@pssms/shared';
+import {
+  AuthUser,
+  CurrentUser,
+  PermissionsGuard,
+  RequirePermissions,
+} from '@pssms/shared';
 import { UsersService } from '../application/users.service';
 import {
   CreateUserDto,
@@ -17,6 +22,8 @@ import {
 
 @ApiTags('Users')
 @ApiBearerAuth()
+@UseGuards(PermissionsGuard)
+@RequirePermissions('users.manage')
 @Controller('users')
 export class UsersController {
   constructor(private readonly usersService: UsersService) {}

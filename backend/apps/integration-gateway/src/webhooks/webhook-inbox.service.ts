@@ -1,6 +1,31 @@
-import { Injectable, Logger } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  Logger,
+  NotFoundException,
+} from '@nestjs/common';
 import { Prisma, WebhookInboxStatus } from '@prisma/client';
 import { PrismaService } from '@pssms/shared';
+
+const WEBHOOK_INBOX_SAFE_SELECT = {
+  id: true,
+  organizationId: true,
+  provider: true,
+  eventType: true,
+  idempotencyKey: true,
+  signatureValid: true,
+  status: true,
+  retryCount: true,
+  errorMessage: true,
+  processedAt: true,
+  createdAt: true,
+} as const;
+
+/** Replay only failed / DLQ — never re-queue PROCESSED/RECEIVED/PROCESSING. */
+const WEBHOOK_REPLAYABLE: WebhookInboxStatus[] = [
+  WebhookInboxStatus.FAILED,
+  WebhookInboxStatus.DLQ,
+];
 
 @Injectable()
 export class WebhookInboxService {
@@ -49,13 +74,31 @@ export class WebhookInboxService {
       where: status ? { status: status as WebhookInboxStatus } : {},
       orderBy: { createdAt: 'desc' },
       take: 50,
+      select: WEBHOOK_INBOX_SAFE_SELECT,
     });
   }
 
   async replay(id: string) {
+    const row = await this.prisma.webhookInbox.findUnique({
+      where: { id },
+      select: WEBHOOK_INBOX_SAFE_SELECT,
+    });
+    if (!row) throw new NotFoundException('Webhook inbox entry not found');
+    if (!WEBHOOK_REPLAYABLE.includes(row.status)) {
+      throw new BadRequestException(
+        `Cannot replay webhook in status ${row.status} (only FAILED/DLQ)`,
+      );
+    }
+
     return this.prisma.webhookInbox.update({
       where: { id },
-      data: { status: WebhookInboxStatus.RECEIVED, retryCount: 0 },
+      data: {
+        status: WebhookInboxStatus.RECEIVED,
+        retryCount: 0,
+        errorMessage: null,
+        processedAt: null,
+      },
+      select: WEBHOOK_INBOX_SAFE_SELECT,
     });
   }
 

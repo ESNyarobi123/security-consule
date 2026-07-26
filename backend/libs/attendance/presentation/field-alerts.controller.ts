@@ -1,4 +1,4 @@
-import { Controller, Get, Param, Post, Query } from '@nestjs/common';
+import { Controller, Get, Param, Post, Query, UseGuards } from '@nestjs/common';
 import {
   ApiBearerAuth,
   ApiOkResponse,
@@ -6,12 +6,19 @@ import {
   ApiQuery,
   ApiTags,
 } from '@nestjs/swagger';
-import { AuthUser, CurrentUser } from '@pssms/shared';
+import {
+  AuthUser,
+  CurrentUser,
+  PermissionsGuard,
+  RequireAnyPermissions,
+} from '@pssms/shared';
 import { FieldAlertsService } from '../application/field-alerts.service';
 import { FieldAlertResponseDto } from './dto/attendance.dto';
 
 @ApiTags('Field Alerts')
 @ApiBearerAuth()
+@UseGuards(PermissionsGuard)
+@RequireAnyPermissions('operations.manage', 'attendance.manage')
 @Controller('attendance/field-alerts')
 export class FieldAlertsController {
   constructor(private readonly service: FieldAlertsService) {}

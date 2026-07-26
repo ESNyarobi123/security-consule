@@ -1,0 +1,49 @@
+---
+description: Implemented backend apps, libs, API prefixes, Prisma schemas — living codebase map
+alwaysApply: true
+---
+
+# Backend & API Map (as implemented)
+
+Stack: NestJS + Fastify modular monolith. Global prefix **`/api/v1`**. Swagger **`/docs`** on core-api, integration, reporting, realtime (not api-gateway).
+
+## Deployables (`backend/apps/`)
+
+| App | Port | Role |
+|---|---|---|
+| `api-gateway` | 4000 | Entry/proxy to core-api; blocks `/internal` |
+| `core-api` | 4001 | All domain Nest modules |
+| `background-worker` | 4002 | Outbox poll, webhook process, KPI refresh |
+| `integration-gateway` | 4003 | Webhooks, SMS/payment adapters, ANPR, iClock |
+| `realtime-gateway` | 4004 | SSE events (MQTT bridge **not coded yet**) |
+| `reporting-service` | 4005 | KPIs, dashboards, exports |
+| `vision-ai-service` | 8000 | FastAPI ANPR/CCTV stubs |
+| `analytics-ai-service` | 8001 | FastAPI forecast/anomaly stubs |
+
+## Domain libs (`backend/libs/<name>/{domain,application,infrastructure,presentation}`)
+
+**Implemented:** identity, enterprise, approvals, audit, customers, contracts, workforce, operations, attendance, occurrence-book, incidents, access-control, visitors, parking, recruitment, payroll, employee-loans, finance, procurement, inventory, assets, documents, notifications, devices, reporting, shared 
+
+**Implemented (thin):** compliance (policies + DPO breach register); documents (MinIO metadata + upload/list/presign)
+
+**Empty scaffolds (no `.ts`):** _(none — documents filled)_
+
+## Prisma
+
+`backend/prisma/schema.prisma` — multi-schema PG (~86 models):  
+`iam`, `enterprise`, `customers`, `contracts`, `approvals`, `audit`, `workforce`, `operations`, `attendance`, `incidents`, `occurrence`, `access`, `visitors`, `parking`, `recruitment`, `payroll`, `employee_loans`, `finance`, `procurement`, `inventory`, `assets`, `integrations`, `notifications`, `reporting`, `devices`, `compliance`, `documents`
+
+## Major route prefixes (`/api/v1/…`)
+
+`auth` `users` `roles` · `enterprise/*` · `customers` `contracts` `approvals` `audit` · `guards` `hr/*` · `operations/*` · `attendance` `attendance/alertness|patrols|field-alerts` `field/sync` · `occurrence-book` `incidents` `access` `visitors` `parking` · `recruitment` `payroll` `loans` · `finance/*` · `procurement/*` `inventory` `assets` `documents` · `compliance/*` · `notifications` `devices` `device-api` · reporting on :4005 · webhooks/iclock on :4003 · SSE `events` on :4004
+
+## Auth & events (reality)
+
+- `AUTH_MODE`: `local` | `dual` (default) | `keycloak` — local HS256 + Keycloak RS256; AuthZ from **Prisma** roles/permissions
+- Events today: **DB outbox → worker → HTTP** to integration-gateway (RabbitMQ infra up; Nest AMQP publish deferred)
+- MQTT/EMQX infra up; **no Nest MQTT client yet** — devices via HTTP/device-api/iClock
+- Integrations often **console** SMS/payment adapters until vendors wired
+
+## When coding backend
+
+Extend the owning lib; wire via `core-api` `AppModule`; no new microservice per portal; no cross-lib repository calls.

@@ -28,6 +28,13 @@ export class ApplyLoanDto {
   purpose!: string;
 }
 
+export class RejectLoanDto {
+  @ApiProperty()
+  @IsString()
+  @MinLength(3)
+  reason!: string;
+}
+
 export class EmployeeLoanResponseDto {
   @ApiProperty() id!: string;
   @ApiProperty() organizationId!: string;
@@ -40,6 +47,7 @@ export class EmployeeLoanResponseDto {
   @ApiProperty({ enum: LoanStatus }) status!: LoanStatus;
   @ApiProperty() purpose!: string;
   @ApiPropertyOptional() approvalInstanceId?: string | null;
+  @ApiPropertyOptional() createdBy?: string | null;
   @ApiPropertyOptional() approvedBy?: string | null;
   @ApiPropertyOptional() approvedAt?: Date | null;
   @ApiPropertyOptional() disbursedAt?: Date | null;

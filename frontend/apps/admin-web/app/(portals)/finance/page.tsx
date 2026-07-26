@@ -18,6 +18,7 @@ import {
   inputCls,
 } from '@pssms/ui';
 import { Clock, FileText, Receipt, RefreshCw, Wallet } from 'lucide-react';
+import Link from 'next/link';
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react';
 
 const fmtTZS = (n: number) =>
@@ -122,17 +123,22 @@ export default function FinancePage() {
     <>
       <PageHeader
         title="Finance"
-        description="Customer invoices — send and record payments"
+        description="Customer invoices — send and record payments. Employee imprest requests are under Petty cash."
         actions={
-          <button
-            type="button"
-            onClick={() => void load()}
-            className={btnSecondary}
-            disabled={loading}
-          >
-            <RefreshCw className="h-4 w-4" />
-            Refresh
-          </button>
+          <div className="flex flex-wrap gap-2">
+            <Link href="/finance/petty-cash" className={btnSecondary}>
+              Petty cash
+            </Link>
+            <button
+              type="button"
+              onClick={() => void load()}
+              className={btnSecondary}
+              disabled={loading}
+            >
+              <RefreshCw className="h-4 w-4" />
+              Refresh
+            </button>
+          </div>
         }
       />
 

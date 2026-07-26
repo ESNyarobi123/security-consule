@@ -2,9 +2,22 @@ from datetime import datetime, timezone
 from typing import Optional
 
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
 app = FastAPI(title="PSSMS Vision AI Service", version="0.1.0")
+
+# Admin-web (browser) probes /health on :8000 — allow local portals.
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[
+        "http://localhost:3000",
+        "http://127.0.0.1:3000",
+        "http://localhost:3011",
+    ],
+    allow_methods=["GET", "POST", "OPTIONS"],
+    allow_headers=["*"],
+)
 
 
 class AnprRecognizeRequest(BaseModel):

@@ -1,4 +1,13 @@
-import { Body, Controller, Get, Param, Patch, Post, Query } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  Param,
+  Patch,
+  Post,
+  Query,
+  UseGuards,
+} from '@nestjs/common';
 import {
   ApiBearerAuth,
   ApiCreatedResponse,
@@ -7,7 +16,12 @@ import {
   ApiQuery,
   ApiTags,
 } from '@nestjs/swagger';
-import { AuthUser, CurrentUser } from '@pssms/shared';
+import {
+  AuthUser,
+  CurrentUser,
+  PermissionsGuard,
+  RequirePermissions,
+} from '@pssms/shared';
 import { IncidentsService } from '../application/incidents.service';
 import {
   CreateIncidentDto,
@@ -17,6 +31,8 @@ import {
 
 @ApiTags('Incidents')
 @ApiBearerAuth()
+@UseGuards(PermissionsGuard)
+@RequirePermissions('incidents.manage')
 @Controller('incidents')
 export class IncidentsController {
   constructor(private readonly service: IncidentsService) {}
@@ -30,13 +46,14 @@ export class IncidentsController {
 
   @Get()
   @ApiOperation({ summary: 'List incidents' })
+  @ApiOkResponse({ type: IncidentResponseDto, isArray: true })
   @ApiQuery({ name: 'siteId', required: false })
   list(@CurrentUser() user: AuthUser, @Query('siteId') siteId?: string) {
     return this.service.list(user.organizationId, siteId);
   }
 
   @Patch(':id/status')
-  @ApiOperation({ summary: 'Update incident status / assignment' })
+  @ApiOperation({ summary: 'Update incident status / assignment (thin escalate)' })
   @ApiOkResponse({ type: IncidentResponseDto })
   updateStatus(
     @Param('id') id: string,

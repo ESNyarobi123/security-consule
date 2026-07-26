@@ -75,11 +75,49 @@ export class PatrolService {
   }
 
   async list(organizationId: string, siteId?: string) {
-    return this.prisma.patrolScan.findMany({
+    const scans = await this.prisma.patrolScan.findMany({
       where: { organizationId, ...(siteId ? { siteId } : {}) },
       orderBy: { scannedAt: 'desc' },
       take: 100,
-      include: { checkpoint: { select: { code: true, name: true } } },
+      include: {
+        checkpoint: { select: { code: true, name: true, zone: true } },
+      },
+    });
+
+    const siteIds = [...new Set(scans.map((s) => s.siteId))];
+    const sites = siteIds.length
+      ? await this.prisma.site.findMany({
+          where: { organizationId, id: { in: siteIds } },
+          select: { id: true, code: true, name: true },
+        })
+      : [];
+    const siteMap = new Map(sites.map((s) => [s.id, s]));
+
+    return scans.map((s) => {
+      const site = siteMap.get(s.siteId);
+      return {
+        id: s.id,
+        organizationId: s.organizationId,
+        guardId: s.guardId,
+        siteId: s.siteId,
+        siteCode: site?.code ?? null,
+        siteName: site?.name ?? null,
+        checkpointId: s.checkpointId,
+        checkpointCode: s.checkpoint.code,
+        checkpointName: s.checkpoint.name,
+        checkpointZone: s.checkpoint.zone,
+        routeId: s.routeId,
+        scannedAt: s.scannedAt,
+        method: s.method,
+        latitude: s.latitude,
+        longitude: s.longitude,
+        deviceTime: s.deviceTime,
+        serverReceivedAt: s.serverReceivedAt,
+        syncStatus: s.syncStatus,
+        remarks: s.remarks,
+        createdAt: s.createdAt,
+        checkpoint: s.checkpoint,
+      };
     });
   }
 }

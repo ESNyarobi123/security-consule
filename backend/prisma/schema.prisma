@@ -5,37 +5,34 @@ generator client {
 datasource db {
   provider = "postgresql"
   url      = env("DATABASE_URL")
-  schemas  = ["iam", "enterprise", "customers", "contracts", "approvals", "audit", "workforce", "operations", "attendance", "incidents", "occurrence", "access", "visitors", "parking", "recruitment", "payroll", "employee_loans", "finance", "procurement", "inventory", "assets", "integrations", "notifications", "reporting", "devices", "public"]
+  schemas  = ["access", "approvals", "assets", "attendance", "audit", "compliance", "contracts", "customers", "devices", "documents", "employee_loans", "enterprise", "finance", "iam", "incidents", "integrations", "inventory", "notifications", "occurrence", "operations", "parking", "payroll", "procurement", "public", "recruitment", "reporting", "visitors", "workforce"]
 }
 
-// ───────────────────────── IAM ─────────────────────────
-
 model User {
-  id               String    @id @default(uuid())
-  organizationId   String    @map("organization_id")
-  customerId       String?   @map("customer_id")
-  supplierId       String?   @map("supplier_id")
-  email            String    @unique
-  passwordHash     String    @map("password_hash")
-  fullName         String    @map("full_name")
-  phone            String?
-  keycloakSub      String?   @unique @map("keycloak_sub")
-  isActive         Boolean   @default(true) @map("is_active")
-  mfaEnabled       Boolean   @default(false) @map("mfa_enabled")
-  mfaSecret        String?   @map("mfa_secret")
-  mfaVerifiedAt    DateTime? @map("mfa_verified_at")
-  suspendedAt      DateTime? @map("suspended_at")
-  suspendedReason  String?   @map("suspended_reason")
-  lastLoginAt      DateTime? @map("last_login_at")
-  createdAt        DateTime  @default(now()) @map("created_at")
-  updatedAt        DateTime  @updatedAt @map("updated_at")
-  createdBy        String?   @map("created_by")
-
-  organization     Organization @relation(fields: [organizationId], references: [id])
-  roles            UserRole[]
-  branchAccess     UserBranchAccess[]
-  siteAccess       UserSiteAccess[]
-  loginHistory     LoginHistory[]
+  id              String             @id @default(uuid())
+  organizationId  String             @map("organization_id")
+  email           String             @unique
+  passwordHash    String             @map("password_hash")
+  fullName        String             @map("full_name")
+  phone           String?
+  isActive        Boolean            @default(true) @map("is_active")
+  mfaEnabled      Boolean            @default(false) @map("mfa_enabled")
+  lastLoginAt     DateTime?          @map("last_login_at")
+  createdAt       DateTime           @default(now()) @map("created_at")
+  updatedAt       DateTime           @updatedAt @map("updated_at")
+  createdBy       String?            @map("created_by")
+  customerId      String?            @map("customer_id")
+  supplierId      String?            @map("supplier_id")
+  keycloakSub     String?            @unique @map("keycloak_sub")
+  mfaSecret       String?            @map("mfa_secret")
+  mfaVerifiedAt   DateTime?          @map("mfa_verified_at")
+  suspendedAt     DateTime?          @map("suspended_at")
+  suspendedReason String?            @map("suspended_reason")
+  loginHistory    LoginHistory[]
+  branchAccess    UserBranchAccess[]
+  roles           UserRole[]
+  siteAccess      UserSiteAccess[]
+  organization    Organization       @relation(fields: [organizationId], references: [id])
 
   @@index([organizationId, customerId])
   @@index([organizationId, supplierId])
@@ -44,14 +41,13 @@ model User {
 }
 
 model Role {
-  id             String   @id @default(uuid())
-  organizationId String   @map("organization_id")
+  id             String           @id @default(uuid())
+  organizationId String           @map("organization_id")
   code           String
   name           String
   description    String?
-  isSystem       Boolean  @default(false) @map("is_system")
-  createdAt      DateTime @default(now()) @map("created_at")
-
+  isSystem       Boolean          @default(false) @map("is_system")
+  createdAt      DateTime         @default(now()) @map("created_at")
   permissions    RolePermission[]
   users          UserRole[]
 
@@ -61,24 +57,22 @@ model Role {
 }
 
 model Permission {
-  id          String @id @default(uuid())
-  code        String @unique
+  id          String           @id @default(uuid())
+  code        String           @unique
   name        String
   module      String
   description String?
-
-  roles RolePermission[]
+  roles       RolePermission[]
 
   @@map("permissions")
   @@schema("iam")
 }
 
 model RolePermission {
-  roleId       String @map("role_id")
-  permissionId String @map("permission_id")
-
-  role       Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
-  permission Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+  roleId       String     @map("role_id")
+  permissionId String     @map("permission_id")
+  permission   Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+  role         Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
 
   @@id([roleId, permissionId])
   @@map("role_permissions")
@@ -88,9 +82,8 @@ model RolePermission {
 model UserRole {
   userId String @map("user_id")
   roleId String @map("role_id")
-
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
-  role Role @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  role   Role   @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@id([userId, roleId])
   @@map("user_roles")
@@ -100,8 +93,7 @@ model UserRole {
 model UserBranchAccess {
   userId   String @map("user_id")
   branchId String @map("branch_id")
-
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user     User   @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@id([userId, branchId])
   @@map("user_branch_access")
@@ -111,8 +103,7 @@ model UserBranchAccess {
 model UserSiteAccess {
   userId String @map("user_id")
   siteId String @map("site_id")
-
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@id([userId, siteId])
   @@map("user_site_access")
@@ -126,54 +117,49 @@ model LoginHistory {
   userAgent String?  @map("user_agent")
   success   Boolean
   createdAt DateTime @default(now()) @map("created_at")
-
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@map("login_history")
   @@schema("iam")
 }
 
-// ───────────────────────── ENTERPRISE ─────────────────────────
-
 model Organization {
-  id        String   @id @default(uuid())
-  name      String
-  code      String   @unique
-  tin       String?
-  phone     String?
-  email     String?
-  address   String?
-  isActive  Boolean  @default(true) @map("is_active")
-  createdAt DateTime @default(now()) @map("created_at")
-  updatedAt DateTime @updatedAt @map("updated_at")
-
-  users        User[]
-  branches     Branch[]
-  departments  Department[]
-  sites        Site[]
-  customers    Customer[]
-  contracts    Contract[]
+  id          String       @id @default(uuid())
+  name        String
+  code        String       @unique
+  tin         String?
+  phone       String?
+  email       String?
+  address     String?
+  isActive    Boolean      @default(true) @map("is_active")
+  createdAt   DateTime     @default(now()) @map("created_at")
+  updatedAt   DateTime     @updatedAt @map("updated_at")
+  contracts   Contract[]
+  customers   Customer[]
+  branches    Branch[]
+  departments Department[]
+  sites       Site[]
+  users       User[]
 
   @@map("organizations")
   @@schema("enterprise")
 }
 
 model Branch {
-  id             String   @id @default(uuid())
-  organizationId String   @map("organization_id")
+  id             String       @id @default(uuid())
+  organizationId String       @map("organization_id")
   code           String
   name           String
   region         String?
   phone          String?
   address        String?
-  isActive       Boolean  @default(true) @map("is_active")
-  createdAt      DateTime @default(now()) @map("created_at")
-  updatedAt      DateTime @updatedAt @map("updated_at")
-  createdBy      String?  @map("created_by")
-
-  organization Organization @relation(fields: [organizationId], references: [id])
-  sites        Site[]
-  departments  Department[]
+  isActive       Boolean      @default(true) @map("is_active")
+  createdAt      DateTime     @default(now()) @map("created_at")
+  updatedAt      DateTime     @updatedAt @map("updated_at")
+  createdBy      String?      @map("created_by")
+  organization   Organization @relation(fields: [organizationId], references: [id])
+  departments    Department[]
+  sites          Site[]
 
   @@unique([organizationId, code])
   @@map("branches")
@@ -181,16 +167,15 @@ model Branch {
 }
 
 model Department {
-  id             String   @id @default(uuid())
-  organizationId String   @map("organization_id")
-  branchId       String?  @map("branch_id")
+  id             String       @id @default(uuid())
+  organizationId String       @map("organization_id")
+  branchId       String?      @map("branch_id")
   code           String
   name           String
-  isActive       Boolean  @default(true) @map("is_active")
-  createdAt      DateTime @default(now()) @map("created_at")
-
-  organization Organization @relation(fields: [organizationId], references: [id])
-  branch       Branch?      @relation(fields: [branchId], references: [id])
+  isActive       Boolean      @default(true) @map("is_active")
+  createdAt      DateTime     @default(now()) @map("created_at")
+  branch         Branch?      @relation(fields: [branchId], references: [id])
+  organization   Organization @relation(fields: [organizationId], references: [id])
 
   @@unique([organizationId, code])
   @@map("departments")
@@ -198,34 +183,25 @@ model Department {
 }
 
 model Site {
-  id             String   @id @default(uuid())
-  organizationId String   @map("organization_id")
-  branchId       String   @map("branch_id")
-  customerId     String?  @map("customer_id")
+  id             String       @id @default(uuid())
+  organizationId String       @map("organization_id")
+  branchId       String       @map("branch_id")
+  customerId     String?      @map("customer_id")
   code           String
   name           String
   address        String?
   latitude       Float?
   longitude      Float?
-  isActive       Boolean  @default(true) @map("is_active")
-  createdAt      DateTime @default(now()) @map("created_at")
-  updatedAt      DateTime @updatedAt @map("updated_at")
-  createdBy      String?  @map("created_by")
-
-  organization Organization @relation(fields: [organizationId], references: [id])
-  branch       Branch       @relation(fields: [branchId], references: [id])
-  gates        Gate[]
+  isActive       Boolean      @default(true) @map("is_active")
+  createdAt      DateTime     @default(now()) @map("created_at")
+  updatedAt      DateTime     @updatedAt @map("updated_at")
+  createdBy      String?      @map("created_by")
+  gates          Gate[]
+  branch         Branch       @relation(fields: [branchId], references: [id])
+  organization   Organization @relation(fields: [organizationId], references: [id])
 
   @@unique([organizationId, code])
   @@map("sites")
-  @@schema("enterprise")
-}
-
-enum GateType {
-  PEDESTRIAN
-  VEHICLE
-  MIXED
-
   @@schema("enterprise")
 }
 
@@ -239,93 +215,71 @@ model Gate {
   isActive       Boolean  @default(true) @map("is_active")
   createdAt      DateTime @default(now()) @map("created_at")
   createdBy      String?  @map("created_by")
-
-  site Site @relation(fields: [siteId], references: [id])
+  site           Site     @relation(fields: [siteId], references: [id])
 
   @@unique([organizationId, siteId, code])
   @@map("gates")
   @@schema("enterprise")
 }
 
-// ───────────────────────── CUSTOMERS ─────────────────────────
-
 model Customer {
-  id             String   @id @default(uuid())
-  organizationId String   @map("organization_id")
+  id             String       @id @default(uuid())
+  organizationId String       @map("organization_id")
   code           String
   name           String
   tin            String?
   email          String?
   phone          String?
   address        String?
-  contactPerson  String?  @map("contact_person")
-  isActive       Boolean  @default(true) @map("is_active")
-  createdAt      DateTime @default(now()) @map("created_at")
-  updatedAt      DateTime @updatedAt @map("updated_at")
-  createdBy      String?  @map("created_by")
-  version        Int      @default(1)
-
-  organization Organization @relation(fields: [organizationId], references: [id])
-  contracts    Contract[]
+  contactPerson  String?      @map("contact_person")
+  isActive       Boolean      @default(true) @map("is_active")
+  createdAt      DateTime     @default(now()) @map("created_at")
+  updatedAt      DateTime     @updatedAt @map("updated_at")
+  createdBy      String?      @map("created_by")
+  version        Int          @default(1)
+  contracts      Contract[]
+  organization   Organization @relation(fields: [organizationId], references: [id])
 
   @@unique([organizationId, code])
   @@map("customers")
   @@schema("customers")
 }
 
-// ───────────────────────── CONTRACTS ─────────────────────────
-
-enum ContractStatus {
-  DRAFT
-  PENDING_APPROVAL
-  APPROVED
-  ACTIVE
-  EXPIRING
-  TERMINATED
-  CANCELLED
-
-  @@schema("contracts")
-}
-
 model Contract {
-  id               String         @id @default(uuid())
-  organizationId   String         @map("organization_id")
-  customerId       String         @map("customer_id")
-  contractNumber   String         @map("contract_number")
-  title            String
-  serviceType      String         @map("service_type")
-  status           ContractStatus @default(DRAFT)
-  startDate        DateTime       @map("start_date")
-  endDate          DateTime       @map("end_date")
-  monthlyFee       Decimal        @map("monthly_fee") @db.Decimal(18, 2)
-  currency         String         @default("TZS")
-  guardCount       Int?           @map("guard_count")
-  slaTerms         String?        @map("sla_terms")
-  createdAt        DateTime       @default(now()) @map("created_at")
-  updatedAt        DateTime       @updatedAt @map("updated_at")
-  createdBy        String?        @map("created_by")
-  version          Int            @default(1)
-
-  organization Organization @relation(fields: [organizationId], references: [id])
-  customer     Customer     @relation(fields: [customerId], references: [id])
+  id             String         @id @default(uuid())
+  organizationId String         @map("organization_id")
+  customerId     String         @map("customer_id")
+  contractNumber String         @map("contract_number")
+  title          String
+  serviceType    String         @map("service_type")
+  status         ContractStatus @default(DRAFT)
+  startDate      DateTime       @map("start_date")
+  endDate        DateTime       @map("end_date")
+  monthlyFee     Decimal        @map("monthly_fee") @db.Decimal(18, 2)
+  currency       String         @default("TZS")
+  guardCount     Int?           @map("guard_count")
+  slaTerms       String?        @map("sla_terms")
+  createdAt      DateTime       @default(now()) @map("created_at")
+  updatedAt      DateTime       @updatedAt @map("updated_at")
+  createdBy      String?        @map("created_by")
+  version        Int            @default(1)
+  customer       Customer       @relation(fields: [customerId], references: [id])
+  organization   Organization   @relation(fields: [organizationId], references: [id])
 
   @@unique([organizationId, contractNumber])
   @@map("contracts")
   @@schema("contracts")
 }
 
-// ───────────────────────── APPROVALS ─────────────────────────
-
 model WorkflowDefinition {
-  id             String   @id @default(uuid())
-  organizationId String   @map("organization_id")
+  id             String            @id @default(uuid())
+  organizationId String            @map("organization_id")
   code           String
   name           String
   description    String?
-  isActive       Boolean  @default(true) @map("is_active")
-  createdAt      DateTime @default(now()) @map("created_at")
-
-  versions WorkflowVersion[]
+  isActive       Boolean           @default(true) @map("is_active")
+  createdAt      DateTime          @default(now()) @map("created_at")
+  versions       WorkflowVersion[]
 
   @@unique([organizationId, code])
   @@map("workflow_definitions")
@@ -333,15 +287,14 @@ model WorkflowDefinition {
 }
 
 model WorkflowVersion {
-  id           String   @id @default(uuid())
-  definitionId String   @map("definition_id")
+  id           String             @id @default(uuid())
+  definitionId String             @map("definition_id")
   version      Int
-  isCurrent    Boolean  @default(true) @map("is_current")
-  createdAt    DateTime @default(now()) @map("created_at")
-
-  definition WorkflowDefinition @relation(fields: [definitionId], references: [id], onDelete: Cascade)
-  steps      WorkflowStep[]
-  instances  ApprovalInstance[]
+  isCurrent    Boolean            @default(true) @map("is_current")
+  createdAt    DateTime           @default(now()) @map("created_at")
+  instances    ApprovalInstance[]
+  steps        WorkflowStep[]
+  definition   WorkflowDefinition @relation(fields: [definitionId], references: [id], onDelete: Cascade)
 
   @@unique([definitionId, version])
   @@map("workflow_versions")
@@ -349,65 +302,51 @@ model WorkflowVersion {
 }
 
 model WorkflowStep {
-  id              String  @id @default(uuid())
-  versionId       String  @map("version_id")
-  stepOrder       Int     @map("step_order")
+  id              String          @id @default(uuid())
+  versionId       String          @map("version_id")
+  stepOrder       Int             @map("step_order")
   name            String
-  requiredRole    String  @map("required_role")
-  minApprovers    Int     @default(1) @map("min_approvers")
-  amountThreshold Decimal? @map("amount_threshold") @db.Decimal(18, 2)
-
-  version WorkflowVersion @relation(fields: [versionId], references: [id], onDelete: Cascade)
+  requiredRole    String          @map("required_role")
+  minApprovers    Int             @default(1) @map("min_approvers")
+  amountThreshold Decimal?        @map("amount_threshold") @db.Decimal(18, 2)
+  version         WorkflowVersion @relation(fields: [versionId], references: [id], onDelete: Cascade)
 
   @@map("workflow_steps")
   @@schema("approvals")
 }
 
-enum ApprovalStatus {
-  PENDING
-  APPROVED
-  REJECTED
-  CANCELLED
-
-  @@schema("approvals")
-}
-
 model ApprovalInstance {
-  id              String         @id @default(uuid())
-  versionId       String         @map("version_id")
-  organizationId  String         @map("organization_id")
-  resourceType    String         @map("resource_type")
-  resourceId      String         @map("resource_id")
-  status          ApprovalStatus @default(PENDING)
-  currentStepOrder Int           @default(1) @map("current_step_order")
-  amount          Decimal?       @db.Decimal(18, 2)
-  createdBy       String         @map("created_by")
-  createdAt       DateTime       @default(now()) @map("created_at")
-  updatedAt       DateTime       @updatedAt @map("updated_at")
-
-  version WorkflowVersion @relation(fields: [versionId], references: [id])
-  actions ApprovalAction[]
+  id               String           @id @default(uuid())
+  versionId        String           @map("version_id")
+  organizationId   String           @map("organization_id")
+  resourceType     String           @map("resource_type")
+  resourceId       String           @map("resource_id")
+  status           ApprovalStatus   @default(PENDING)
+  currentStepOrder Int              @default(1) @map("current_step_order")
+  amount           Decimal?         @db.Decimal(18, 2)
+  createdBy        String           @map("created_by")
+  createdAt        DateTime         @default(now()) @map("created_at")
+  updatedAt        DateTime         @updatedAt @map("updated_at")
+  actions          ApprovalAction[]
+  version          WorkflowVersion  @relation(fields: [versionId], references: [id])
 
   @@map("approval_instances")
   @@schema("approvals")
 }
 
 model ApprovalAction {
-  id         String   @id @default(uuid())
-  instanceId String   @map("instance_id")
-  stepOrder  Int      @map("step_order")
-  actorId    String   @map("actor_id")
+  id         String           @id @default(uuid())
+  instanceId String           @map("instance_id")
+  stepOrder  Int              @map("step_order")
+  actorId    String           @map("actor_id")
   decision   String
   remarks    String?
-  createdAt  DateTime @default(now()) @map("created_at")
-
-  instance ApprovalInstance @relation(fields: [instanceId], references: [id], onDelete: Cascade)
+  createdAt  DateTime         @default(now()) @map("created_at")
+  instance   ApprovalInstance @relation(fields: [instanceId], references: [id], onDelete: Cascade)
 
   @@map("approval_actions")
   @@schema("approvals")
 }
-
-// ───────────────────────── AUDIT ─────────────────────────
 
 model AuditLog {
   id             String   @id @default(uuid())
@@ -428,35 +367,21 @@ model AuditLog {
   @@schema("audit")
 }
 
-// ───────────────────────── WORKFORCE ─────────────────────────
-
-enum GuardStatus {
-  ACTIVE
-  ON_LEAVE
-  SUSPENDED
-  TRANSFERRED
-  TERMINATED
-  AVAILABLE
-
-  @@schema("workforce")
-}
-
 model GuardProfile {
-  id                 String      @id @default(uuid())
-  organizationId     String      @map("organization_id")
-  userId             String      @map("user_id")
-  employeeNumber     String      @map("employee_number")
-  status             GuardStatus @default(ACTIVE)
-  deploymentEligible Boolean     @default(false) @map("deployment_eligible")
-  photoUrl           String?     @map("photo_url")
+  id                 String            @id @default(uuid())
+  organizationId     String            @map("organization_id")
+  userId             String            @map("user_id")
+  employeeNumber     String            @map("employee_number")
+  status             GuardStatus       @default(ACTIVE)
+  deploymentEligible Boolean           @default(false) @map("deployment_eligible")
+  photoUrl           String?           @map("photo_url")
   phone              String?
-  createdAt          DateTime    @default(now()) @map("created_at")
-  updatedAt          DateTime    @updatedAt @map("updated_at")
-
-  assignments ShiftAssignment[]
-  attendances GuardAttendance[]
-  deployments GuardDeployment[]
-  employee    Employee?
+  createdAt          DateTime          @default(now()) @map("created_at")
+  updatedAt          DateTime          @updatedAt @map("updated_at")
+  attendances        GuardAttendance[]
+  deployments        GuardDeployment[]
+  assignments        ShiftAssignment[]
+  employee           Employee?
 
   @@unique([organizationId, employeeNumber])
   @@unique([organizationId, userId])
@@ -464,42 +389,21 @@ model GuardProfile {
   @@schema("workforce")
 }
 
-// ───────────────────────── OPERATIONS ─────────────────────────
-
-enum ShiftStatus {
-  SCHEDULED
-  ACTIVE
-  COMPLETED
-  CANCELLED
-
-  @@schema("operations")
-}
-
 model Shift {
-  id             String      @id @default(uuid())
-  organizationId String      @map("organization_id")
-  siteId         String      @map("site_id")
+  id             String            @id @default(uuid())
+  organizationId String            @map("organization_id")
+  siteId         String            @map("site_id")
   name           String
-  startAt        DateTime    @map("start_at")
-  endAt          DateTime    @map("end_at")
-  status         ShiftStatus @default(SCHEDULED)
+  startAt        DateTime          @map("start_at")
+  endAt          DateTime          @map("end_at")
+  status         ShiftStatus       @default(SCHEDULED)
   instructions   String?
-  createdAt      DateTime    @default(now()) @map("created_at")
-  createdBy      String?     @map("created_by")
-
-  assignments ShiftAssignment[]
-  attendances GuardAttendance[]
+  createdAt      DateTime          @default(now()) @map("created_at")
+  createdBy      String?           @map("created_by")
+  attendances    GuardAttendance[]
+  assignments    ShiftAssignment[]
 
   @@map("shifts")
-  @@schema("operations")
-}
-
-enum AssignmentStatus {
-  ASSIGNED
-  CONFIRMED
-  REPLACED
-  NO_SHOW
-
   @@schema("operations")
 }
 
@@ -510,20 +414,11 @@ model ShiftAssignment {
   supervisorId String?          @map("supervisor_id")
   status       AssignmentStatus @default(ASSIGNED)
   assignedAt   DateTime         @default(now()) @map("assigned_at")
-
-  shift Shift        @relation(fields: [shiftId], references: [id], onDelete: Cascade)
-  guard GuardProfile @relation(fields: [guardId], references: [id])
+  guard        GuardProfile     @relation(fields: [guardId], references: [id])
+  shift        Shift            @relation(fields: [shiftId], references: [id], onDelete: Cascade)
 
   @@unique([shiftId, guardId])
   @@map("shift_assignments")
-  @@schema("operations")
-}
-
-enum DeploymentStatus {
-  PENDING
-  ACTIVE
-  ENDED
-
   @@schema("operations")
 }
 
@@ -538,28 +433,26 @@ model GuardDeployment {
   status         DeploymentStatus @default(PENDING)
   createdAt      DateTime         @default(now()) @map("created_at")
   createdBy      String?          @map("created_by")
-
-  guard GuardProfile @relation(fields: [guardId], references: [id])
+  guard          GuardProfile     @relation(fields: [guardId], references: [id])
 
   @@map("guard_deployments")
   @@schema("operations")
 }
 
 model Checkpoint {
-  id             String   @id @default(uuid())
-  organizationId String   @map("organization_id")
-  siteId         String   @map("site_id")
+  id             String       @id @default(uuid())
+  organizationId String       @map("organization_id")
+  siteId         String       @map("site_id")
   code           String
   name           String
   zone           String?
-  qrCode         String?  @map("qr_code")
-  nfcTagId       String?  @map("nfc_tag_id")
+  qrCode         String?      @map("qr_code")
+  nfcTagId       String?      @map("nfc_tag_id")
   latitude       Float?
   longitude      Float?
-  isActive       Boolean  @default(true) @map("is_active")
-  createdAt      DateTime @default(now()) @map("created_at")
-
-  patrolScans PatrolScan[]
+  isActive       Boolean      @default(true) @map("is_active")
+  createdAt      DateTime     @default(now()) @map("created_at")
+  patrolScans    PatrolScan[]
 
   @@unique([organizationId, siteId, code])
   @@map("checkpoints")
@@ -579,53 +472,31 @@ model PatrolRoute {
   @@schema("operations")
 }
 
-// ───────────────────────── ATTENDANCE (GUARD ONLY) ─────────────────────────
-
-enum AttendanceMethod {
-  MOBILE_GPS
-  FINGERPRINT
-  FACE
-  QR
-  NFC
-  SUPERVISOR
-
-  @@schema("attendance")
-}
-
-enum SyncStatus {
-  SYNCED
-  PENDING
-  CONFLICT
-
-  @@schema("attendance")
-}
-
 model GuardAttendance {
-  id                 String           @id @default(uuid())
-  organizationId     String           @map("organization_id")
-  guardId            String           @map("guard_id")
-  siteId             String           @map("site_id")
-  shiftId            String?          @map("shift_id")
-  clockInAt          DateTime         @map("clock_in_at")
-  clockOutAt         DateTime?        @map("clock_out_at")
-  clockInMethod      AttendanceMethod @map("clock_in_method")
-  clockOutMethod     AttendanceMethod? @map("clock_out_method")
-  clockInLatitude    Float?           @map("clock_in_latitude")
-  clockInLongitude   Float?           @map("clock_in_longitude")
-  clockOutLatitude   Float?           @map("clock_out_latitude")
-  clockOutLongitude  Float?           @map("clock_out_longitude")
-  deviceClockInAt    DateTime?        @map("device_clock_in_at")
-  deviceClockOutAt   DateTime?        @map("device_clock_out_at")
-  serverReceivedAt   DateTime         @default(now()) @map("server_received_at")
-  clientEventId      String?          @unique @map("client_event_id")
-  clockOutClientEventId String?       @unique @map("clock_out_client_event_id")
-  syncStatus         SyncStatus       @default(SYNCED) @map("sync_status")
-  supervisorApproved Boolean          @default(false) @map("supervisor_approved")
-  remarks            String?
-  createdAt          DateTime         @default(now()) @map("created_at")
-
-  guard GuardProfile @relation(fields: [guardId], references: [id])
-  shift Shift?       @relation(fields: [shiftId], references: [id])
+  id                    String            @id @default(uuid())
+  organizationId        String            @map("organization_id")
+  guardId               String            @map("guard_id")
+  siteId                String            @map("site_id")
+  shiftId               String?           @map("shift_id")
+  clockInAt             DateTime          @map("clock_in_at")
+  clockOutAt            DateTime?         @map("clock_out_at")
+  clockInMethod         AttendanceMethod  @map("clock_in_method")
+  clockOutMethod        AttendanceMethod? @map("clock_out_method")
+  clockInLatitude       Float?            @map("clock_in_latitude")
+  clockInLongitude      Float?            @map("clock_in_longitude")
+  clockOutLatitude      Float?            @map("clock_out_latitude")
+  clockOutLongitude     Float?            @map("clock_out_longitude")
+  deviceClockInAt       DateTime?         @map("device_clock_in_at")
+  deviceClockOutAt      DateTime?         @map("device_clock_out_at")
+  serverReceivedAt      DateTime          @default(now()) @map("server_received_at")
+  clientEventId         String?           @unique @map("client_event_id")
+  syncStatus            SyncStatus        @default(SYNCED) @map("sync_status")
+  supervisorApproved    Boolean           @default(false) @map("supervisor_approved")
+  remarks               String?
+  createdAt             DateTime          @default(now()) @map("created_at")
+  clockOutClientEventId String?           @unique @map("clock_out_client_event_id")
+  guard                 GuardProfile      @relation(fields: [guardId], references: [id])
+  shift                 Shift?            @relation(fields: [shiftId], references: [id])
 
   @@index([guardId, clockInAt])
   @@index([siteId, clockInAt])
@@ -633,32 +504,23 @@ model GuardAttendance {
   @@schema("attendance")
 }
 
-enum AlertnessStatus {
-  SCHEDULED
-  CONFIRMED
-  MISSED
-  LATE
-
-  @@schema("attendance")
-}
-
 model AlertnessCheck {
-  id               String           @id @default(uuid())
-  organizationId   String           @map("organization_id")
-  guardId          String           @map("guard_id")
-  siteId           String           @map("site_id")
-  shiftId          String?          @map("shift_id")
-  scheduledAt      DateTime         @map("scheduled_at")
-  confirmedAt      DateTime?        @map("confirmed_at")
-  status           AlertnessStatus  @default(SCHEDULED)
+  id               String            @id @default(uuid())
+  organizationId   String            @map("organization_id")
+  guardId          String            @map("guard_id")
+  siteId           String            @map("site_id")
+  shiftId          String?           @map("shift_id")
+  scheduledAt      DateTime          @map("scheduled_at")
+  confirmedAt      DateTime?         @map("confirmed_at")
+  status           AlertnessStatus   @default(SCHEDULED)
   method           AttendanceMethod?
   latitude         Float?
   longitude        Float?
-  deviceTime       DateTime?        @map("device_time")
-  serverReceivedAt DateTime?        @map("server_received_at")
-  clientEventId    String?          @unique @map("client_event_id")
-  referenceNumber  String           @unique @map("reference_number")
-  createdAt        DateTime         @default(now()) @map("created_at")
+  deviceTime       DateTime?         @map("device_time")
+  serverReceivedAt DateTime?         @map("server_received_at")
+  clientEventId    String?           @unique @map("client_event_id")
+  referenceNumber  String            @unique @map("reference_number")
+  createdAt        DateTime          @default(now()) @map("created_at")
 
   @@index([guardId, scheduledAt])
   @@map("alertness_checks")
@@ -682,8 +544,7 @@ model PatrolScan {
   syncStatus       SyncStatus       @default(SYNCED) @map("sync_status")
   remarks          String?
   createdAt        DateTime         @default(now()) @map("created_at")
-
-  checkpoint Checkpoint @relation(fields: [checkpointId], references: [id])
+  checkpoint       Checkpoint       @relation(fields: [checkpointId], references: [id])
 
   @@index([guardId, scannedAt])
   @@map("patrol_scans")
@@ -707,46 +568,24 @@ model FieldAlert {
   @@schema("attendance")
 }
 
-// ───────────────────────── OCCURRENCE BOOK ─────────────────────────
-
 model OccurrenceEntry {
-  id             String   @id @default(uuid())
-  organizationId String   @map("organization_id")
-  siteId         String   @map("site_id")
-  officerId      String   @map("officer_id")
-  category       String
-  description    String
-  version        Int      @default(1)
-  isCurrent      Boolean  @default(true) @map("is_current")
-  parentEntryId  String?  @map("parent_entry_id")
-  correctionReason String? @map("correction_reason")
-  approvedBy     String?  @map("approved_by")
-  recordedAt     DateTime @map("recorded_at")
-  createdAt      DateTime @default(now()) @map("created_at")
+  id               String   @id @default(uuid())
+  organizationId   String   @map("organization_id")
+  siteId           String   @map("site_id")
+  officerId        String   @map("officer_id")
+  category         String
+  description      String
+  version          Int      @default(1)
+  isCurrent        Boolean  @default(true) @map("is_current")
+  parentEntryId    String?  @map("parent_entry_id")
+  correctionReason String?  @map("correction_reason")
+  approvedBy       String?  @map("approved_by")
+  recordedAt       DateTime @map("recorded_at")
+  createdAt        DateTime @default(now()) @map("created_at")
 
   @@index([siteId, recordedAt])
   @@map("occurrence_entries")
   @@schema("occurrence")
-}
-
-// ───────────────────────── INCIDENTS ─────────────────────────
-
-enum IncidentSeverity {
-  LOW
-  MEDIUM
-  HIGH
-  CRITICAL
-
-  @@schema("incidents")
-}
-
-enum IncidentStatus {
-  OPEN
-  INVESTIGATING
-  RESOLVED
-  CLOSED
-
-  @@schema("incidents")
 }
 
 model Incident {
@@ -775,24 +614,6 @@ model Incident {
   @@schema("incidents")
 }
 
-// ───────────────────────── ACCESS (customer employees) ─────────────────────────
-
-enum AccessEntryType {
-  CHECK_IN
-  CHECK_OUT
-
-  @@schema("access")
-}
-
-enum AccessMethod {
-  CARD
-  QR
-  BIOMETRIC
-  MANUAL
-
-  @@schema("access")
-}
-
 model CustomerEmployee {
   id             String   @id @default(uuid())
   organizationId String   @map("organization_id")
@@ -809,8 +630,8 @@ model CustomerEmployee {
   updatedAt      DateTime @updatedAt @map("updated_at")
   createdBy      String?  @map("created_by")
 
-  @@index([customerId])
   @@unique([customerId, email])
+  @@index([customerId])
   @@map("customer_employees")
   @@schema("access")
 }
@@ -835,57 +656,30 @@ model AccessEntry {
   @@schema("access")
 }
 
-// ───────────────────────── VISITORS ─────────────────────────
-
-enum AppointmentStatus {
-  PENDING
-  APPROVED
-  REJECTED
-  CANCELLED
-  EXPIRED
-  COMPLETED
-
-  @@schema("visitors")
-}
-
-enum VerificationResult {
-  ALLOWED
-  DENIED_EXPIRED
-  DENIED_INVALID
-  DENIED_ALREADY_USED
-  DENIED_REVOKED
-  DENIED_GATE_MISMATCH
-  DENIED_SITE_MISMATCH
-  DENIED_BLACKLISTED
-
-  @@schema("visitors")
-}
-
 model VisitorAppointment {
-  id              String            @id @default(uuid())
-  organizationId  String            @map("organization_id")
-  customerId      String            @map("customer_id")
-  siteId          String            @map("site_id")
-  gateId          String?           @map("gate_id")
-  referenceNumber String            @map("reference_number")
-  visitorName     String            @map("visitor_name")
-  visitorEmail    String?           @map("visitor_email")
-  visitorPhone    String?           @map("visitor_phone")
-  companyName     String?           @map("company_name")
-  purpose         String
-  hostUserId      String?           @map("host_user_id")
-  hostName        String?           @map("host_name")
-  vehiclePlate    String?           @map("vehicle_plate")
-  validFrom       DateTime          @map("valid_from")
-  validUntil      DateTime          @map("valid_until")
-  status          AppointmentStatus @default(PENDING)
-  approvedBy      String?           @map("approved_by")
-  approvedAt      DateTime?         @map("approved_at")
-  rejectedReason  String?           @map("rejected_reason")
-  createdAt       DateTime          @default(now()) @map("created_at")
-  updatedAt       DateTime          @updatedAt @map("updated_at")
-  createdBy       String?           @map("created_by")
-
+  id                String             @id @default(uuid())
+  organizationId    String             @map("organization_id")
+  customerId        String             @map("customer_id")
+  siteId            String             @map("site_id")
+  gateId            String?            @map("gate_id")
+  referenceNumber   String             @map("reference_number")
+  visitorName       String             @map("visitor_name")
+  visitorEmail      String?            @map("visitor_email")
+  visitorPhone      String?            @map("visitor_phone")
+  companyName       String?            @map("company_name")
+  purpose           String
+  hostUserId        String?            @map("host_user_id")
+  hostName          String?            @map("host_name")
+  vehiclePlate      String?            @map("vehicle_plate")
+  validFrom         DateTime           @map("valid_from")
+  validUntil        DateTime           @map("valid_until")
+  status            AppointmentStatus  @default(PENDING)
+  approvedBy        String?            @map("approved_by")
+  approvedAt        DateTime?          @map("approved_at")
+  rejectedReason    String?            @map("rejected_reason")
+  createdAt         DateTime           @default(now()) @map("created_at")
+  updatedAt         DateTime           @updatedAt @map("updated_at")
+  createdBy         String?            @map("created_by")
   verificationCodes VerificationCode[]
   visitorEntries    VisitorEntry[]
 
@@ -897,20 +691,19 @@ model VisitorAppointment {
 }
 
 model VerificationCode {
-  id            String    @id @default(uuid())
-  appointmentId String    @map("appointment_id")
-  codeHash      String    @map("code_hash")
-  maxUses       Int       @default(1) @map("max_uses")
-  useCount      Int       @default(0) @map("use_count")
-  usedAt        DateTime? @map("used_at")
-  validFrom     DateTime  @map("valid_from")
-  validUntil    DateTime  @map("valid_until")
-  siteId        String    @map("site_id")
-  gateId        String?   @map("gate_id")
-  revokedAt     DateTime? @map("revoked_at")
-  createdAt     DateTime  @default(now()) @map("created_at")
-
-  appointment VisitorAppointment @relation(fields: [appointmentId], references: [id])
+  id            String             @id @default(uuid())
+  appointmentId String             @map("appointment_id")
+  codeHash      String             @map("code_hash")
+  maxUses       Int                @default(1) @map("max_uses")
+  useCount      Int                @default(0) @map("use_count")
+  usedAt        DateTime?          @map("used_at")
+  validFrom     DateTime           @map("valid_from")
+  validUntil    DateTime           @map("valid_until")
+  siteId        String             @map("site_id")
+  gateId        String?            @map("gate_id")
+  revokedAt     DateTime?          @map("revoked_at")
+  createdAt     DateTime           @default(now()) @map("created_at")
+  appointment   VisitorAppointment @relation(fields: [appointmentId], references: [id])
 
   @@index([appointmentId])
   @@map("verification_codes")
@@ -918,21 +711,20 @@ model VerificationCode {
 }
 
 model VisitorEntry {
-  id                 String             @id @default(uuid())
-  organizationId     String             @map("organization_id")
-  appointmentId      String?            @map("appointment_id")
-  siteId             String             @map("site_id")
-  gateId             String?            @map("gate_id")
-  visitorName        String             @map("visitor_name")
-  verificationCodeId String?            @map("verification_code_id")
+  id                 String              @id @default(uuid())
+  organizationId     String              @map("organization_id")
+  appointmentId      String?             @map("appointment_id")
+  siteId             String              @map("site_id")
+  gateId             String?             @map("gate_id")
+  visitorName        String              @map("visitor_name")
+  verificationCodeId String?             @map("verification_code_id")
   result             VerificationResult
-  denyReason         String?            @map("deny_reason")
-  verifiedBy         String?            @map("verified_by")
-  clientEventId      String?            @unique @map("client_event_id")
-  recordedAt         DateTime           @default(now()) @map("recorded_at")
-  createdAt          DateTime           @default(now()) @map("created_at")
-
-  appointment VisitorAppointment? @relation(fields: [appointmentId], references: [id])
+  denyReason         String?             @map("deny_reason")
+  verifiedBy         String?             @map("verified_by")
+  clientEventId      String?             @unique @map("client_event_id")
+  recordedAt         DateTime            @default(now()) @map("recorded_at")
+  createdAt          DateTime            @default(now()) @map("created_at")
+  appointment        VisitorAppointment? @relation(fields: [appointmentId], references: [id])
 
   @@index([siteId, recordedAt])
   @@map("visitor_entries")
@@ -956,78 +748,21 @@ model VisitorBlacklist {
   @@schema("visitors")
 }
 
-// ───────────────────────── PARKING ─────────────────────────
-
-enum VehicleType {
-  CAR
-  MOTORCYCLE
-  TRUCK
-  BUS
-  OTHER
-
-  @@schema("parking")
-}
-
-enum PermitType {
-  EMPLOYEE
-  VISITOR
-  CONTRACTOR
-  RESERVED
-
-  @@schema("parking")
-}
-
-enum PermitStatus {
-  PENDING
-  ACTIVE
-  EXPIRED
-  REVOKED
-  SUSPENDED
-
-  @@schema("parking")
-}
-
-enum ParkingEntryDirection {
-  ENTRY
-  EXIT
-
-  @@schema("parking")
-}
-
-enum ParkingDecision {
-  ALLOW
-  DENY
-  PENDING
-
-  @@schema("parking")
-}
-
-enum ViolationType {
-  NO_PERMIT
-  EXPIRED_PERMIT
-  WRONG_ZONE
-  OVERSTAY
-  BLACKLISTED
-
-  @@schema("parking")
-}
-
 model Vehicle {
-  id             String      @id @default(uuid())
-  organizationId String      @map("organization_id")
-  customerId     String?     @map("customer_id")
-  plateNumber    String      @map("plate_number")
-  vehicleType    VehicleType @default(CAR) @map("vehicle_type")
+  id             String          @id @default(uuid())
+  organizationId String          @map("organization_id")
+  customerId     String?         @map("customer_id")
+  plateNumber    String          @map("plate_number")
+  vehicleType    VehicleType     @default(CAR) @map("vehicle_type")
   make           String?
   model          String?
   color          String?
-  ownerName      String?     @map("owner_name")
-  ownerPhone     String?     @map("owner_phone")
-  isActive       Boolean     @default(true) @map("is_active")
-  createdAt      DateTime    @default(now()) @map("created_at")
-  createdBy      String?     @map("created_by")
-
-  permits ParkingPermit[]
+  ownerName      String?         @map("owner_name")
+  ownerPhone     String?         @map("owner_phone")
+  isActive       Boolean         @default(true) @map("is_active")
+  createdAt      DateTime        @default(now()) @map("created_at")
+  createdBy      String?         @map("created_by")
+  permits        ParkingPermit[]
 
   @@unique([organizationId, plateNumber])
   @@index([customerId])
@@ -1047,8 +782,7 @@ model ParkingPermit {
   validUntil     DateTime     @map("valid_until")
   createdAt      DateTime     @default(now()) @map("created_at")
   createdBy      String?      @map("created_by")
-
-  vehicle Vehicle @relation(fields: [vehicleId], references: [id])
+  vehicle        Vehicle      @relation(fields: [vehicleId], references: [id])
 
   @@unique([organizationId, permitNumber])
   @@index([siteId, status])
@@ -1072,7 +806,6 @@ model AnprResult {
   denyReason     String?         @map("deny_reason")
   capturedAt     DateTime        @map("captured_at")
   createdAt      DateTime        @default(now()) @map("created_at")
-
   parkingEntries ParkingEntry[]
 
   @@index([siteId, capturedAt])
@@ -1096,8 +829,7 @@ model ParkingEntry {
   clientEventId  String?               @unique @map("client_event_id")
   recordedAt     DateTime              @default(now()) @map("recorded_at")
   createdAt      DateTime              @default(now()) @map("created_at")
-
-  anprResult AnprResult? @relation(fields: [anprResultId], references: [id])
+  anprResult     AnprResult?           @relation(fields: [anprResultId], references: [id])
 
   @@index([siteId, recordedAt])
   @@map("parking_entries")
@@ -1135,74 +867,47 @@ model VehicleBlacklist {
   @@schema("parking")
 }
 
-// ───────────────────────── WORKFORCE HR (extends guard profiles) ─────────────────────────
-
-enum EmployeeStatus {
-  ACTIVE
-  ON_LEAVE
-  SUSPENDED
-  TERMINATED
-
-  @@schema("workforce")
-}
-
-enum EmploymentType {
-  GUARD
-  SUPERVISOR
-  ADMIN
-  OTHER
-
-  @@schema("workforce")
-}
-
 model Employee {
-  id             String         @id @default(uuid())
-  organizationId String         @map("organization_id")
-  userId         String?        @map("user_id")
-  guardProfileId String?        @unique @map("guard_profile_id")
-  employeeNumber String         @map("employee_number")
-  fullName       String         @map("full_name")
-  email          String?
-  phone          String?
-  department     String?
-  employmentType EmploymentType @default(GUARD) @map("employment_type")
-  status         EmployeeStatus @default(ACTIVE)
-  hireDate       DateTime?      @map("hire_date")
-  createdAt      DateTime       @default(now()) @map("created_at")
-  updatedAt      DateTime       @updatedAt @map("updated_at")
-  createdBy      String?        @map("created_by")
-
-  guardProfile     GuardProfile?      @relation(fields: [guardProfileId], references: [id])
-  leaveRequests    LeaveRequest[]
+  id                String             @id @default(uuid())
+  organizationId    String             @map("organization_id")
+  userId            String?            @map("user_id")
+  guardProfileId    String?            @unique @map("guard_profile_id")
+  employeeNumber    String             @map("employee_number")
+  fullName          String             @map("full_name")
+  email             String?
+  phone             String?
+  department        String?
+  employmentType    EmploymentType     @default(GUARD) @map("employment_type")
+  status            EmployeeStatus     @default(ACTIVE)
+  hireDate          DateTime?          @map("hire_date")
+  createdAt         DateTime           @default(now()) @map("created_at")
+  updatedAt         DateTime           @updatedAt @map("updated_at")
+  createdBy         String?            @map("created_by")
+  loans             EmployeeLoan[]
+  payslips          PayslipSnapshot[]
+  disciplineCases   DisciplineCase[]
+  movements         EmployeeMovement[]
+  guardProfile      GuardProfile?      @relation(fields: [guardProfileId], references: [id])
+  leaveRequests     LeaveRequest[]
   salaryAssignments SalaryAssignment[]
-  loans            EmployeeLoan[]
-  payslips         PayslipSnapshot[]
+  trainingRecords   TrainingRecord[]
 
   @@unique([organizationId, employeeNumber])
   @@index([organizationId, status])
+  @@index([organizationId, userId])
   @@map("employees")
   @@schema("workforce")
 }
 
-enum LeaveRequestStatus {
-  PENDING
-  APPROVED
-  REJECTED
-  CANCELLED
-
-  @@schema("workforce")
-}
-
 model LeaveType {
-  id              String   @id @default(uuid())
-  organizationId  String   @map("organization_id")
+  id              String         @id @default(uuid())
+  organizationId  String         @map("organization_id")
   code            String
   name            String
-  annualQuotaDays Int      @default(21) @map("annual_quota_days")
-  isActive        Boolean  @default(true) @map("is_active")
-  createdAt       DateTime @default(now()) @map("created_at")
-
-  leaveRequests LeaveRequest[]
+  annualQuotaDays Int            @default(21) @map("annual_quota_days")
+  isActive        Boolean        @default(true) @map("is_active")
+  createdAt       DateTime       @default(now()) @map("created_at")
+  leaveRequests   LeaveRequest[]
 
   @@unique([organizationId, code])
   @@map("leave_types")
@@ -1225,9 +930,8 @@ model LeaveRequest {
   rejectedReason     String?            @map("rejected_reason")
   createdAt          DateTime           @default(now()) @map("created_at")
   createdBy          String?            @map("created_by")
-
-  employee  Employee  @relation(fields: [employeeId], references: [id])
-  leaveType LeaveType @relation(fields: [leaveTypeId], references: [id])
+  employee           Employee           @relation(fields: [employeeId], references: [id])
+  leaveType          LeaveType          @relation(fields: [leaveTypeId], references: [id])
 
   @@index([employeeId, status])
   @@map("leave_requests")
@@ -1247,34 +951,78 @@ model SalaryAssignment {
   isActive       Boolean   @default(true) @map("is_active")
   createdAt      DateTime  @default(now()) @map("created_at")
   createdBy      String?   @map("created_by")
-
-  employee Employee @relation(fields: [employeeId], references: [id])
+  employee       Employee  @relation(fields: [employeeId], references: [id])
 
   @@index([employeeId, effectiveFrom])
   @@map("salary_assignments")
   @@schema("workforce")
 }
 
-// ───────────────────────── RECRUITMENT ─────────────────────────
+model TrainingRecord {
+  id             String         @id @default(uuid())
+  organizationId String         @map("organization_id")
+  employeeId     String         @map("employee_id")
+  title          String
+  provider       String?
+  startDate      DateTime?      @map("start_date") @db.Date
+  endDate        DateTime?      @map("end_date") @db.Date
+  status         TrainingStatus @default(PLANNED)
+  notes          String?
+  createdAt      DateTime       @default(now()) @map("created_at")
+  updatedAt      DateTime       @updatedAt @map("updated_at")
+  createdBy      String?        @map("created_by")
+  employee       Employee       @relation(fields: [employeeId], references: [id])
 
-enum JobPostingStatus {
-  DRAFT
-  OPEN
-  CLOSED
-
-  @@schema("recruitment")
+  @@index([organizationId, employeeId])
+  @@index([organizationId, status])
+  @@map("training_records")
+  @@schema("workforce")
 }
 
-enum ApplicationStatus {
-  SUBMITTED
-  SCREENING
-  INTERVIEW
-  OFFERED
-  HIRED
-  REJECTED
-  WITHDRAWN
+model DisciplineCase {
+  id             String             @id @default(uuid())
+  organizationId String             @map("organization_id")
+  employeeId     String             @map("employee_id")
+  incidentDate   DateTime           @map("incident_date") @db.Date
+  category       String
+  severity       DisciplineSeverity @default(MEDIUM)
+  description    String
+  status         DisciplineStatus   @default(OPEN)
+  outcome        String?
+  createdAt      DateTime           @default(now()) @map("created_at")
+  updatedAt      DateTime           @updatedAt @map("updated_at")
+  createdBy      String?            @map("created_by")
+  employee       Employee           @relation(fields: [employeeId], references: [id])
 
-  @@schema("recruitment")
+  @@index([organizationId, employeeId])
+  @@index([organizationId, status])
+  @@map("discipline_cases")
+  @@schema("workforce")
+}
+
+model EmployeeMovement {
+  id                 String         @id @default(uuid())
+  organizationId     String         @map("organization_id")
+  employeeId         String         @map("employee_id")
+  type               MovementType
+  fromDepartment     String?        @map("from_department")
+  toDepartment       String?        @map("to_department")
+  effectiveDate      DateTime       @map("effective_date") @db.Date
+  reason             String
+  status             MovementStatus @default(PENDING)
+  approvalInstanceId String?        @map("approval_instance_id")
+  approvedBy         String?        @map("approved_by")
+  approvedAt         DateTime?      @map("approved_at")
+  rejectedReason     String?        @map("rejected_reason")
+  createdAt          DateTime       @default(now()) @map("created_at")
+  updatedAt          DateTime       @updatedAt @map("updated_at")
+  createdBy          String?        @map("created_by")
+  employee           Employee       @relation(fields: [employeeId], references: [id])
+
+  @@index([organizationId, employeeId])
+  @@index([organizationId, status])
+  @@map("employee_movements")
+  @@schema("workforce")
 }
 
 model JobPosting {
@@ -1290,8 +1038,7 @@ model JobPosting {
   closesAt       DateTime?        @map("closes_at")
   createdAt      DateTime         @default(now()) @map("created_at")
   createdBy      String?          @map("created_by")
-
-  applications JobApplication[]
+  applications   JobApplication[]
 
   @@index([organizationId, status])
   @@map("job_postings")
@@ -1302,7 +1049,6 @@ model JobApplication {
   id              String            @id @default(uuid())
   organizationId  String            @map("organization_id")
   postingId       String            @map("posting_id")
-  referenceNumber String            @map("reference_number")
   applicantName   String            @map("applicant_name")
   email           String
   phone           String?
@@ -1313,8 +1059,8 @@ model JobApplication {
   employeeId      String?           @map("employee_id")
   screenedBy      String?           @map("screened_by")
   createdAt       DateTime          @default(now()) @map("created_at")
-
-  posting JobPosting @relation(fields: [postingId], references: [id])
+  referenceNumber String            @map("reference_number")
+  posting         JobPosting        @relation(fields: [postingId], references: [id])
 
   @@unique([organizationId, referenceNumber])
   @@index([postingId, status])
@@ -1322,39 +1068,18 @@ model JobApplication {
   @@schema("recruitment")
 }
 
-// ───────────────────────── PAYROLL ─────────────────────────
-
-enum PayrollTenantType {
-  INTERNAL_COMPANY
-  CUSTOMER_MANAGED_PAYROLL
-
-  @@schema("payroll")
-}
-
-enum PayrollCycleStatus {
-  DRAFT
-  CALCULATED
-  PENDING_APPROVAL
-  APPROVED
-  PAID
-  VOIDED
-
-  @@schema("payroll")
-}
-
 model PayrollRuleVersion {
-  id             String    @id @default(uuid())
-  organizationId String    @map("organization_id")
+  id             String         @id @default(uuid())
+  organizationId String         @map("organization_id")
   version        Int
   name           String
   rules          Json
-  effectiveFrom  DateTime  @map("effective_from") @db.Date
-  effectiveUntil DateTime? @map("effective_until") @db.Date
-  isCurrent      Boolean   @default(false) @map("is_current")
-  createdAt      DateTime  @default(now()) @map("created_at")
-  createdBy      String?   @map("created_by")
-
-  cycles PayrollCycle[]
+  effectiveFrom  DateTime       @map("effective_from") @db.Date
+  effectiveUntil DateTime?      @map("effective_until") @db.Date
+  isCurrent      Boolean        @default(false) @map("is_current")
+  createdAt      DateTime       @default(now()) @map("created_at")
+  createdBy      String?        @map("created_by")
+  cycles         PayrollCycle[]
 
   @@unique([organizationId, version])
   @@map("payroll_rule_versions")
@@ -1379,9 +1104,8 @@ model PayrollCycle {
   paymentReference   String?            @map("payment_reference")
   createdAt          DateTime           @default(now()) @map("created_at")
   updatedAt          DateTime           @updatedAt @map("updated_at")
-
-  ruleVersion PayrollRuleVersion @relation(fields: [ruleVersionId], references: [id])
-  payslips    PayslipSnapshot[]
+  ruleVersion        PayrollRuleVersion @relation(fields: [ruleVersionId], references: [id])
+  payslips           PayslipSnapshot[]
 
   @@unique([organizationId, cycleCode])
   @@index([organizationId, periodStart])
@@ -1390,26 +1114,25 @@ model PayrollCycle {
 }
 
 model PayslipSnapshot {
-  id                  String   @id @default(uuid())
-  organizationId      String   @map("organization_id")
-  cycleId             String   @map("cycle_id")
-  employeeId          String   @map("employee_id")
-  employeeNumber      String   @map("employee_number")
-  employeeName        String   @map("employee_name")
-  inputsSnapshot      Json     @map("inputs_snapshot")
-  allowancesSnapshot  Json     @map("allowances_snapshot")
-  deductionsSnapshot  Json     @map("deductions_snapshot")
-  calculationResult   Json     @map("calculation_result")
-  grossPay            Decimal  @map("gross_pay") @db.Decimal(14, 2)
-  totalDeductions     Decimal  @map("total_deductions") @db.Decimal(14, 2)
-  netPay              Decimal  @map("net_pay") @db.Decimal(14, 2)
-  ruleVersionId       String   @map("rule_version_id")
-  supersededById      String?  @unique @map("superseded_by_id")
-  createdBy           String   @map("created_by")
-  createdAt           DateTime @default(now()) @map("created_at")
-
-  cycle    PayrollCycle @relation(fields: [cycleId], references: [id])
-  employee Employee     @relation(fields: [employeeId], references: [id])
+  id                 String       @id @default(uuid())
+  organizationId     String       @map("organization_id")
+  cycleId            String       @map("cycle_id")
+  employeeId         String       @map("employee_id")
+  employeeNumber     String       @map("employee_number")
+  employeeName       String       @map("employee_name")
+  inputsSnapshot     Json         @map("inputs_snapshot")
+  allowancesSnapshot Json         @map("allowances_snapshot")
+  deductionsSnapshot Json         @map("deductions_snapshot")
+  calculationResult  Json         @map("calculation_result")
+  grossPay           Decimal      @map("gross_pay") @db.Decimal(14, 2)
+  totalDeductions    Decimal      @map("total_deductions") @db.Decimal(14, 2)
+  netPay             Decimal      @map("net_pay") @db.Decimal(14, 2)
+  ruleVersionId      String       @map("rule_version_id")
+  supersededById     String?      @unique @map("superseded_by_id")
+  createdBy          String       @map("created_by")
+  createdAt          DateTime     @default(now()) @map("created_at")
+  cycle              PayrollCycle @relation(fields: [cycleId], references: [id])
+  employee           Employee     @relation(fields: [employeeId], references: [id])
 
   @@unique([cycleId, employeeId])
   @@index([organizationId, cycleId])
@@ -1417,48 +1140,25 @@ model PayslipSnapshot {
   @@schema("payroll")
 }
 
-// ───────────────────────── EMPLOYEE LOANS ─────────────────────────
-
-enum LoanStatus {
-  DRAFT
-  PENDING_APPROVAL
-  APPROVED
-  ACTIVE
-  REJECTED
-  COMPLETED
-  CANCELLED
-
-  @@schema("employee_loans")
-}
-
-enum InstallmentStatus {
-  PENDING
-  PAID
-  SKIPPED
-
-  @@schema("employee_loans")
-}
-
 model EmployeeLoan {
-  id                 String     @id @default(uuid())
-  organizationId     String     @map("organization_id")
-  employeeId         String     @map("employee_id")
-  loanNumber         String     @map("loan_number")
-  principalAmount    Decimal    @map("principal_amount") @db.Decimal(14, 2)
-  interestRate       Decimal    @default(0) @map("interest_rate") @db.Decimal(5, 2)
-  termMonths         Int        @map("term_months")
-  monthlyInstallment Decimal    @map("monthly_installment") @db.Decimal(14, 2)
-  status             LoanStatus @default(PENDING_APPROVAL)
+  id                 String            @id @default(uuid())
+  organizationId     String            @map("organization_id")
+  employeeId         String            @map("employee_id")
+  loanNumber         String            @map("loan_number")
+  principalAmount    Decimal           @map("principal_amount") @db.Decimal(14, 2)
+  interestRate       Decimal           @default(0) @map("interest_rate") @db.Decimal(5, 2)
+  termMonths         Int               @map("term_months")
+  monthlyInstallment Decimal           @map("monthly_installment") @db.Decimal(14, 2)
+  status             LoanStatus        @default(PENDING_APPROVAL)
   purpose            String
-  approvalInstanceId String?    @map("approval_instance_id")
-  approvedBy         String?    @map("approved_by")
-  approvedAt         DateTime?  @map("approved_at")
-  disbursedAt        DateTime?  @map("disbursed_at")
-  createdAt          DateTime   @default(now()) @map("created_at")
-  createdBy          String     @map("created_by")
-
-  employee     Employee          @relation(fields: [employeeId], references: [id])
-  installments LoanInstallment[]
+  approvalInstanceId String?           @map("approval_instance_id")
+  approvedBy         String?           @map("approved_by")
+  approvedAt         DateTime?         @map("approved_at")
+  disbursedAt        DateTime?         @map("disbursed_at")
+  createdAt          DateTime          @default(now()) @map("created_at")
+  createdBy          String            @map("created_by")
+  employee           Employee          @relation(fields: [employeeId], references: [id])
+  installments       LoanInstallment[]
 
   @@unique([organizationId, loanNumber])
   @@index([employeeId, status])
@@ -1477,8 +1177,7 @@ model LoanInstallment {
   payslipSnapshotId String?           @map("payslip_snapshot_id")
   paidAt            DateTime?         @map("paid_at")
   createdAt         DateTime          @default(now()) @map("created_at")
-
-  loan EmployeeLoan @relation(fields: [loanId], references: [id])
+  loan              EmployeeLoan      @relation(fields: [loanId], references: [id])
 
   @@unique([loanId, installmentNumber])
   @@index([dueDate, status])
@@ -1486,69 +1185,25 @@ model LoanInstallment {
   @@schema("employee_loans")
 }
 
-// ───────────────────────── FINANCE ─────────────────────────
-
-enum InvoiceStatus {
-  DRAFT
-  SENT
-  PARTIALLY_PAID
-  PAID
-  OVERDUE
-  VOIDED
-
-  @@schema("finance")
-}
-
-enum PaymentMethod {
-  BANK_TRANSFER
-  CASH
-  CHEQUE
-  MOBILE_MONEY
-  OTHER
-
-  @@schema("finance")
-}
-
-enum PettyCashVoucherStatus {
-  PENDING
-  APPROVED
-  REIMBURSED
-  REJECTED
-
-  @@schema("finance")
-}
-
-enum PaymentVoucherStatus {
-  DRAFT
-  PENDING_APPROVAL
-  APPROVED
-  PAID
-  REJECTED
-  VOIDED
-
-  @@schema("finance")
-}
-
 model Invoice {
-  id             String        @id @default(uuid())
-  organizationId String        @map("organization_id")
-  customerId     String        @map("customer_id")
-  contractId     String?       @map("contract_id")
-  invoiceNumber  String        @map("invoice_number")
-  issueDate      DateTime      @map("issue_date") @db.Date
-  dueDate        DateTime      @map("due_date") @db.Date
-  subtotal       Decimal       @db.Decimal(14, 2)
-  taxAmount      Decimal       @default(0) @map("tax_amount") @db.Decimal(14, 2)
-  totalAmount    Decimal       @map("total_amount") @db.Decimal(14, 2)
-  amountPaid     Decimal       @default(0) @map("amount_paid") @db.Decimal(14, 2)
-  currency       String        @default("TZS")
-  status         InvoiceStatus @default(DRAFT)
+  id             String           @id @default(uuid())
+  organizationId String           @map("organization_id")
+  customerId     String           @map("customer_id")
+  contractId     String?          @map("contract_id")
+  invoiceNumber  String           @map("invoice_number")
+  issueDate      DateTime         @map("issue_date") @db.Date
+  dueDate        DateTime         @map("due_date") @db.Date
+  subtotal       Decimal          @db.Decimal(14, 2)
+  taxAmount      Decimal          @default(0) @map("tax_amount") @db.Decimal(14, 2)
+  totalAmount    Decimal          @map("total_amount") @db.Decimal(14, 2)
+  amountPaid     Decimal          @default(0) @map("amount_paid") @db.Decimal(14, 2)
+  currency       String           @default("TZS")
+  status         InvoiceStatus    @default(DRAFT)
   notes          String?
-  createdAt      DateTime      @default(now()) @map("created_at")
-  createdBy      String        @map("created_by")
-
-  lines    InvoiceLine[]
-  payments InvoicePayment[]
+  createdAt      DateTime         @default(now()) @map("created_at")
+  createdBy      String           @map("created_by")
+  lines          InvoiceLine[]
+  payments       InvoicePayment[]
 
   @@unique([organizationId, invoiceNumber])
   @@index([customerId, status])
@@ -1563,8 +1218,7 @@ model InvoiceLine {
   quantity    Decimal @default(1) @db.Decimal(10, 2)
   unitPrice   Decimal @map("unit_price") @db.Decimal(14, 2)
   amount      Decimal @db.Decimal(14, 2)
-
-  invoice Invoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  invoice     Invoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
 
   @@map("invoice_lines")
   @@schema("finance")
@@ -1580,8 +1234,7 @@ model InvoicePayment {
   recordedBy       String        @map("recorded_by")
   recordedAt       DateTime      @default(now()) @map("recorded_at")
   createdAt        DateTime      @default(now()) @map("created_at")
-
-  invoice Invoice @relation(fields: [invoiceId], references: [id])
+  invoice          Invoice       @relation(fields: [invoiceId], references: [id])
 
   @@index([invoiceId])
   @@map("invoice_payments")
@@ -1589,18 +1242,17 @@ model InvoicePayment {
 }
 
 model PettyCashFund {
-  id             String   @id @default(uuid())
-  organizationId String   @map("organization_id")
-  branchId       String?  @map("branch_id")
+  id             String             @id @default(uuid())
+  organizationId String             @map("organization_id")
+  branchId       String?            @map("branch_id")
   name           String
-  imprestAmount  Decimal  @map("imprest_amount") @db.Decimal(14, 2)
-  currentBalance Decimal  @map("current_balance") @db.Decimal(14, 2)
-  custodianId    String?  @map("custodian_id")
-  isActive       Boolean  @default(true) @map("is_active")
-  createdAt      DateTime @default(now()) @map("created_at")
-  createdBy      String?  @map("created_by")
-
-  vouchers PettyCashVoucher[]
+  imprestAmount  Decimal            @map("imprest_amount") @db.Decimal(14, 2)
+  currentBalance Decimal            @map("current_balance") @db.Decimal(14, 2)
+  custodianId    String?            @map("custodian_id")
+  isActive       Boolean            @default(true) @map("is_active")
+  createdAt      DateTime           @default(now()) @map("created_at")
+  createdBy      String?            @map("created_by")
+  vouchers       PettyCashVoucher[]
 
   @@map("petty_cash_funds")
   @@schema("finance")
@@ -1621,8 +1273,7 @@ model PettyCashVoucher {
   reimbursedAt       DateTime?              @map("reimbursed_at")
   createdAt          DateTime               @default(now()) @map("created_at")
   createdBy          String                 @map("created_by")
-
-  fund PettyCashFund @relation(fields: [fundId], references: [id])
+  fund               PettyCashFund          @relation(fields: [fundId], references: [id])
 
   @@unique([organizationId, voucherNumber])
   @@map("petty_cash_vouchers")
@@ -1653,41 +1304,18 @@ model PaymentVoucher {
   @@schema("finance")
 }
 
-// ───────────────────────── PROCUREMENT ─────────────────────────
-
-enum SupplierStatus {
-  PENDING
-  APPROVED
-  SUSPENDED
-
-  @@schema("procurement")
-}
-
-enum PurchaseOrderStatus {
-  DRAFT
-  PENDING_APPROVAL
-  APPROVED
-  ORDERED
-  PARTIALLY_RECEIVED
-  RECEIVED
-  CANCELLED
-
-  @@schema("procurement")
-}
-
 model Supplier {
-  id             String         @id @default(uuid())
-  organizationId String         @map("organization_id")
+  id             String          @id @default(uuid())
+  organizationId String          @map("organization_id")
   code           String
   name           String
   email          String?
   phone          String?
   tin            String?
   address        String?
-  status         SupplierStatus @default(PENDING)
-  createdAt      DateTime       @default(now()) @map("created_at")
-  createdBy      String?        @map("created_by")
-
+  status         SupplierStatus  @default(PENDING)
+  createdAt      DateTime        @default(now()) @map("created_at")
+  createdBy      String?         @map("created_by")
   purchaseOrders PurchaseOrder[]
 
   @@unique([organizationId, code])
@@ -1708,10 +1336,9 @@ model PurchaseOrder {
   approvedBy         String?             @map("approved_by")
   createdAt          DateTime            @default(now()) @map("created_at")
   createdBy          String              @map("created_by")
-
-  supplier Supplier            @relation(fields: [supplierId], references: [id])
-  lines    PurchaseOrderLine[]
-  receipts GoodsReceipt[]
+  receipts           GoodsReceipt[]
+  lines              PurchaseOrderLine[]
+  supplier           Supplier            @relation(fields: [supplierId], references: [id])
 
   @@unique([organizationId, poNumber])
   @@map("purchase_orders")
@@ -1719,33 +1346,31 @@ model PurchaseOrder {
 }
 
 model PurchaseOrderLine {
-  id              String  @id @default(uuid())
-  purchaseOrderId String  @map("purchase_order_id")
-  stockItemId     String? @map("stock_item_id")
+  id              String        @id @default(uuid())
+  purchaseOrderId String        @map("purchase_order_id")
+  stockItemId     String?       @map("stock_item_id")
   description     String
-  quantity        Decimal @db.Decimal(10, 2)
-  unitPrice       Decimal @map("unit_price") @db.Decimal(14, 2)
-  amount          Decimal @db.Decimal(14, 2)
-  receivedQty     Decimal @default(0) @map("received_qty") @db.Decimal(10, 2)
-
-  purchaseOrder PurchaseOrder @relation(fields: [purchaseOrderId], references: [id], onDelete: Cascade)
+  quantity        Decimal       @db.Decimal(10, 2)
+  unitPrice       Decimal       @map("unit_price") @db.Decimal(14, 2)
+  amount          Decimal       @db.Decimal(14, 2)
+  receivedQty     Decimal       @default(0) @map("received_qty") @db.Decimal(10, 2)
+  purchaseOrder   PurchaseOrder @relation(fields: [purchaseOrderId], references: [id], onDelete: Cascade)
 
   @@map("purchase_order_lines")
   @@schema("procurement")
 }
 
 model GoodsReceipt {
-  id              String   @id @default(uuid())
-  organizationId  String   @map("organization_id")
-  purchaseOrderId String   @map("purchase_order_id")
-  grnNumber       String   @map("grn_number")
-  receivedAt      DateTime @default(now()) @map("received_at")
-  receivedBy      String   @map("received_by")
+  id              String             @id @default(uuid())
+  organizationId  String             @map("organization_id")
+  purchaseOrderId String             @map("purchase_order_id")
+  grnNumber       String             @map("grn_number")
+  receivedAt      DateTime           @default(now()) @map("received_at")
+  receivedBy      String             @map("received_by")
   notes           String?
-  createdAt       DateTime @default(now()) @map("created_at")
-
-  purchaseOrder PurchaseOrder     @relation(fields: [purchaseOrderId], references: [id])
-  lines         GoodsReceiptLine[]
+  createdAt       DateTime           @default(now()) @map("created_at")
+  lines           GoodsReceiptLine[]
+  purchaseOrder   PurchaseOrder      @relation(fields: [purchaseOrderId], references: [id])
 
   @@unique([organizationId, grnNumber])
   @@map("goods_receipts")
@@ -1753,40 +1378,28 @@ model GoodsReceipt {
 }
 
 model GoodsReceiptLine {
-  id                  String  @id @default(uuid())
-  goodsReceiptId      String  @map("goods_receipt_id")
-  purchaseOrderLineId String  @map("purchase_order_line_id")
-  quantityReceived    Decimal @map("quantity_received") @db.Decimal(10, 2)
-
-  goodsReceipt GoodsReceipt @relation(fields: [goodsReceiptId], references: [id], onDelete: Cascade)
+  id                  String       @id @default(uuid())
+  goodsReceiptId      String       @map("goods_receipt_id")
+  purchaseOrderLineId String       @map("purchase_order_line_id")
+  quantityReceived    Decimal      @map("quantity_received") @db.Decimal(10, 2)
+  goodsReceipt        GoodsReceipt @relation(fields: [goodsReceiptId], references: [id], onDelete: Cascade)
 
   @@map("goods_receipt_lines")
   @@schema("procurement")
 }
 
-// ───────────────────────── INVENTORY ─────────────────────────
-
-enum StockMovementType {
-  IN
-  OUT
-  ADJUST
-
-  @@schema("inventory")
-}
-
 model StockItem {
-  id             String   @id @default(uuid())
-  organizationId String   @map("organization_id")
+  id             String          @id @default(uuid())
+  organizationId String          @map("organization_id")
   sku            String
   name           String
   category       String?
-  unit           String   @default("EA")
-  reorderLevel   Int?     @map("reorder_level")
-  isActive       Boolean  @default(true) @map("is_active")
-  createdAt      DateTime @default(now()) @map("created_at")
-  createdBy      String?  @map("created_by")
-
-  movements StockMovement[]
+  unit           String          @default("EA")
+  reorderLevel   Int?            @map("reorder_level")
+  isActive       Boolean         @default(true) @map("is_active")
+  createdAt      DateTime        @default(now()) @map("created_at")
+  createdBy      String?         @map("created_by")
+  movements      StockMovement[]
 
   @@unique([organizationId, sku])
   @@map("stock_items")
@@ -1805,39 +1418,26 @@ model StockMovement {
   notes          String?
   createdAt      DateTime          @default(now()) @map("created_at")
   createdBy      String?           @map("created_by")
-
-  stockItem StockItem @relation(fields: [stockItemId], references: [id])
+  stockItem      StockItem         @relation(fields: [stockItemId], references: [id])
 
   @@index([stockItemId, createdAt])
   @@map("stock_movements")
   @@schema("inventory")
 }
 
-// ───────────────────────── ASSETS ─────────────────────────
-
-enum AssetStatus {
-  AVAILABLE
-  ASSIGNED
-  MAINTENANCE
-  DISPOSED
-
-  @@schema("assets")
-}
-
 model Asset {
-  id             String      @id @default(uuid())
-  organizationId String      @map("organization_id")
-  assetTag       String      @map("asset_tag")
+  id             String            @id @default(uuid())
+  organizationId String            @map("organization_id")
+  assetTag       String            @map("asset_tag")
   name           String
   category       String?
-  purchaseDate   DateTime?   @map("purchase_date") @db.Date
-  purchaseCost   Decimal?    @map("purchase_cost") @db.Decimal(14, 2)
-  serialNumber   String?     @map("serial_number")
-  status         AssetStatus @default(AVAILABLE)
-  createdAt      DateTime    @default(now()) @map("created_at")
-  createdBy      String?     @map("created_by")
-
-  assignments AssetAssignment[]
+  purchaseDate   DateTime?         @map("purchase_date") @db.Date
+  purchaseCost   Decimal?          @map("purchase_cost") @db.Decimal(14, 2)
+  serialNumber   String?           @map("serial_number")
+  status         AssetStatus       @default(AVAILABLE)
+  createdAt      DateTime          @default(now()) @map("created_at")
+  createdBy      String?           @map("created_by")
+  assignments    AssetAssignment[]
 
   @@unique([organizationId, assetTag])
   @@map("assets")
@@ -1845,80 +1445,55 @@ model Asset {
 }
 
 model AssetAssignment {
-  id                    String    @id @default(uuid())
-  organizationId        String    @map("organization_id")
-  assetId               String    @map("asset_id")
-  assignedToEmployeeId  String?   @map("assigned_to_employee_id")
-  assignedToGuardId      String?   @map("assigned_to_guard_id")
-  assignedAt            DateTime  @default(now()) @map("assigned_at")
-  returnedAt            DateTime? @map("returned_at")
-  notes                 String?
-  createdBy             String?   @map("created_by")
-
-  asset Asset @relation(fields: [assetId], references: [id])
+  id                   String    @id @default(uuid())
+  organizationId       String    @map("organization_id")
+  assetId              String    @map("asset_id")
+  assignedToEmployeeId String?   @map("assigned_to_employee_id")
+  assignedToGuardId    String?   @map("assigned_to_guard_id")
+  assignedAt           DateTime  @default(now()) @map("assigned_at")
+  returnedAt           DateTime? @map("returned_at")
+  notes                String?
+  createdBy            String?   @map("created_by")
+  returnCondition      String?   @map("return_condition")
+  returnConfirmedAt    DateTime? @map("return_confirmed_at")
+  returnConfirmedBy    String?   @map("return_confirmed_by")
+  returnReceiptNote    String?   @map("return_receipt_note")
+  returnRequestedAt    DateTime? @map("return_requested_at")
+  returnRequestedBy    String?   @map("return_requested_by")
+  asset                Asset     @relation(fields: [assetId], references: [id])
 
   @@index([assetId, assignedAt])
+  @@index([organizationId, returnRequestedAt])
   @@map("asset_assignments")
   @@schema("assets")
 }
 
-// ───────────────────────── INTEGRATIONS ─────────────────────────
-
-enum WebhookInboxStatus {
-  RECEIVED
-  PROCESSING
-  PROCESSED
-  FAILED
-  DLQ
-
-  @@schema("integrations")
-}
-
-enum OutboxStatus {
-  PENDING
-  PUBLISHED
-  FAILED
-
-  @@schema("integrations")
-}
-
-enum IntegrationProviderCategory {
-  SMS
-  WHATSAPP
-  EMAIL
-  PAYMENT
-  ANPR
-  GATE
-
-  @@schema("integrations")
-}
-
 model ProviderRegistry {
-  id           String                    @id @default(uuid())
-  code         String                    @unique
+  id           String                      @id @default(uuid())
+  code         String                      @unique
   category     IntegrationProviderCategory
-  adapterClass String                    @map("adapter_class")
-  isEnabled    Boolean                   @default(true) @map("is_enabled")
-  createdAt    DateTime                  @default(now()) @map("created_at")
+  adapterClass String                      @map("adapter_class")
+  isEnabled    Boolean                     @default(true) @map("is_enabled")
+  createdAt    DateTime                    @default(now()) @map("created_at")
 
   @@map("provider_registry")
   @@schema("integrations")
 }
 
 model WebhookInbox {
-  id              String             @id @default(uuid())
-  organizationId  String?            @map("organization_id")
-  provider        String
-  eventType       String             @map("event_type")
-  idempotencyKey  String             @unique @map("idempotency_key")
-  rawHeaders      Json?              @map("raw_headers")
-  rawBody         Json               @map("raw_body")
-  signatureValid  Boolean            @default(false) @map("signature_valid")
-  status          WebhookInboxStatus @default(RECEIVED)
-  retryCount      Int                @default(0) @map("retry_count")
-  errorMessage    String?            @map("error_message")
-  processedAt     DateTime?          @map("processed_at")
-  createdAt       DateTime           @default(now()) @map("created_at")
+  id             String             @id @default(uuid())
+  organizationId String?            @map("organization_id")
+  provider       String
+  eventType      String             @map("event_type")
+  idempotencyKey String             @unique @map("idempotency_key")
+  rawHeaders     Json?              @map("raw_headers")
+  rawBody        Json               @map("raw_body")
+  signatureValid Boolean            @default(false) @map("signature_valid")
+  status         WebhookInboxStatus @default(RECEIVED)
+  retryCount     Int                @default(0) @map("retry_count")
+  errorMessage   String?            @map("error_message")
+  processedAt    DateTime?          @map("processed_at")
+  createdAt      DateTime           @default(now()) @map("created_at")
 
   @@index([status, createdAt])
   @@map("webhook_inbox")
@@ -1946,39 +1521,19 @@ model IntegrationOutbox {
 }
 
 model IntegrationRequestLog {
-  id            String   @id @default(uuid())
-  organizationId String? @map("organization_id")
-  provider      String
-  direction     String
-  correlationId String?  @map("correlation_id")
-  statusCode    Int?     @map("status_code")
-  durationMs    Int?     @map("duration_ms")
-  summary       String?
-  createdAt     DateTime @default(now()) @map("created_at")
+  id             String   @id @default(uuid())
+  organizationId String?  @map("organization_id")
+  provider       String
+  direction      String
+  correlationId  String?  @map("correlation_id")
+  statusCode     Int?     @map("status_code")
+  durationMs     Int?     @map("duration_ms")
+  summary        String?
+  createdAt      DateTime @default(now()) @map("created_at")
 
   @@index([provider, createdAt])
   @@map("integration_request_logs")
   @@schema("integrations")
-}
-
-// ───────────────────────── NOTIFICATIONS ─────────────────────────
-
-enum NotificationChannel {
-  SMS
-  WHATSAPP
-  EMAIL
-  PUSH
-
-  @@schema("notifications")
-}
-
-enum NotificationStatus {
-  PENDING
-  DISPATCHING
-  SENT
-  FAILED
-
-  @@schema("notifications")
 }
 
 model NotificationTemplate {
@@ -1994,23 +1549,22 @@ model NotificationTemplate {
 }
 
 model Notification {
-  id             String              @id @default(uuid())
-  organizationId String              @map("organization_id")
-  templateCode   String              @map("template_code")
+  id             String                        @id @default(uuid())
+  organizationId String                        @map("organization_id")
+  templateCode   String                        @map("template_code")
   channel        NotificationChannel
   recipient      String
   subject        String?
   body           String
   payload        Json?
-  status         NotificationStatus  @default(PENDING)
-  resourceType   String?             @map("resource_type")
-  resourceId     String?             @map("resource_id")
-  idempotencyKey String              @unique @map("idempotency_key")
-  correlationId  String?             @map("correlation_id")
-  sentAt         DateTime?           @map("sent_at")
-  createdAt      DateTime            @default(now()) @map("created_at")
-
-  attempts NotificationDeliveryAttempt[]
+  status         NotificationStatus            @default(PENDING)
+  resourceType   String?                       @map("resource_type")
+  resourceId     String?                       @map("resource_id")
+  idempotencyKey String                        @unique @map("idempotency_key")
+  correlationId  String?                       @map("correlation_id")
+  sentAt         DateTime?                     @map("sent_at")
+  createdAt      DateTime                      @default(now()) @map("created_at")
+  attempts       NotificationDeliveryAttempt[]
 
   @@index([organizationId, status, createdAt])
   @@map("notifications")
@@ -2018,40 +1572,20 @@ model Notification {
 }
 
 model NotificationDeliveryAttempt {
-  id                String   @id @default(uuid())
-  notificationId    String   @map("notification_id")
-  attemptNumber     Int      @map("attempt_number")
+  id                String       @id @default(uuid())
+  notificationId    String       @map("notification_id")
+  attemptNumber     Int          @map("attempt_number")
   provider          String
-  providerMessageId String?  @map("provider_message_id")
+  providerMessageId String?      @map("provider_message_id")
   status            String
-  errorMessage      String?  @map("error_message")
-  durationMs        Int?     @map("duration_ms")
-  createdAt         DateTime @default(now()) @map("created_at")
-
-  notification Notification @relation(fields: [notificationId], references: [id], onDelete: Cascade)
+  errorMessage      String?      @map("error_message")
+  durationMs        Int?         @map("duration_ms")
+  createdAt         DateTime     @default(now()) @map("created_at")
+  notification      Notification @relation(fields: [notificationId], references: [id], onDelete: Cascade)
 
   @@index([notificationId])
   @@map("notification_delivery_attempts")
   @@schema("notifications")
-}
-
-// ───────────────────────── REPORTING ─────────────────────────
-
-enum KpiPeriodGranularity {
-  DAY
-  WEEK
-  MONTH
-
-  @@schema("reporting")
-}
-
-enum KpiSnapshotStatus {
-  COMPUTING
-  READY
-  FAILED
-  STALE
-
-  @@schema("reporting")
 }
 
 model KpiDefinition {
@@ -2126,12 +1660,641 @@ model DashboardCache {
   @@schema("reporting")
 }
 
+model EdgeGateway {
+  id              String       @id @default(uuid())
+  organizationId  String       @map("organization_id")
+  siteId          String?      @map("site_id")
+  code            String
+  name            String
+  apiKeyHash      String       @map("api_key_hash")
+  version         String?
+  ipAddress       String?      @map("ip_address")
+  status          DeviceStatus @default(PENDING)
+  lastHeartbeatAt DateTime?    @map("last_heartbeat_at")
+  createdAt       DateTime     @default(now()) @map("created_at")
+  updatedAt       DateTime     @updatedAt @map("updated_at")
+  createdBy       String?      @map("created_by")
+  devices         Device[]
 
-// ───────────────────────── DEVICES / INTEGRATION ─────────────────────────
-// Unified registry + ingestion for physical devices (fingerprint, biometric
-// terminals, face terminals, QR/barcode scanners, printers, RFID/smart-card
-// readers, CCTV). Network terminals push directly (ADMS-style); USB devices
-// forward via a site EdgeGateway. Video never enters here — events/metadata only.
+  @@unique([organizationId, code])
+  @@index([apiKeyHash])
+  @@map("edge_gateways")
+  @@schema("devices")
+}
+
+model Device {
+  id             String           @id @default(uuid())
+  organizationId String           @map("organization_id")
+  siteId         String?          @map("site_id")
+  gateId         String?          @map("gate_id")
+  edgeGatewayId  String?          @map("edge_gateway_id")
+  type           DeviceType
+  connection     DeviceConnection
+  code           String
+  name           String
+  vendor         String?
+  model          String?
+  serialNumber   String?          @map("serial_number")
+  apiKeyHash     String?          @map("api_key_hash")
+  config         Json?
+  status         DeviceStatus     @default(PENDING)
+  lastSeenAt     DateTime?        @map("last_seen_at")
+  createdAt      DateTime         @default(now()) @map("created_at")
+  updatedAt      DateTime         @updatedAt @map("updated_at")
+  createdBy      String?          @map("created_by")
+  commands       DeviceCommand[]
+  events         DeviceEvent[]
+  edgeGateway    EdgeGateway?     @relation(fields: [edgeGatewayId], references: [id])
+
+  @@unique([organizationId, code])
+  @@index([apiKeyHash])
+  @@index([organizationId, type])
+  @@map("devices")
+  @@schema("devices")
+}
+
+model DeviceEvent {
+  id             String            @id @default(uuid())
+  organizationId String            @map("organization_id")
+  deviceId       String            @map("device_id")
+  type           DeviceEventType
+  dedupeKey      String?           @map("dedupe_key")
+  payload        Json
+  status         DeviceEventStatus @default(RECEIVED)
+  routedTo       String?           @map("routed_to")
+  error          String?
+  capturedAt     DateTime          @map("captured_at")
+  receivedAt     DateTime          @default(now()) @map("received_at")
+  processedAt    DateTime?         @map("processed_at")
+  device         Device            @relation(fields: [deviceId], references: [id])
+
+  @@unique([organizationId, dedupeKey])
+  @@index([organizationId, deviceId, type])
+  @@map("device_events")
+  @@schema("devices")
+}
+
+model DeviceCommand {
+  id             String              @id @default(uuid())
+  organizationId String              @map("organization_id")
+  deviceId       String              @map("device_id")
+  type           DeviceCommandType
+  payload        Json?
+  status         DeviceCommandStatus @default(PENDING)
+  result         Json?
+  issuedById     String?             @map("issued_by_id")
+  issuedAt       DateTime            @default(now()) @map("issued_at")
+  dispatchedAt   DateTime?           @map("dispatched_at")
+  acknowledgedAt DateTime?           @map("acknowledged_at")
+  expiresAt      DateTime?           @map("expires_at")
+  device         Device              @relation(fields: [deviceId], references: [id])
+
+  @@index([organizationId, deviceId, status])
+  @@map("device_commands")
+  @@schema("devices")
+}
+
+model PolicyDocument {
+  id                 String       @id @default(uuid())
+  organizationId     String       @map("organization_id")
+  code               String
+  title              String
+  category           String
+  summary            String?
+  body               String
+  version            Int          @default(1)
+  status             PolicyStatus @default(DRAFT)
+  approvalInstanceId String?      @map("approval_instance_id")
+  createdBy          String       @map("created_by")
+  publishedAt        DateTime?    @map("published_at")
+  publishedBy        String?      @map("published_by")
+  createdAt          DateTime     @default(now()) @map("created_at")
+  updatedAt          DateTime     @updatedAt @map("updated_at")
+
+  @@unique([organizationId, code])
+  @@index([organizationId, status])
+  @@map("policy_documents")
+  @@schema("compliance")
+}
+
+model DataBreachCase {
+  id                     String         @id @default(uuid())
+  organizationId         String         @map("organization_id")
+  referenceCode          String         @map("reference_code")
+  title                  String
+  description            String
+  severity               BreachSeverity
+  status                 BreachStatus   @default(REPORTED)
+  discoveredAt           DateTime       @map("discovered_at")
+  reportedAt             DateTime       @default(now()) @map("reported_at")
+  affectedDataCategories String?        @map("affected_data_categories")
+  estimatedRecords       Int?           @map("estimated_records")
+  containmentNotes       String?        @map("containment_notes")
+  closedAt               DateTime?      @map("closed_at")
+  closedBy               String?        @map("closed_by")
+  createdBy              String         @map("created_by")
+  createdAt              DateTime       @default(now()) @map("created_at")
+  updatedAt              DateTime       @updatedAt @map("updated_at")
+
+  @@unique([organizationId, referenceCode])
+  @@index([organizationId, status])
+  @@map("data_breach_cases")
+  @@schema("compliance")
+}
+
+model DocumentObject {
+  id             String   @id @default(uuid())
+  organizationId String   @map("organization_id")
+  bucket         String
+  objectKey      String   @map("object_key")
+  fileName       String   @map("file_name")
+  contentType    String   @map("content_type")
+  sizeBytes      Int      @map("size_bytes")
+  resourceType   String   @map("resource_type")
+  resourceId     String   @map("resource_id")
+  uploadedBy     String   @map("uploaded_by")
+  checksum       String?
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  @@unique([bucket, objectKey])
+  @@index([organizationId, resourceType, resourceId])
+  @@map("document_objects")
+  @@schema("documents")
+}
+
+enum GateType {
+  PEDESTRIAN
+  VEHICLE
+  MIXED
+
+  @@schema("enterprise")
+}
+
+enum ContractStatus {
+  DRAFT
+  PENDING_APPROVAL
+  APPROVED
+  ACTIVE
+  EXPIRING
+  TERMINATED
+  CANCELLED
+
+  @@schema("contracts")
+}
+
+enum ApprovalStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  CANCELLED
+
+  @@schema("approvals")
+}
+
+enum GuardStatus {
+  ACTIVE
+  ON_LEAVE
+  SUSPENDED
+  TRANSFERRED
+  TERMINATED
+  AVAILABLE
+
+  @@schema("workforce")
+}
+
+enum ShiftStatus {
+  SCHEDULED
+  ACTIVE
+  COMPLETED
+  CANCELLED
+
+  @@schema("operations")
+}
+
+enum AssignmentStatus {
+  ASSIGNED
+  CONFIRMED
+  REPLACED
+  NO_SHOW
+
+  @@schema("operations")
+}
+
+enum DeploymentStatus {
+  PENDING
+  ACTIVE
+  ENDED
+
+  @@schema("operations")
+}
+
+enum AttendanceMethod {
+  MOBILE_GPS
+  FINGERPRINT
+  FACE
+  QR
+  NFC
+  SUPERVISOR
+
+  @@schema("attendance")
+}
+
+enum SyncStatus {
+  SYNCED
+  PENDING
+  CONFLICT
+
+  @@schema("attendance")
+}
+
+enum AlertnessStatus {
+  SCHEDULED
+  CONFIRMED
+  MISSED
+  LATE
+
+  @@schema("attendance")
+}
+
+enum IncidentSeverity {
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
+
+  @@schema("incidents")
+}
+
+enum IncidentStatus {
+  OPEN
+  INVESTIGATING
+  RESOLVED
+  CLOSED
+
+  @@schema("incidents")
+}
+
+enum AccessEntryType {
+  CHECK_IN
+  CHECK_OUT
+
+  @@schema("access")
+}
+
+enum AccessMethod {
+  CARD
+  QR
+  BIOMETRIC
+  MANUAL
+
+  @@schema("access")
+}
+
+enum AppointmentStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  CANCELLED
+  EXPIRED
+  COMPLETED
+
+  @@schema("visitors")
+}
+
+enum VerificationResult {
+  ALLOWED
+  DENIED_EXPIRED
+  DENIED_INVALID
+  DENIED_ALREADY_USED
+  DENIED_REVOKED
+  DENIED_GATE_MISMATCH
+  DENIED_SITE_MISMATCH
+  DENIED_BLACKLISTED
+
+  @@schema("visitors")
+}
+
+enum VehicleType {
+  CAR
+  MOTORCYCLE
+  TRUCK
+  BUS
+  OTHER
+
+  @@schema("parking")
+}
+
+enum PermitType {
+  EMPLOYEE
+  VISITOR
+  CONTRACTOR
+  RESERVED
+
+  @@schema("parking")
+}
+
+enum PermitStatus {
+  ACTIVE
+  EXPIRED
+  REVOKED
+  SUSPENDED
+  PENDING
+
+  @@schema("parking")
+}
+
+enum ParkingEntryDirection {
+  ENTRY
+  EXIT
+
+  @@schema("parking")
+}
+
+enum ParkingDecision {
+  ALLOW
+  DENY
+  PENDING
+
+  @@schema("parking")
+}
+
+enum ViolationType {
+  NO_PERMIT
+  EXPIRED_PERMIT
+  WRONG_ZONE
+  OVERSTAY
+  BLACKLISTED
+
+  @@schema("parking")
+}
+
+enum EmployeeStatus {
+  ACTIVE
+  ON_LEAVE
+  SUSPENDED
+  TERMINATED
+
+  @@schema("workforce")
+}
+
+enum EmploymentType {
+  GUARD
+  SUPERVISOR
+  ADMIN
+  OTHER
+
+  @@schema("workforce")
+}
+
+enum LeaveRequestStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  CANCELLED
+
+  @@schema("workforce")
+}
+
+enum TrainingStatus {
+  PLANNED
+  COMPLETED
+  CANCELLED
+
+  @@schema("workforce")
+}
+
+enum DisciplineSeverity {
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
+
+  @@schema("workforce")
+}
+
+enum DisciplineStatus {
+  OPEN
+  CLOSED
+
+  @@schema("workforce")
+}
+
+enum MovementType {
+  TRANSFER
+  EXIT
+
+  @@schema("workforce")
+}
+
+enum MovementStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  CANCELLED
+
+  @@schema("workforce")
+}
+
+enum JobPostingStatus {
+  DRAFT
+  OPEN
+  CLOSED
+
+  @@schema("recruitment")
+}
+
+enum ApplicationStatus {
+  SUBMITTED
+  SCREENING
+  INTERVIEW
+  OFFERED
+  HIRED
+  REJECTED
+  WITHDRAWN
+
+  @@schema("recruitment")
+}
+
+enum PayrollTenantType {
+  INTERNAL_COMPANY
+  CUSTOMER_MANAGED_PAYROLL
+
+  @@schema("payroll")
+}
+
+enum PayrollCycleStatus {
+  DRAFT
+  CALCULATED
+  PENDING_APPROVAL
+  APPROVED
+  PAID
+  VOIDED
+
+  @@schema("payroll")
+}
+
+enum LoanStatus {
+  DRAFT
+  PENDING_APPROVAL
+  APPROVED
+  ACTIVE
+  REJECTED
+  COMPLETED
+  CANCELLED
+
+  @@schema("employee_loans")
+}
+
+enum InstallmentStatus {
+  PENDING
+  PAID
+  SKIPPED
+
+  @@schema("employee_loans")
+}
+
+enum InvoiceStatus {
+  DRAFT
+  SENT
+  PARTIALLY_PAID
+  PAID
+  OVERDUE
+  VOIDED
+
+  @@schema("finance")
+}
+
+enum PaymentMethod {
+  BANK_TRANSFER
+  CASH
+  CHEQUE
+  MOBILE_MONEY
+  OTHER
+
+  @@schema("finance")
+}
+
+enum PettyCashVoucherStatus {
+  PENDING
+  APPROVED
+  REIMBURSED
+  REJECTED
+
+  @@schema("finance")
+}
+
+enum PaymentVoucherStatus {
+  DRAFT
+  PENDING_APPROVAL
+  APPROVED
+  PAID
+  REJECTED
+  VOIDED
+
+  @@schema("finance")
+}
+
+enum SupplierStatus {
+  PENDING
+  APPROVED
+  SUSPENDED
+
+  @@schema("procurement")
+}
+
+enum PurchaseOrderStatus {
+  DRAFT
+  PENDING_APPROVAL
+  APPROVED
+  ORDERED
+  PARTIALLY_RECEIVED
+  RECEIVED
+  CANCELLED
+
+  @@schema("procurement")
+}
+
+enum StockMovementType {
+  IN
+  OUT
+  ADJUST
+
+  @@schema("inventory")
+}
+
+enum AssetStatus {
+  AVAILABLE
+  ASSIGNED
+  MAINTENANCE
+  DISPOSED
+  RETURN_PENDING
+
+  @@schema("assets")
+}
+
+enum WebhookInboxStatus {
+  RECEIVED
+  PROCESSING
+  PROCESSED
+  FAILED
+  DLQ
+
+  @@schema("integrations")
+}
+
+enum OutboxStatus {
+  PENDING
+  PUBLISHED
+  FAILED
+
+  @@schema("integrations")
+}
+
+enum IntegrationProviderCategory {
+  SMS
+  WHATSAPP
+  EMAIL
+  PAYMENT
+  ANPR
+  GATE
+
+  @@schema("integrations")
+}
+
+enum NotificationChannel {
+  SMS
+  WHATSAPP
+  EMAIL
+  PUSH
+
+  @@schema("notifications")
+}
+
+enum NotificationStatus {
+  PENDING
+  DISPATCHING
+  SENT
+  FAILED
+
+  @@schema("notifications")
+}
+
+enum KpiPeriodGranularity {
+  DAY
+  WEEK
+  MONTH
+
+  @@schema("reporting")
+}
+
+enum KpiSnapshotStatus {
+  COMPUTING
+  READY
+  FAILED
+  STALE
+
+  @@schema("reporting")
+}
 
 enum DeviceType {
   FINGERPRINT_SCANNER
@@ -2214,100 +2377,30 @@ enum DeviceCommandStatus {
   @@schema("devices")
 }
 
-model EdgeGateway {
-  id              String       @id @default(uuid())
-  organizationId  String       @map("organization_id")
-  siteId          String?      @map("site_id")
-  code            String
-  name            String
-  apiKeyHash      String       @map("api_key_hash")
-  version         String?
-  ipAddress       String?      @map("ip_address")
-  status          DeviceStatus @default(PENDING)
-  lastHeartbeatAt DateTime?    @map("last_heartbeat_at")
-  createdAt       DateTime     @default(now()) @map("created_at")
-  updatedAt       DateTime     @updatedAt @map("updated_at")
-  createdBy       String?      @map("created_by")
+enum PolicyStatus {
+  DRAFT
+  PENDING_APPROVAL
+  PUBLISHED
+  ARCHIVED
+  REJECTED
 
-  devices         Device[]
-
-  @@unique([organizationId, code])
-  @@index([apiKeyHash])
-  @@map("edge_gateways")
-  @@schema("devices")
+  @@schema("compliance")
 }
 
-model Device {
-  id             String           @id @default(uuid())
-  organizationId String           @map("organization_id")
-  siteId         String?          @map("site_id")
-  gateId         String?          @map("gate_id")
-  edgeGatewayId  String?          @map("edge_gateway_id")
-  type           DeviceType
-  connection     DeviceConnection
-  code           String
-  name           String
-  vendor         String?
-  model          String?
-  serialNumber   String?          @map("serial_number")
-  apiKeyHash     String?          @map("api_key_hash")
-  config         Json?
-  status         DeviceStatus     @default(PENDING)
-  lastSeenAt     DateTime?        @map("last_seen_at")
-  createdAt      DateTime         @default(now()) @map("created_at")
-  updatedAt      DateTime         @updatedAt @map("updated_at")
-  createdBy      String?          @map("created_by")
+enum BreachSeverity {
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
 
-  edgeGateway    EdgeGateway?     @relation(fields: [edgeGatewayId], references: [id])
-  events         DeviceEvent[]
-  commands       DeviceCommand[]
-
-  @@unique([organizationId, code])
-  @@index([apiKeyHash])
-  @@index([organizationId, type])
-  @@map("devices")
-  @@schema("devices")
+  @@schema("compliance")
 }
 
-model DeviceEvent {
-  id             String            @id @default(uuid())
-  organizationId String            @map("organization_id")
-  deviceId       String            @map("device_id")
-  type           DeviceEventType
-  dedupeKey      String?           @map("dedupe_key")
-  payload        Json
-  status         DeviceEventStatus @default(RECEIVED)
-  routedTo       String?           @map("routed_to")
-  error          String?
-  capturedAt     DateTime          @map("captured_at")
-  receivedAt     DateTime          @default(now()) @map("received_at")
-  processedAt    DateTime?         @map("processed_at")
+enum BreachStatus {
+  REPORTED
+  INVESTIGATING
+  CONTAINED
+  CLOSED
 
-  device         Device            @relation(fields: [deviceId], references: [id])
-
-  @@unique([organizationId, dedupeKey])
-  @@index([organizationId, deviceId, type])
-  @@map("device_events")
-  @@schema("devices")
-}
-
-model DeviceCommand {
-  id             String              @id @default(uuid())
-  organizationId String              @map("organization_id")
-  deviceId       String              @map("device_id")
-  type           DeviceCommandType
-  payload        Json?
-  status         DeviceCommandStatus @default(PENDING)
-  result         Json?
-  issuedById     String?             @map("issued_by_id")
-  issuedAt       DateTime            @default(now()) @map("issued_at")
-  dispatchedAt   DateTime?           @map("dispatched_at")
-  acknowledgedAt DateTime?           @map("acknowledged_at")
-  expiresAt      DateTime?           @map("expires_at")
-
-  device         Device              @relation(fields: [deviceId], references: [id])
-
-  @@index([organizationId, deviceId, status])
-  @@map("device_commands")
-  @@schema("devices")
+  @@schema("compliance")
 }

@@ -63,6 +63,13 @@ export class CreateLeaveRequestDto {
   reason!: string;
 }
 
+export class RejectLeaveRequestDto {
+  @ApiProperty()
+  @IsString()
+  @MinLength(3)
+  reason!: string;
+}
+
 export class LeaveRequestResponseDto {
   @ApiProperty() id!: string;
   @ApiProperty() organizationId!: string;
@@ -74,6 +81,7 @@ export class LeaveRequestResponseDto {
   @ApiProperty() reason!: string;
   @ApiProperty({ enum: LeaveRequestStatus }) status!: LeaveRequestStatus;
   @ApiPropertyOptional() approvalInstanceId?: string | null;
+  @ApiPropertyOptional() createdBy?: string | null;
   @ApiPropertyOptional() approvedBy?: string | null;
   @ApiPropertyOptional() approvedAt?: Date | null;
   @ApiPropertyOptional() rejectedReason?: string | null;
