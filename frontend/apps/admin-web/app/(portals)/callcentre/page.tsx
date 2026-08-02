@@ -2,9 +2,12 @@
 
 import {
   approveVisitorAppointment,
+  listStaffServiceRequests,
   listVisitorAppointments,
   listVisitorEntries,
   rejectVisitorAppointment,
+  updateStaffServiceRequest,
+  type StaffServiceRequest,
   type VisitorAppointment,
   type VisitorEntry,
 } from '@pssms/api-client';
@@ -24,31 +27,46 @@ import {
   CheckCircle2,
   Clock,
   DoorOpen,
+  Headset,
   KeyRound,
   RefreshCw,
 } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 
+const NEXT_STATUS: Record<string, string[]> = {
+  OPEN: ['ACKNOWLEDGED'],
+  ACKNOWLEDGED: ['IN_PROGRESS', 'RESOLVED', 'CLOSED'],
+  IN_PROGRESS: ['RESOLVED', 'CLOSED'],
+  RESOLVED: ['CLOSED'],
+};
+
 export default function CallCentrePage() {
   const [appointments, setAppointments] = useState<VisitorAppointment[]>([]);
   const [entries, setEntries] = useState<VisitorEntry[]>([]);
+  const [tickets, setTickets] = useState<StaffServiceRequest[]>([]);
   const [loading, setLoading] = useState(true);
   const [codeModal, setCodeModal] = useState<string | null>(null);
   const [rejectTarget, setRejectTarget] = useState<VisitorAppointment | null>(
     null,
   );
   const [rejectReason, setRejectReason] = useState('');
+  const [closeTarget, setCloseTarget] = useState<StaffServiceRequest | null>(
+    null,
+  );
+  const [closeNotes, setCloseNotes] = useState('');
   const [error, setError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const [a, e] = await Promise.all([
+      const [a, e, t] = await Promise.all([
         listVisitorAppointments(),
         listVisitorEntries(),
+        listStaffServiceRequests().catch(() => [] as StaffServiceRequest[]),
       ]);
       setAppointments(a);
       setEntries(e);
+      setTickets(t);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Load failed');
     } finally {
@@ -68,14 +86,18 @@ export default function CallCentrePage() {
     const entriesToday = entries.filter(
       (e) => new Date(e.recordedAt) >= startOfDay,
     ).length;
+    const openTickets = tickets.filter((t) =>
+      ['OPEN', 'ACKNOWLEDGED', 'IN_PROGRESS'].includes(t.status),
+    ).length;
     return {
       total: appointments.length,
       pending,
       approved,
       entriesToday,
       entriesTotal: entries.length,
+      openTickets,
     };
-  }, [appointments, entries]);
+  }, [appointments, entries, tickets]);
 
   async function approve(id: string) {
     setError(null);
@@ -103,11 +125,44 @@ export default function CallCentrePage() {
     }
   }
 
+  async function advanceTicket(row: StaffServiceRequest, status: string) {
+    if (status === 'CLOSED') {
+      setCloseTarget(row);
+      setCloseNotes(row.resolutionNotes ?? '');
+      return;
+    }
+    setError(null);
+    try {
+      await updateStaffServiceRequest(row.id, { status });
+      await load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Ticket update failed');
+    }
+  }
+
+  async function submitClose() {
+    if (!closeTarget) return;
+    const notes = closeNotes.trim();
+    if (!notes) return;
+    setError(null);
+    try {
+      await updateStaffServiceRequest(closeTarget.id, {
+        status: 'CLOSED',
+        resolutionNotes: notes,
+      });
+      setCloseTarget(null);
+      setCloseNotes('');
+      await load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Close failed');
+    }
+  }
+
   return (
     <>
       <PageHeader
         title="Call centre"
-        description="Visitor appointments and gate verification outcomes"
+        description="Visitor appointments, gate outcomes, and customer service tickets"
         actions={
           <button
             type="button"
@@ -127,7 +182,7 @@ export default function CallCentrePage() {
         </p>
       ) : null}
 
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
         <StatCard
           label="Appointments"
           value={stats.total}
@@ -155,6 +210,74 @@ export default function CallCentrePage() {
           hint={`${stats.entriesTotal.toLocaleString('en-TZ')} recorded in total`}
           icon={<DoorOpen className="h-5 w-5" />}
           accent="sky"
+        />
+        <StatCard
+          label="Open tickets"
+          value={stats.openTickets}
+          hint="Customer service requests"
+          icon={<Headset className="h-5 w-5" />}
+          accent="violet"
+        />
+      </div>
+
+      <div className="mt-8">
+        <SectionTitle>Service requests</SectionTitle>
+        <DataTable
+          loading={loading}
+          keyField="id"
+          rows={tickets}
+          emptyMessage="No customer service requests yet"
+          columns={[
+            { key: 'referenceNumber', label: 'Ref' },
+            {
+              key: 'customerCode',
+              label: 'Customer',
+              render: (r) =>
+                r.customerCode
+                  ? `${r.customerCode}${r.customerName ? ` · ${r.customerName}` : ''}`
+                  : '—',
+            },
+            { key: 'title', label: 'Title' },
+            {
+              key: 'category',
+              label: 'Category',
+              render: (r) => r.category.replace(/_/g, ' '),
+            },
+            {
+              key: 'urgency',
+              label: 'Urgency',
+              render: (r) => r.urgency.replace(/_/g, ' '),
+            },
+            {
+              key: 'status',
+              label: 'Status',
+              render: (r) => <StatusBadge status={r.status} />,
+            },
+            {
+              key: 'id',
+              label: 'Actions',
+              render: (r) => {
+                const next = NEXT_STATUS[r.status] ?? [];
+                if (next.length === 0) {
+                  return <span className="text-xs text-[#605e5c]">—</span>;
+                }
+                return (
+                  <div className="flex flex-wrap items-center gap-2">
+                    {next.map((s) => (
+                      <button
+                        key={s}
+                        type="button"
+                        className="text-xs font-medium text-[#0067b8] hover:underline"
+                        onClick={() => void advanceTicket(r, s)}
+                      >
+                        {s.replace(/_/g, ' ')}
+                      </button>
+                    ))}
+                  </div>
+                );
+              },
+            },
+          ]}
         />
       </div>
 
@@ -284,6 +407,56 @@ export default function CallCentrePage() {
                 disabled={!rejectReason.trim()}
               >
                 Reject appointment
+              </button>
+            </div>
+          </form>
+        </Modal>
+      ) : null}
+
+      {closeTarget ? (
+        <Modal
+          title="Close service request"
+          description={`Add resolution notes for ${closeTarget.referenceNumber}.`}
+          size="sm"
+          onClose={() => {
+            setCloseTarget(null);
+            setCloseNotes('');
+          }}
+        >
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              void submitClose();
+            }}
+          >
+            <label className="block text-sm font-medium text-[#323130]">
+              Resolution notes
+              <textarea
+                autoFocus
+                rows={3}
+                className={inputCls}
+                value={closeNotes}
+                onChange={(e) => setCloseNotes(e.target.value)}
+                placeholder="What was done / outcome"
+              />
+            </label>
+            <div className="mt-5 flex justify-end gap-2">
+              <button
+                type="button"
+                className={btnSecondary}
+                onClick={() => {
+                  setCloseTarget(null);
+                  setCloseNotes('');
+                }}
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                className={btnPrimary}
+                disabled={!closeNotes.trim()}
+              >
+                Close ticket
               </button>
             </div>
           </form>

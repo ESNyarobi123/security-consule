@@ -45,15 +45,20 @@ export class IncidentsController {
   }
 
   @Get()
-  @ApiOperation({ summary: 'List incidents' })
+  @ApiOperation({
+    summary: 'List incidents (enriched with allowedNextStatuses for actor)',
+  })
   @ApiOkResponse({ type: IncidentResponseDto, isArray: true })
   @ApiQuery({ name: 'siteId', required: false })
   list(@CurrentUser() user: AuthUser, @Query('siteId') siteId?: string) {
-    return this.service.list(user.organizationId, siteId);
+    return this.service.list(user.organizationId, user, siteId);
   }
 
   @Patch(':id/status')
-  @ApiOperation({ summary: 'Update incident status / assignment (thin escalate)' })
+  @ApiOperation({
+    summary:
+      'Update incident status (A4b: role matrix + reporter≠closer; Guard create-only)',
+  })
   @ApiOkResponse({ type: IncidentResponseDto })
   updateStatus(
     @Param('id') id: string,

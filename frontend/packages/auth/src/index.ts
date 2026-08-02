@@ -6,6 +6,7 @@ export const REFRESH_COOKIE = 'pssms_admin_refresh';
 
 export const CUSTOMER_TOKEN_COOKIE = 'pssms_customer_token';
 export const CUSTOMER_USER_COOKIE = 'pssms_customer_user';
+export const CUSTOMER_REFRESH_COOKIE = 'pssms_customer_refresh';
 
 export const SUPPLIER_TOKEN_COOKIE = 'pssms_supplier_token';
 export const SUPPLIER_USER_COOKIE = 'pssms_supplier_user';
@@ -22,6 +23,7 @@ export type SessionUser = {
   permissions: string[];
   customerId?: string | null;
   supplierId?: string | null;
+  mustChangePassword?: boolean;
 };
 
 export type AuthCookieNames = {
@@ -100,6 +102,7 @@ const adminAuth = createAuthStore({
 const customerAuth = createAuthStore({
   tokenCookie: CUSTOMER_TOKEN_COOKIE,
   userCookie: CUSTOMER_USER_COOKIE,
+  refreshCookie: CUSTOMER_REFRESH_COOKIE,
 });
 
 const supplierAuth = createAuthStore({
@@ -151,12 +154,24 @@ export function getCustomerToken(): string | null {
   return customerAuth.getToken();
 }
 
+export function getCustomerRefreshToken(): string | null {
+  return customerAuth.getRefreshToken();
+}
+
 export function getCustomerSessionUser(): SessionUser | null {
   return customerAuth.getSessionUser();
 }
 
-export function setCustomerSession(token: string, user: SessionUser) {
-  customerAuth.setSession(token, user);
+export function setCustomerSession(
+  token: string,
+  user: SessionUser,
+  refreshToken?: string,
+) {
+  customerAuth.setSession(token, user, refreshToken);
+}
+
+export function setCustomerTokens(token: string, refreshToken?: string) {
+  customerAuth.setTokens(token, refreshToken);
 }
 
 export function clearCustomerSession() {

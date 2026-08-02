@@ -36,8 +36,8 @@ const CATEGORIES = [
 
 const SEVERITIES: IncidentSeverity[] = ['LOW', 'MEDIUM', 'HIGH', 'CRITICAL'];
 
-/** Next allowed status for thin escalate path (matches API). */
-function nextStatuses(current: IncidentStatus): IncidentStatus[] {
+/** Fallback when API omits allowedNextStatuses (older core-api). */
+function nextStatusesFallback(current: IncidentStatus): IncidentStatus[] {
   switch (current) {
     case 'OPEN':
       return ['INVESTIGATING'];
@@ -48,6 +48,11 @@ function nextStatuses(current: IncidentStatus): IncidentStatus[] {
     default:
       return [];
   }
+}
+
+function nextForRow(r: Incident): IncidentStatus[] {
+  if (r.allowedNextStatuses) return r.allowedNextStatuses;
+  return nextStatusesFallback(r.status);
 }
 
 export default function BranchIncidentsPage() {
@@ -109,7 +114,7 @@ export default function BranchIncidentsPage() {
   return (
     <BranchShell
       title="Incidents"
-      description="Report and escalate site incidents (OPEN → INVESTIGATING → RESOLVED → CLOSED). Full Employment→CEO matrix, risk register, and CCTV links are deferred."
+      description="Report and escalate (A4b): OPEN → INVESTIGATING → RESOLVED → CLOSED with role gates + reporter≠closer. CRITICAL close needs GM/CEO. Guard create-only. Risk register / CCTV / attachments deferred."
       actions={
         <>
           <label className="flex items-center gap-1.5 text-xs text-[#605e5c]">
@@ -221,12 +226,22 @@ export default function BranchIncidentsPage() {
               },
               {
                 key: 'id',
-                label: '',
+                label: 'Next',
                 render: (r) => {
-                  const next = nextStatuses(r.status);
-                  if (next.length === 0) {
+                  const next = nextForRow(r);
+                  if (r.status === 'CLOSED') {
                     return (
                       <span className="text-[11px] text-[#a19f9d]">Closed</span>
+                    );
+                  }
+                  if (next.length === 0) {
+                    return (
+                      <span
+                        className="max-w-[140px] text-[11px] text-amber-800"
+                        title={r.requiredRoleHint}
+                      >
+                        {r.blockedReason ?? 'Blocked'}
+                      </span>
                     );
                   }
                   return (
@@ -239,7 +254,7 @@ export default function BranchIncidentsPage() {
                         setStatusRow(r);
                       }}
                     >
-                      Update status
+                      Escalate
                     </button>
                   );
                 },
@@ -266,11 +281,19 @@ export default function BranchIncidentsPage() {
           onClose={() => setStatusRow(null)}
         >
           <p className="mb-3 text-xs text-[#605e5c]">
-            Current: <StatusBadge status={statusRow.status} /> — advance along
-            OPEN → INVESTIGATING → RESOLVED → CLOSED.
+            Current: <StatusBadge status={statusRow.status} />{' '}
+            <StatusBadge status={statusRow.severity} /> — role-gated escalate.
           </p>
+          {statusRow.blockedReason && nextForRow(statusRow).length === 0 ? (
+            <p className="mb-3 rounded border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+              {statusRow.blockedReason}
+              {statusRow.requiredRoleHint
+                ? ` (need ${statusRow.requiredRoleHint})`
+                : ''}
+            </p>
+          ) : null}
           <div className="flex flex-wrap gap-2">
-            {nextStatuses(statusRow.status).map((s) => (
+            {nextForRow(statusRow).map((s) => (
               <button
                 key={s}
                 type="button"

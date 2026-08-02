@@ -3,6 +3,7 @@
 import type { Guard } from '@pssms/api-client';
 import {
   BadgeCheck,
+  ClipboardCheck,
   ExternalLink,
   MapPin,
   Rocket,
@@ -10,14 +11,24 @@ import {
   UserRound,
   X,
 } from 'lucide-react';
-import { useEffect, type ReactNode } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import {
   WALL,
+  firearmExpiryLabel,
   formatWhen,
   guardDisplayName,
   guardInitials,
+  guardReadinessOk,
+  readinessTone,
   statusTone,
 } from './shared';
+
+export type GuardReadinessPatch = {
+  trainingCompleted?: boolean;
+  clearanceVerified?: boolean;
+  firearmAuthorized?: boolean;
+  firearmExpiry?: string | null;
+};
 
 export function GuardDetailDrawer({
   guard,
@@ -25,17 +36,50 @@ export function GuardDetailDrawer({
   onClose,
   onToggleSuspend,
   onToggleDeployable,
+  onSaveReadiness,
 }: {
   guard: Guard;
   busy?: boolean;
   onClose: () => void;
   onToggleSuspend: (g: Guard) => void;
   onToggleDeployable: (g: Guard) => void;
+  onSaveReadiness: (g: Guard, patch: GuardReadinessPatch) => Promise<void>;
 }) {
   const active = guard.status === 'ACTIVE';
   const ready = active && guard.deploymentEligible;
+  const checklistOk = guardReadinessOk(guard);
   const tone = statusTone(guard.status);
+  const rTone = readinessTone(guard);
   const name = guardDisplayName(guard);
+
+  const [trainingCompleted, setTrainingCompleted] = useState(
+    Boolean(guard.trainingCompleted),
+  );
+  const [clearanceVerified, setClearanceVerified] = useState(
+    Boolean(guard.clearanceVerified),
+  );
+  const [firearmAuthorized, setFirearmAuthorized] = useState(
+    Boolean(guard.firearmAuthorized),
+  );
+  const [firearmExpiry, setFirearmExpiry] = useState(
+    guard.firearmExpiry ? String(guard.firearmExpiry).slice(0, 10) : '',
+  );
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    setTrainingCompleted(Boolean(guard.trainingCompleted));
+    setClearanceVerified(Boolean(guard.clearanceVerified));
+    setFirearmAuthorized(Boolean(guard.firearmAuthorized));
+    setFirearmExpiry(
+      guard.firearmExpiry ? String(guard.firearmExpiry).slice(0, 10) : '',
+    );
+  }, [
+    guard.id,
+    guard.trainingCompleted,
+    guard.clearanceVerified,
+    guard.firearmAuthorized,
+    guard.firearmExpiry,
+  ]);
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
@@ -44,6 +88,27 @@ export function GuardDetailDrawer({
     document.addEventListener('keydown', onKey);
     return () => document.removeEventListener('keydown', onKey);
   }, [onClose]);
+
+  const dirty =
+    trainingCompleted !== Boolean(guard.trainingCompleted) ||
+    clearanceVerified !== Boolean(guard.clearanceVerified) ||
+    firearmAuthorized !== Boolean(guard.firearmAuthorized) ||
+    (firearmExpiry || '') !==
+      (guard.firearmExpiry ? String(guard.firearmExpiry).slice(0, 10) : '');
+
+  async function saveReadiness() {
+    setSaving(true);
+    try {
+      await onSaveReadiness(guard, {
+        trainingCompleted,
+        clearanceVerified,
+        firearmAuthorized,
+        firearmExpiry: firearmExpiry.trim() ? firearmExpiry.trim() : null,
+      });
+    } finally {
+      setSaving(false);
+    }
+  }
 
   return (
     <div
@@ -122,13 +187,19 @@ export function GuardDetailDrawer({
                 Not deployable
               </span>
             )}
+            <span
+              className={`inline-flex items-center gap-1 rounded-md px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide ring-1 ${rTone.className}`}
+            >
+              <ClipboardCheck className="h-3.5 w-3.5" />
+              {rTone.label}
+            </span>
             {ready ? (
               <span className="inline-flex items-center gap-1.5 rounded-md bg-emerald-400/15 px-2 py-0.5 text-[11px] font-semibold text-emerald-200 ring-1 ring-emerald-400/25">
                 <span className="relative flex h-2 w-2">
                   <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-60" />
                   <span className="relative inline-flex h-2 w-2 rounded-full bg-emerald-400" />
                 </span>
-                Ready
+                Field ready
               </span>
             ) : null}
           </div>
@@ -182,6 +253,89 @@ export function GuardDetailDrawer({
               </Row>
             ) : null}
           </dl>
+
+          <div
+            className="mt-6 space-y-3 rounded-lg p-3"
+            style={{
+              background: 'rgba(15, 33, 55, 0.6)',
+              border: `1px solid ${WALL.border}`,
+            }}
+          >
+            <div className="flex items-center justify-between gap-2">
+              <p
+                className="text-[10px] font-semibold uppercase tracking-[0.16em]"
+                style={{ color: WALL.muted }}
+              >
+                Readiness checklist · G3
+              </p>
+              {!checklistOk ? (
+                <span className="text-[10px] font-medium text-amber-200/90">
+                  Does not block deployable
+                </span>
+              ) : null}
+            </div>
+
+            <label className="flex cursor-pointer items-center gap-2.5 text-sm text-slate-100">
+              <input
+                type="checkbox"
+                checked={trainingCompleted}
+                disabled={busy || saving}
+                onChange={(e) => setTrainingCompleted(e.target.checked)}
+                className="h-4 w-4 rounded border-slate-500 bg-slate-800 text-sky-400 focus:ring-sky-400/40"
+              />
+              Training completed
+            </label>
+            <label className="flex cursor-pointer items-center gap-2.5 text-sm text-slate-100">
+              <input
+                type="checkbox"
+                checked={clearanceVerified}
+                disabled={busy || saving}
+                onChange={(e) => setClearanceVerified(e.target.checked)}
+                className="h-4 w-4 rounded border-slate-500 bg-slate-800 text-sky-400 focus:ring-sky-400/40"
+              />
+              Clearance verified
+            </label>
+            <label className="flex cursor-pointer items-center gap-2.5 text-sm text-slate-100">
+              <input
+                type="checkbox"
+                checked={firearmAuthorized}
+                disabled={busy || saving}
+                onChange={(e) => setFirearmAuthorized(e.target.checked)}
+                className="h-4 w-4 rounded border-slate-500 bg-slate-800 text-sky-400 focus:ring-sky-400/40"
+              />
+              Firearm authorized
+            </label>
+            <label className="block text-sm text-slate-100">
+              <span
+                className="mb-1 block text-[11px] font-semibold uppercase tracking-wide"
+                style={{ color: WALL.muted }}
+              >
+                Firearm expiry
+              </span>
+              <input
+                type="date"
+                value={firearmExpiry}
+                disabled={busy || saving}
+                onChange={(e) => setFirearmExpiry(e.target.value)}
+                className="w-full rounded-md border border-white/15 bg-black/30 px-2.5 py-1.5 text-sm text-white outline-none ring-sky-400/40 focus:ring-2 disabled:opacity-50"
+              />
+              <span
+                className="mt-1 block text-[11px]"
+                style={{ color: WALL.muted }}
+              >
+                On file: {firearmExpiryLabel(guard.firearmExpiry)}
+              </span>
+            </label>
+
+            <button
+              type="button"
+              disabled={busy || saving || !dirty}
+              onClick={() => void saveReadiness()}
+              className="w-full rounded-lg bg-emerald-400/20 px-3 py-2 text-sm font-semibold text-emerald-100 transition hover:bg-emerald-400/30 disabled:opacity-50"
+            >
+              {saving ? 'Saving…' : 'Save readiness'}
+            </button>
+          </div>
 
           <div
             className="mt-6 space-y-2 rounded-lg p-3"

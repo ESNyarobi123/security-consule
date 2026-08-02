@@ -40,4 +40,14 @@ export class ApprovalInstanceResponseDto {
   @ApiProperty() currentStepOrder!: number;
   @ApiProperty() createdBy!: string;
   @ApiProperty() createdAt!: Date;
+  @ApiPropertyOptional({
+    nullable: true,
+    description: 'Name of the current pending step (when PENDING)',
+  })
+  currentStepName?: string | null;
+  @ApiPropertyOptional({
+    nullable: true,
+    description: 'Role required for the current pending step (when PENDING)',
+  })
+  requiredRole?: string | null;
 }

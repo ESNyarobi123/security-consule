@@ -14,16 +14,25 @@ import {
 } from '@pssms/api-client';
 import { getSessionUser } from '@pssms/auth';
 import {
-  DataTable,
-  GlassCard,
   Modal,
   PageHeader,
+  StatCard,
   StatusBadge,
   btnPrimary,
   btnSecondary,
   inputCls,
 } from '@pssms/ui';
-import { Coins, Plus, RefreshCw } from 'lucide-react';
+import {
+  CalendarClock,
+  CheckCircle2,
+  Clock3,
+  Coins,
+  Plus,
+  RefreshCw,
+  Search,
+  Wallet,
+} from 'lucide-react';
+import Link from 'next/link';
 import {
   FormEvent,
   useCallback,
@@ -31,6 +40,7 @@ import {
   useMemo,
   useState,
 } from 'react';
+import { LoanRoster, LoansEmpty } from './_components/LoanRoster';
 
 const norm = (s: string) => s.trim().toLowerCase().replace(/[\s-]+/g, '_');
 
@@ -74,10 +84,22 @@ function formatApiError(err: unknown): string {
   return raw;
 }
 
-function canShowSchedule(status: string) {
-  const s = norm(status);
-  return s === 'active' || s === 'completed' || s === 'approved';
-}
+type StatusFilter =
+  | 'all'
+  | 'pending'
+  | 'approved'
+  | 'active'
+  | 'completed'
+  | 'rejected';
+
+const FILTERS: { id: StatusFilter; label: string }[] = [
+  { id: 'all', label: 'All' },
+  { id: 'pending', label: 'Pending' },
+  { id: 'approved', label: 'Approved' },
+  { id: 'active', label: 'Active' },
+  { id: 'completed', label: 'Completed' },
+  { id: 'rejected', label: 'Rejected' },
+];
 
 export default function LoansAdminPage() {
   const [employees, setEmployees] = useState<LoanEmployeeOption[]>([]);
@@ -90,6 +112,8 @@ export default function LoansAdminPage() {
   const [scheduleTarget, setScheduleTarget] = useState<EmployeeLoan | null>(
     null,
   );
+  const [query, setQuery] = useState('');
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
   const sessionUser = useMemo(() => getSessionUser(), []);
 
   const refresh = useCallback(async () => {
@@ -119,6 +143,52 @@ export default function LoansAdminPage() {
     return map;
   }, [employees]);
 
+  const counts = useMemo(() => {
+    const c = {
+      all: loans.length,
+      pending: 0,
+      approved: 0,
+      active: 0,
+      completed: 0,
+      rejected: 0,
+      outstanding: 0,
+    };
+    for (const r of loans) {
+      const s = norm(r.status);
+      if (s === 'pending_approval' || s === 'draft') c.pending += 1;
+      else if (s === 'approved') {
+        c.approved += 1;
+        c.outstanding += r.principalAmount;
+      } else if (s === 'active') {
+        c.active += 1;
+        c.outstanding += r.principalAmount;
+      } else if (s === 'completed') c.completed += 1;
+      else if (s === 'rejected' || s === 'cancelled') c.rejected += 1;
+    }
+    return c;
+  }, [loans]);
+
+  const filtered = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    return loans.filter((r) => {
+      const s = norm(r.status);
+      if (statusFilter === 'pending') {
+        if (s !== 'pending_approval' && s !== 'draft') return false;
+      } else if (statusFilter === 'rejected') {
+        if (s !== 'rejected' && s !== 'cancelled') return false;
+      } else if (statusFilter !== 'all' && s !== statusFilter) {
+        return false;
+      }
+      if (!q) return true;
+      const name = (employeeName.get(r.employeeId) ?? '').toLowerCase();
+      return (
+        name.includes(q) ||
+        r.loanNumber.toLowerCase().includes(q) ||
+        r.purpose.toLowerCase().includes(q)
+      );
+    });
+  }, [loans, query, statusFilter, employeeName]);
+
   const onApprove = async (id: string) => {
     setBusyId(id);
     setError(null);
@@ -139,6 +209,9 @@ export default function LoansAdminPage() {
         description="Org-wide loan register, approval, and installment schedules. Employees self-apply via ESS."
         actions={
           <>
+            <Link href="/ess/loans" className={btnSecondary}>
+              ESS self-apply
+            </Link>
             <button
               type="button"
               onClick={() => void refresh()}
@@ -162,150 +235,143 @@ export default function LoansAdminPage() {
         }
       />
 
+      <div className="mb-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        <StatCard
+          label="Total loans"
+          value={counts.all}
+          hint={
+            counts.completed > 0
+              ? `${counts.completed} completed`
+              : 'Org-wide register'
+          }
+          accent="blue"
+          icon={<Coins className="h-5 w-5" />}
+        />
+        <StatCard
+          label="Pending approval"
+          value={counts.pending}
+          hint="Creator ≠ approver"
+          accent="amber"
+          icon={<Clock3 className="h-5 w-5" />}
+        />
+        <StatCard
+          label="Active"
+          value={counts.active}
+          hint={
+            counts.approved > 0
+              ? `${counts.approved} approved (not yet active)`
+              : 'On repayment'
+          }
+          accent="emerald"
+          icon={<CheckCircle2 className="h-5 w-5" />}
+        />
+        <StatCard
+          label="Principal (open)"
+          value={formatMoney(counts.outstanding)}
+          hint="Approved + active"
+          accent="violet"
+          icon={<Wallet className="h-5 w-5" />}
+        />
+      </div>
+
       {error ? (
         <p className="mb-3 rounded border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
           {error}
         </p>
       ) : null}
 
-      <GlassCard className="!p-0 overflow-hidden">
-        {loans.length === 0 && !loading ? (
-          <div className="flex flex-col items-center justify-center gap-1.5 px-4 py-10 text-center">
-            <span className="flex h-8 w-8 items-center justify-center rounded-md bg-[#eff6fc] text-[#0078d4]">
-              <Coins className="h-4 w-4" />
+      <div className="mb-2.5 flex flex-wrap items-end justify-between gap-2">
+        <div>
+          <div className="flex items-center gap-2">
+            <CalendarClock className="h-4 w-4 text-[#0078d4]" />
+            <h2 className="text-[15px] font-semibold text-[#1b1a19]">
+              Loan register
+            </h2>
+            <span className="inline-flex min-w-[1.5rem] items-center justify-center rounded-full bg-[#eff6fc] px-2 py-0.5 text-[11px] font-semibold tabular-nums text-[#0067b8] ring-1 ring-[#c7e0f4]">
+              {filtered.length}
             </span>
-            <p className="text-sm font-medium text-[#323130]">No loans yet</p>
-            <p className="max-w-sm text-xs text-[#605e5c]">
-              Create a loan for an employee, or wait for ESS applications. Approval
-              requires an authorized officer (creator ≠ approver).
-            </p>
           </div>
-        ) : (
-          <DataTable<EmployeeLoan>
-            loading={loading}
-            keyField="id"
-            rows={loans}
-            emptyMessage="No loans"
-            columns={[
-              {
-                key: 'loanNumber',
-                label: 'Loan #',
-                render: (r) => (
-                  <span className="font-mono text-xs">{r.loanNumber}</span>
-                ),
-              },
-              {
-                key: 'employeeId',
-                label: 'Employee',
-                render: (r) =>
-                  employeeName.get(r.employeeId) ?? r.employeeId.slice(0, 8),
-              },
-              {
-                key: 'principalAmount',
-                label: 'Principal',
-                render: (r) => (
-                  <span className="text-xs tabular-nums">
-                    {formatMoney(r.principalAmount)}
-                  </span>
-                ),
-              },
-              {
-                key: 'termMonths',
-                label: 'Term',
-                render: (r) => (
-                  <span className="text-xs">{r.termMonths} mo</span>
-                ),
-              },
-              {
-                key: 'monthlyInstallment',
-                label: 'Installment',
-                render: (r) => (
-                  <span className="text-xs tabular-nums">
-                    {formatMoney(r.monthlyInstallment)}
-                  </span>
-                ),
-              },
-              {
-                key: 'status',
-                label: 'Status',
-                render: (r) => <StatusBadge status={r.status} />,
-              },
-              {
-                key: 'purpose',
-                label: 'Purpose',
-                render: (r) => (
-                  <span
-                    className="max-w-[160px] truncate text-xs text-[#605e5c]"
-                    title={r.purpose}
+          <p className="mt-0.5 text-[11px] text-[#605e5c]">
+            Approve pending · view installment schedules · ESS applications land
+            here
+          </p>
+        </div>
+      </div>
+
+      <LoanRoster
+        rows={filtered}
+        loading={loading}
+        employeeName={employeeName}
+        busyId={busyId}
+        onApprove={(id) => void onApprove(id)}
+        onReject={setRejectTarget}
+        onSchedule={setScheduleTarget}
+        canAct={(r) => {
+          if (norm(r.status) !== 'pending_approval') return false;
+          const isOwn =
+            !!sessionUser?.id &&
+            !!r.createdBy &&
+            r.createdBy === sessionUser.id;
+          const isSuperAdmin =
+            sessionUser?.roles?.includes('SUPER_ADMIN') ?? false;
+          if (isOwn && !isSuperAdmin) return 'own';
+          return true;
+        }}
+        toolbar={
+          <div className="flex flex-col gap-2.5 sm:flex-row sm:items-center sm:justify-between">
+            <label className="flex min-w-0 flex-1 items-center gap-2 rounded-lg border border-[#e1dfdd] bg-white px-3 py-2 shadow-sm focus-within:border-[#0078d4] focus-within:ring-1 focus-within:ring-[#0078d4]">
+              <Search className="h-4 w-4 shrink-0 text-[#8a8886]" />
+              <input
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                placeholder="Search employee, loan #, purpose…"
+                className="w-full min-w-0 bg-transparent text-[13px] outline-none placeholder:text-[#a19f9d]"
+              />
+            </label>
+            <div className="flex flex-wrap gap-1">
+              {FILTERS.map((f) => {
+                const active = statusFilter === f.id;
+                return (
+                  <button
+                    key={f.id}
+                    type="button"
+                    onClick={() => setStatusFilter(f.id)}
+                    className={`inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[11px] font-semibold transition ${
+                      active
+                        ? 'bg-[#0078d4] text-white shadow-sm'
+                        : 'bg-white text-[#605e5c] ring-1 ring-[#e1dfdd] hover:bg-[#f3f9fd]'
+                    }`}
                   >
-                    {r.purpose}
-                  </span>
-                ),
-              },
-              {
-                key: 'id',
-                label: '',
-                render: (r) => {
-                  const pending = norm(r.status) === 'pending_approval';
-                  const showSchedule = canShowSchedule(r.status);
-
-                  if (!pending && !showSchedule) {
-                    return (
-                      <span className="text-[11px] text-[#a19f9d]">—</span>
-                    );
-                  }
-
-                  if (pending) {
-                    const isOwn =
-                      !!sessionUser?.id &&
-                      !!r.createdBy &&
-                      r.createdBy === sessionUser.id;
-                    const isSuperAdmin =
-                      sessionUser?.roles?.includes('SUPER_ADMIN') ?? false;
-                    if (isOwn && !isSuperAdmin) {
-                      return (
-                        <span className="text-[11px] text-[#a19f9d]">
-                          Awaiting other approver
-                        </span>
-                      );
-                    }
-                    return (
-                      <div className="flex flex-wrap gap-1">
-                        <button
-                          type="button"
-                          className={btnPrimary}
-                          disabled={busyId === r.id}
-                          onClick={() => void onApprove(r.id)}
-                        >
-                          Approve
-                        </button>
-                        <button
-                          type="button"
-                          className={btnSecondary}
-                          disabled={busyId === r.id}
-                          onClick={() => setRejectTarget(r)}
-                        >
-                          Reject
-                        </button>
-                      </div>
-                    );
-                  }
-
-                  return (
-                    <button
-                      type="button"
-                      className={btnSecondary}
-                      onClick={() => setScheduleTarget(r)}
+                    {f.label}
+                    <span
+                      className={`tabular-nums ${
+                        active ? 'text-white/80' : 'text-[#a19f9d]'
+                      }`}
                     >
-                      Schedule
-                    </button>
-                  );
-                },
-              },
-            ]}
+                      {counts[f.id]}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        }
+        empty={
+          <LoansEmpty
+            title={loans.length === 0 ? 'No loans yet' : 'No matches'}
+            description={
+              loans.length === 0
+                ? 'Create a loan for an employee, or wait for ESS applications. Approval requires an authorized officer (creator ≠ approver).'
+                : 'Try another search or status filter.'
+            }
           />
-        )}
-      </GlassCard>
+        }
+      />
+      {!loading && filtered.length > 0 ? (
+        <p className="mt-2 text-[11px] text-[#605e5c]">
+          Showing {filtered.length} of {loans.length} loans
+        </p>
+      ) : null}
 
       {createOpen ? (
         <CreateLoanModal

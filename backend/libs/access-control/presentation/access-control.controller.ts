@@ -71,7 +71,10 @@ export class AccessControlController {
     @Query('customerId') customerId?: string,
     @Query('siteId') siteId?: string,
   ) {
-    const scoped = resolveCustomerScope(user, customerId);
+    // Portal JWT always force-scoped; staff may pass customerId optionally.
+    const scoped = user.customerId
+      ? requireCustomerScope(user, customerId)
+      : resolveCustomerScope(user, customerId);
     return this.service.listEntries(user, scoped, siteId);
   }
 }

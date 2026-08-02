@@ -178,6 +178,12 @@ export class VisitorAppointmentResponseDto {
 
   @ApiProperty()
   createdAt!: Date;
+
+  @ApiPropertyOptional()
+  siteCode?: string | null;
+
+  @ApiPropertyOptional()
+  siteName?: string | null;
 }
 
 export class IssueCodeResponseDto {

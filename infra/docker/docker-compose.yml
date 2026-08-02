@@ -58,7 +58,8 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-pssms_dev_password}
       POSTGRES_DB: ${POSTGRES_DB:-pssms}
     ports:
-      - "5433:5432"   # 5433 on host — avoids clash with local Homebrew Postgres on 5432
+      # Host publish — override POSTGRES_HOST_PORT in .env when 5433 is taken
+      - "${POSTGRES_HOST_PORT:-5433}:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -144,7 +145,7 @@ services:
       KC_DB_PASSWORD: ${POSTGRES_PASSWORD:-pssms_dev_password}
       KC_DB_SCHEMA: keycloak
     ports:
-      - "8080:8080"
+      - "${KEYCLOAK_HOST_PORT:-8080}:8080"
     volumes:
       - ../keycloak:/opt/keycloak/data/import:ro
     depends_on:
@@ -199,14 +200,24 @@ services:
     command: >
       sh -c "
         npx prisma db execute --file prisma/migrations/0000_schemas/migration.sql --schema prisma/schema.prisma &&
-        npx prisma db execute --file prisma/migrations/0001_reporting_rls/migration.sql --schema prisma/schema.prisma &&
         npx prisma db push --schema prisma/schema.prisma &&
-        npm run prisma:seed &&
+        npx prisma db execute --file prisma/migrations/0001_reporting_rls/migration.sql --schema prisma/schema.prisma &&
+        npx prisma db execute --file prisma/migrations/0002_iam_security/migration.sql --schema prisma/schema.prisma &&
         npx prisma db execute --file prisma/migrations/0003_rls_core/migration.sql --schema prisma/schema.prisma &&
         npx prisma db execute --file prisma/migrations/0004_devices/migration.sql --schema prisma/schema.prisma &&
         npx prisma db execute --file prisma/migrations/0005_asset_return_confirm/migration.sql --schema prisma/schema.prisma &&
         npx prisma db execute --file prisma/migrations/0006_compliance/migration.sql --schema prisma/schema.prisma &&
-        npx prisma db execute --file prisma/migrations/0007_documents/migration.sql --schema prisma/schema.prisma
+        npx prisma db execute --file prisma/migrations/0007_documents/migration.sql --schema prisma/schema.prisma &&
+        npx prisma db execute --file prisma/migrations/0008_must_change_password/migration.sql --schema prisma/schema.prisma &&
+        npx prisma db execute --file prisma/migrations/0009_customer_service_requests/migration.sql --schema prisma/schema.prisma &&
+        npx prisma db execute --file prisma/migrations/0010_contract_approval/migration.sql --schema prisma/schema.prisma &&
+        npx prisma db execute --file prisma/migrations/0011_contract_commercial_b1/migration.sql --schema prisma/schema.prisma &&
+        npx prisma db execute --file prisma/migrations/0012_contract_sites/migration.sql --schema prisma/schema.prisma &&
+        npx prisma db execute --file prisma/migrations/0013_guard_readiness/migration.sql --schema prisma/schema.prisma &&
+        npx prisma db execute --file prisma/migrations/0014_contract_commercial_c1/migration.sql --schema prisma/schema.prisma &&
+        npx prisma db execute --file prisma/migrations/0015_field_alert_escalation/migration.sql --schema prisma/schema.prisma &&
+        npx prisma db execute --file prisma/migrations/0016_patrol_route_sla/migration.sql --schema prisma/schema.prisma &&
+        npm run prisma:seed
       "
     depends_on:
       postgres:
@@ -220,7 +231,7 @@ services:
     container_name: pssms-core-api
     restart: unless-stopped
     ports:
-      - "4001:4001"
+      - "${CORE_API_HOST_PORT:-4001}:4001"
     environment:
       <<: *backend-env
       CORE_API_PORT: "4001"
@@ -282,11 +293,15 @@ services:
     container_name: pssms-background-worker
     restart: unless-stopped
     ports:
-      - "4002:4002"
+      - "${BACKGROUND_WORKER_HOST_PORT:-4002}:4002"
     environment:
       <<: *backend-env
       BACKGROUND_WORKER_PORT: "4002"
       REPORTING_SERVICE_INTERNAL_URL: http://reporting-service:4005
+      ALERTNESS_MISS_SCAN_ENABLED: ${ALERTNESS_MISS_SCAN_ENABLED:-true}
+      PATROL_MISS_SCAN_ENABLED: ${PATROL_MISS_SCAN_ENABLED:-true}
+      PATROL_MISS_SCAN_INTERVAL_MS: ${PATROL_MISS_SCAN_INTERVAL_MS:-300000}
+      PATROL_MISS_GRACE_MINUTES: ${PATROL_MISS_GRACE_MINUTES:-0}
     command: ["node", "dist/apps/background-worker/main.js"]
     depends_on:
       db-migrate:
@@ -351,7 +366,7 @@ services:
     container_name: pssms-admin-web
     restart: unless-stopped
     ports:
-      - "3000:3000"
+      - "${ADMIN_WEB_HOST_PORT:-3000}:3000"
     environment:
       PORT: "3000"
       HOSTNAME: "0.0.0.0"

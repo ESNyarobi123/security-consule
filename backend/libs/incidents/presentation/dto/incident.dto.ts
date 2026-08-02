@@ -36,7 +36,19 @@ export class IncidentResponseDto {
   @ApiProperty({ enum: IncidentStatus }) status!: IncidentStatus;
   @ApiProperty() title!: string;
   @ApiProperty() description!: string;
+  @ApiProperty() reporterId!: string;
   @ApiPropertyOptional() assignedTo?: string | null;
   @ApiPropertyOptional() resolvedAt?: Date | null;
   @ApiProperty() createdAt!: Date;
+  @ApiProperty({
+    enum: IncidentStatus,
+    isArray: true,
+    description: 'Statuses the current user may advance to (A4b matrix)',
+  })
+  allowedNextStatuses!: IncidentStatus[];
+  @ApiPropertyOptional({
+    description: 'Why next escalate is blocked for this user, if any',
+  })
+  blockedReason?: string;
+  @ApiPropertyOptional() requiredRoleHint?: string;
 }

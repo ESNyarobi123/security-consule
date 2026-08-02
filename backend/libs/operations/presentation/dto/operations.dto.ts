@@ -2,9 +2,12 @@ import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import {
   IsArray,
   IsDateString,
+  IsInt,
   IsNumber,
   IsOptional,
   IsString,
+  Max,
+  Min,
 } from 'class-validator';
 import { ShiftStatus } from '@prisma/client';
 
@@ -58,10 +61,85 @@ export class CheckpointResponseDto {
   @ApiPropertyOptional() createdAt?: Date;
 }
 
+export class CreatePatrolRouteDto {
+  @ApiProperty() @IsString() siteId!: string;
+  @ApiProperty({ example: 'Night perimeter loop' }) @IsString() name!: string;
+  @ApiProperty({
+    type: [String],
+    description: 'Ordered checkpoint IDs on this site',
+  })
+  @IsArray()
+  @IsString({ each: true })
+  checkpointIds!: string[];
+
+  @ApiPropertyOptional({
+    description:
+      'Minutes from local midnight when route should be COMPLETED (0–1439). Default 1380 (23:00).',
+    example: 1380,
+  })
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  @Max(1439)
+  dueMinutesFromMidnight?: number;
+}
+
+export class PatrolRouteCheckpointDto {
+  @ApiProperty() id!: string;
+  @ApiProperty() code!: string;
+  @ApiProperty() name!: string;
+}
+
+export class PatrolRouteResponseDto {
+  @ApiProperty() id!: string;
+  @ApiProperty() siteId!: string;
+  @ApiPropertyOptional() siteCode?: string;
+  @ApiPropertyOptional() siteName?: string;
+  @ApiProperty() name!: string;
+  @ApiProperty({ type: [String] }) checkpointIds!: string[];
+  @ApiProperty({ type: [PatrolRouteCheckpointDto] })
+  checkpoints!: PatrolRouteCheckpointDto[];
+  @ApiProperty() checkpointCount!: number;
+  @ApiProperty({ description: 'Distinct route checkpoints scanned today' })
+  scannedToday!: number;
+  @ApiProperty({
+    enum: ['NOT_STARTED', 'IN_PROGRESS', 'COMPLETED'],
+    description: 'Today’s coverage vs route checkpoints',
+  })
+  coverageStatus!: 'NOT_STARTED' | 'IN_PROGRESS' | 'COMPLETED';
+  @ApiProperty({
+    enum: ['OK', 'ON_TRACK', 'LATE', 'MISSED'],
+    description:
+      'OK=completed; ON_TRACK=before due; LATE=past due no alert; MISSED=FieldAlert PATROL_MISSED open',
+  })
+  slaStatus!: 'OK' | 'ON_TRACK' | 'LATE' | 'MISSED';
+  @ApiProperty({ description: 'Minutes from midnight when route is due' })
+  dueMinutesFromMidnight!: number;
+  @ApiProperty() dueAt!: Date;
+  @ApiPropertyOptional({
+    nullable: true,
+    description: 'Open PATROL_MISSED FieldAlert id for today, if any',
+  })
+  openPatrolAlertId?: string | null;
+  @ApiProperty() isActive!: boolean;
+  @ApiProperty() createdAt!: Date;
+}
+
+export class PatrolScanMissedResultDto {
+  @ApiProperty() markedMissed!: number;
+  @ApiProperty({ type: [String] }) routeIds!: string[];
+  @ApiProperty({ type: [String] }) routeNames!: string[];
+}
+
 export class CreateDeploymentDto {
   @ApiProperty() @IsString() guardId!: string;
   @ApiProperty() @IsString() siteId!: string;
-  @ApiPropertyOptional() @IsOptional() @IsString() contractId?: string;
+  @ApiProperty({
+    description:
+      'Billable contract (APPROVED|ACTIVE|EXPIRING) that covers the site via ContractSite',
+  })
+  @IsString()
+  contractId!: string;
   @ApiProperty() @IsDateString() startDate!: string;
   @ApiPropertyOptional() @IsOptional() @IsDateString() endDate?: string;
 }
@@ -70,6 +148,9 @@ export class DeploymentResponseDto {
   @ApiProperty() id!: string;
   @ApiProperty() guardId!: string;
   @ApiProperty() siteId!: string;
+  @ApiProperty() contractId!: string | null;
+  @ApiPropertyOptional() contractNumber?: string | null;
+  @ApiPropertyOptional() customerId?: string | null;
   @ApiProperty() status!: string;
   @ApiProperty() startDate!: Date;
   @ApiPropertyOptional() endDate?: Date | null;

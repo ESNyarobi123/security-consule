@@ -14,6 +14,7 @@ import { MfaService } from '../application/mfa.service';
 import { OidcConfigService } from '../application/oidc-config.service';
 import {
   AuthUserProfileDto,
+  ChangePasswordDto,
   LoginDto,
   LoginResponseDto,
   RefreshTokenDto,
@@ -82,6 +83,21 @@ export class AuthController {
   @ApiOkResponse({ type: AuthUserProfileDto })
   me(@CurrentUser() user: AuthUser) {
     return this.authService.me(user.id);
+  }
+
+  @Post('change-password')
+  @ApiBearerAuth()
+  @ApiOperation({
+    summary: 'Change password (clears mustChangePassword)',
+    description:
+      'Validates current password, enforces enterprise password policy, clears the temporary-password flag, and returns a fresh token pair.',
+  })
+  @ApiOkResponse({ type: LoginResponseDto })
+  changePassword(
+    @CurrentUser() user: AuthUser,
+    @Body() dto: ChangePasswordDto,
+  ) {
+    return this.authService.changePassword(user.id, dto);
   }
 
   @Post('mfa/setup')

@@ -160,6 +160,15 @@ export class ParkingPermitResponseDto {
 
   @ApiProperty()
   createdAt!: Date;
+
+  @ApiPropertyOptional()
+  plateNumber?: string | null;
+
+  @ApiPropertyOptional()
+  siteCode?: string | null;
+
+  @ApiPropertyOptional()
+  siteName?: string | null;
 }
 
 export class CreateAnprResultDto {
@@ -254,6 +263,12 @@ export class AnprResultResponseDto {
 
   @ApiProperty()
   createdAt!: Date;
+
+  @ApiPropertyOptional()
+  siteCode?: string | null;
+
+  @ApiPropertyOptional()
+  siteName?: string | null;
 }
 
 export class CreateParkingEntryDto {
@@ -326,6 +341,12 @@ export class ParkingEntryResponseDto {
 
   @ApiProperty()
   createdAt!: Date;
+
+  @ApiPropertyOptional()
+  siteCode?: string | null;
+
+  @ApiPropertyOptional()
+  siteName?: string | null;
 }
 
 export class CreateParkingViolationDto {
@@ -379,6 +400,12 @@ export class ParkingViolationResponseDto {
 
   @ApiProperty()
   createdAt!: Date;
+
+  @ApiPropertyOptional()
+  siteCode?: string | null;
+
+  @ApiPropertyOptional()
+  siteName?: string | null;
 }
 
 export class CreateVehicleBlacklistDto {

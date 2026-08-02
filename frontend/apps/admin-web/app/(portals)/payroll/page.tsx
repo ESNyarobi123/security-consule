@@ -13,12 +13,9 @@ import {
 } from '@pssms/api-client';
 import { getSessionUser } from '@pssms/auth';
 import {
-  DataTable,
   Modal,
   PageHeader,
-  SectionTitle,
   StatCard,
-  StatusBadge,
   btnPrimary,
   btnSecondary,
   inputCls,
@@ -26,10 +23,13 @@ import {
 import {
   CalendarRange,
   CheckCircle2,
+  FileSpreadsheet,
   Loader,
   Lock,
   Plus,
+  Search,
   Wallet,
+  X,
 } from 'lucide-react';
 import {
   useCallback,
@@ -38,6 +38,10 @@ import {
   useState,
   type FormEvent,
 } from 'react';
+import {
+  PayrollCycleRoster,
+  PayslipRoster,
+} from './_components/PayrollRosters';
 
 function money(n: number) {
   return new Intl.NumberFormat('en-TZ', {
@@ -57,15 +61,34 @@ function monthDefaults() {
   };
 }
 
+type StatusFilter =
+  | 'all'
+  | 'DRAFT'
+  | 'CALCULATED'
+  | 'PENDING_APPROVAL'
+  | 'APPROVED'
+  | 'PAID';
+
+const FILTERS: { id: StatusFilter; label: string }[] = [
+  { id: 'all', label: 'All' },
+  { id: 'DRAFT', label: 'Draft' },
+  { id: 'CALCULATED', label: 'Calculated' },
+  { id: 'PENDING_APPROVAL', label: 'Pending' },
+  { id: 'APPROVED', label: 'Approved' },
+  { id: 'PAID', label: 'Paid' },
+];
+
 export default function PayrollPage() {
   const [cycles, setCycles] = useState<PayrollCycle[]>([]);
   const [payslips, setPayslips] = useState<PayslipSnapshot[]>([]);
   const [allPayslips, setAllPayslips] = useState<PayslipSnapshot[]>([]);
   const [selected, setSelected] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [busyId, setBusyId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [query, setQuery] = useState('');
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
 
-  // Create-cycle modal state
   const [showCreate, setShowCreate] = useState(false);
   const [periodStart, setPeriodStart] = useState('');
   const [periodEnd, setPeriodEnd] = useState('');
@@ -80,7 +103,6 @@ export default function PayrollPage() {
     try {
       const list = await listPayrollCycles();
       setCycles(list);
-      // Aggregate payslip snapshots across cycles for the net-pay KPI.
       const slipArrays = await Promise.all(
         list.map((c) =>
           listPayslips(c.id).catch(() => [] as PayslipSnapshot[]),
@@ -119,6 +141,36 @@ export default function PayrollPage() {
     };
   }, [cycles, allPayslips]);
 
+  const counts = useMemo(() => {
+    const c: Record<StatusFilter, number> = {
+      all: cycles.length,
+      DRAFT: 0,
+      CALCULATED: 0,
+      PENDING_APPROVAL: 0,
+      APPROVED: 0,
+      PAID: 0,
+    };
+    for (const row of cycles) {
+      const s = row.status as StatusFilter;
+      if (s in c && s !== 'all') c[s] += 1;
+    }
+    return c;
+  }, [cycles]);
+
+  const filteredCycles = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    return cycles.filter((c) => {
+      if (statusFilter !== 'all' && c.status !== statusFilter) return false;
+      if (!q) return true;
+      return (
+        c.cycleCode.toLowerCase().includes(q) ||
+        c.status.toLowerCase().includes(q) ||
+        String(c.periodStart).includes(q) ||
+        String(c.periodEnd).includes(q)
+      );
+    });
+  }, [cycles, query, statusFilter]);
+
   async function openPayslips(cycleId: string) {
     setSelected(cycleId);
     setPayslips(await listPayslips(cycleId));
@@ -129,6 +181,7 @@ export default function PayrollPage() {
     action: 'generate' | 'submit' | 'approve' | 'pay',
   ) {
     setError(null);
+    setBusyId(cycle.id);
     try {
       if (action === 'generate') await generatePayrollCycle(cycle.id);
       if (action === 'submit') await submitPayrollCycle(cycle.id);
@@ -148,6 +201,8 @@ export default function PayrollPage() {
       if (selected === cycle.id) await openPayslips(cycle.id);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Action failed');
+    } finally {
+      setBusyId(null);
     }
   }
 
@@ -249,128 +304,158 @@ export default function PayrollPage() {
         </p>
       ) : null}
 
-      <div className="mt-8">
-        <SectionTitle>Payroll cycles</SectionTitle>
-        <DataTable
-          loading={loading}
-          keyField="id"
-          rows={cycles}
-          emptyMessage="No payroll cycles yet — create one to get started"
-          columns={[
-            { key: 'cycleCode', label: 'Cycle' },
-            {
-              key: 'periodStart',
-              label: 'Period',
-              render: (r) =>
-                `${String(r.periodStart).slice(0, 10)} → ${String(r.periodEnd).slice(0, 10)}`,
-            },
-            {
-              key: 'status',
-              label: 'Status',
-              render: (r) => <StatusBadge status={r.status} />,
-            },
-            {
-              key: 'createdAt',
-              label: 'Created',
-              render: (r) => String(r.createdAt).slice(0, 10),
-            },
-            {
-              key: 'id',
-              label: 'Actions',
-              render: (r) => (
-                <div className="flex flex-wrap gap-3">
-                  <button
-                    type="button"
-                    className="text-[#0067b8] hover:underline text-xs font-medium"
-                    onClick={() => void openPayslips(r.id)}
-                  >
-                    Payslips
-                  </button>
-                  {r.status === 'DRAFT' ? (
-                    <button
-                      type="button"
-                      className="text-[#0067b8] hover:underline text-xs font-medium"
-                      onClick={() => void runAction(r, 'generate')}
-                    >
-                      Generate
-                    </button>
-                  ) : null}
-                  {r.status === 'CALCULATED' ? (
-                    <button
-                      type="button"
-                      className="text-[#0067b8] hover:underline text-xs font-medium"
-                      onClick={() => void runAction(r, 'submit')}
-                    >
-                      Submit
-                    </button>
-                  ) : null}
-                  {r.status === 'PENDING_APPROVAL' ? (
-                    <button
-                      type="button"
-                      className="text-[#0067b8] hover:underline text-xs font-medium"
-                      onClick={() => void runAction(r, 'approve')}
-                    >
-                      Approve
-                    </button>
-                  ) : null}
-                  {r.status === 'APPROVED' ? (
-                    <button
-                      type="button"
-                      className="text-[#0067b8] hover:underline text-xs font-medium"
-                      onClick={() => void runAction(r, 'pay')}
-                    >
-                      Mark paid
-                    </button>
-                  ) : null}
-                </div>
-              ),
-            },
-          ]}
-        />
-      </div>
+      <section className="mt-8">
+        <div className="mb-2.5 flex flex-wrap items-end justify-between gap-2">
+          <div>
+            <div className="flex items-center gap-2">
+              <h2 className="text-[15px] font-semibold text-[#1b1a19]">
+                Payroll cycles
+              </h2>
+              <span className="inline-flex min-w-[1.5rem] items-center justify-center rounded-full bg-[#eff6fc] px-2 py-0.5 text-[11px] font-semibold tabular-nums text-[#0067b8] ring-1 ring-[#c7e0f4]">
+                {cycles.length}
+              </span>
+            </div>
+            <p className="mt-0.5 text-[11px] text-[#605e5c]">
+              Create → generate snapshots → submit → approve → mark paid
+            </p>
+          </div>
+        </div>
 
-      {selected ? (
-        <div className="mt-8">
-          <SectionTitle>
-            {selectedCycle
-              ? `Payslip snapshots · ${selectedCycle.cycleCode}`
-              : 'Payslip snapshots'}
-          </SectionTitle>
-          <DataTable
-            keyField="id"
+        <PayrollCycleRoster
+          rows={filteredCycles}
+          loading={loading}
+          selectedId={selected}
+          busyId={busyId}
+          onOpenPayslips={(id) => void openPayslips(id)}
+          onAction={(c, a) => void runAction(c, a)}
+          toolbar={
+            <div className="flex flex-col gap-2.5 sm:flex-row sm:items-center sm:justify-between">
+              <label className="flex min-w-0 flex-1 items-center gap-2 rounded-lg border border-[#e1dfdd] bg-white px-3 py-2 shadow-sm focus-within:border-[#0078d4] focus-within:ring-1 focus-within:ring-[#0078d4]">
+                <Search className="h-4 w-4 shrink-0 text-[#8a8886]" />
+                <input
+                  value={query}
+                  onChange={(e) => setQuery(e.target.value)}
+                  placeholder="Search cycle code or period…"
+                  className="w-full min-w-0 bg-transparent text-[13px] outline-none placeholder:text-[#a19f9d]"
+                />
+              </label>
+              <div className="flex flex-wrap gap-1">
+                {FILTERS.map((f) => {
+                  const active = statusFilter === f.id;
+                  return (
+                    <button
+                      key={f.id}
+                      type="button"
+                      onClick={() => setStatusFilter(f.id)}
+                      className={`inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[11px] font-semibold transition ${
+                        active
+                          ? 'bg-[#0078d4] text-white shadow-sm'
+                          : 'bg-white text-[#605e5c] ring-1 ring-[#e1dfdd] hover:bg-[#f3f9fd]'
+                      }`}
+                    >
+                      {f.label}
+                      <span
+                        className={`tabular-nums ${
+                          active ? 'text-white/80' : 'text-[#a19f9d]'
+                        }`}
+                      >
+                        {counts[f.id]}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          }
+          empty={
+            <div className="flex flex-col items-center gap-2 py-10 text-center">
+              <CalendarRange className="h-5 w-5 text-[#a19f9d]" />
+              <p className="text-sm font-medium text-[#323130]">
+                {cycles.length === 0 ? 'No payroll cycles yet' : 'No matches'}
+              </p>
+              <p className="max-w-sm text-xs text-[#605e5c]">
+                {cycles.length === 0
+                  ? 'Create a cycle for the pay period, then generate immutable payslip snapshots.'
+                  : 'Try another search or status filter.'}
+              </p>
+              {cycles.length === 0 ? (
+                <button
+                  type="button"
+                  onClick={openCreate}
+                  className={`${btnPrimary} mt-1`}
+                >
+                  <Plus className="h-3.5 w-3.5" />
+                  New cycle
+                </button>
+              ) : null}
+            </div>
+          }
+        />
+        {!loading && filteredCycles.length > 0 ? (
+          <p className="mt-2 text-[11px] text-[#605e5c]">
+            Showing {filteredCycles.length} of {cycles.length} cycles
+          </p>
+        ) : null}
+      </section>
+
+      {selected && selectedCycle ? (
+        <section className="mt-8">
+          <div className="mb-2.5 flex flex-wrap items-end justify-between gap-2">
+            <div>
+              <div className="flex flex-wrap items-center gap-2">
+                <h2 className="text-[15px] font-semibold text-[#1b1a19]">
+                  Payslip snapshots
+                </h2>
+                <span className="inline-flex items-center gap-1 rounded-full bg-[#eff6fc] px-2 py-0.5 font-mono text-[11px] font-semibold text-[#0067b8] ring-1 ring-[#c7e0f4]">
+                  <FileSpreadsheet className="h-3 w-3" />
+                  {selectedCycle.cycleCode}
+                </span>
+                <span className="inline-flex rounded-full bg-[#f3f2f1] px-2 py-0.5 text-[11px] font-semibold tabular-nums text-[#605e5c]">
+                  {payslips.length}
+                </span>
+              </div>
+              <p className="mt-0.5 text-[11px] text-[#605e5c]">
+                Frozen employee payslips for this cycle — not live payroll
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => {
+                setSelected(null);
+                setPayslips([]);
+              }}
+              className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-[12px] font-semibold text-[#605e5c] hover:bg-[#f3f2f1] hover:text-[#323130]"
+            >
+              <X className="h-3.5 w-3.5" />
+              Close
+            </button>
+          </div>
+
+          <PayslipRoster
             rows={payslips}
-            emptyMessage="No payslips — generate the cycle first"
-            columns={[
-              { key: 'employeeNumber', label: 'Emp #' },
-              { key: 'employeeName', label: 'Name' },
-              {
-                key: 'grossPay',
-                label: 'Gross',
-                render: (r) => money(r.grossPay),
-              },
-              {
-                key: 'totalDeductions',
-                label: 'Deductions',
-                render: (r) => money(r.totalDeductions),
-              },
-              {
-                key: 'netPay',
-                label: 'Net',
-                render: (r) => (
-                  <span className="font-medium text-[#1b1a19]">
-                    {money(r.netPay)}
-                  </span>
-                ),
-              },
-            ]}
+            empty={
+              <div className="flex flex-col items-center gap-2 py-10 text-center">
+                <FileSpreadsheet className="h-5 w-5 text-[#a19f9d]" />
+                <p className="text-sm font-medium text-[#323130]">
+                  No payslips yet
+                </p>
+                <p className="max-w-sm text-xs text-[#605e5c]">
+                  Generate the cycle to freeze employee snapshots for this
+                  period.
+                </p>
+              </div>
+            }
           />
           {payslips.length > 0 ? (
-            <p className="mt-2 text-xs text-[#605e5c]">
+            <p className="mt-2 text-[11px] text-[#605e5c]">
               {payslips.length} employee{payslips.length === 1 ? '' : 's'} ·
-              total net {money(selectedNet)}
+              total net{' '}
+              <span className="font-semibold text-emerald-700">
+                {money(selectedNet)}
+              </span>
             </p>
           ) : null}
-        </div>
+        </section>
       ) : null}
 
       {showCreate ? (
@@ -403,7 +488,10 @@ export default function PayrollPage() {
               </label>
             </div>
             <div className="rounded-md border border-[#e1dfdd] bg-[#faf9f8] px-3 py-2 text-[13px] text-[#605e5c]">
-              Tenant type: <span className="font-medium text-[#323130]">Internal company</span>
+              Tenant type:{' '}
+              <span className="font-medium text-[#323130]">
+                Internal company
+              </span>
             </div>
             {createError ? (
               <p className="rounded-md border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">

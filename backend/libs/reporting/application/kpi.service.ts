@@ -17,7 +17,10 @@ import {
 import { createHash } from 'crypto';
 import { PrismaService, AuthUser } from '@pssms/shared';
 import { AuditService } from '@pssms/audit';
-import { KpiItemDto } from '../presentation/dto/reporting.dto';
+import {
+  KpiDrilldownResponseDto,
+  KpiItemDto,
+} from '../presentation/dto/reporting.dto';
 
 export interface KpiCatalogEntry {
   code: string;
@@ -231,6 +234,236 @@ export class KpiService {
         take: 100,
       }),
     );
+  }
+
+  /**
+   * Thin executive drill-down: org KPI + real site split where the model has siteId.
+   * No invented trends — empty bySite when metric is org-wide only.
+   */
+  async drilldown(
+    code: string,
+    organizationId: string,
+    from: Date,
+    to: Date,
+  ): Promise<KpiDrilldownResponseDto> {
+    const def = KPI_CATALOG.find((k) => k.code === code);
+    if (!def) {
+      return {
+        code,
+        name: code,
+        category: 'UNKNOWN',
+        unit: 'COUNT',
+        value: 0,
+        source: 'live',
+        asOf: new Date(),
+        period: {
+          from: from.toISOString().slice(0, 10),
+          to: to.toISOString().slice(0, 10),
+        },
+        bySite: [],
+        notes: ['Unknown KPI code'],
+      };
+    }
+
+    const computed = await this.computeOne(code, organizationId, from, to);
+    const bySite = await this.siteBreakdown(code, organizationId, from, to);
+    const notes: string[] = [];
+    if (bySite.length === 0) {
+      notes.push(
+        'No site split for this metric (org-wide or zero rows in period).',
+      );
+    } else {
+      notes.push(`Top ${bySite.length} sites by value (real counts).`);
+    }
+    if (computed.breakdown) {
+      notes.push('Scalar breakdown included from live compute.');
+    }
+
+    return {
+      code: def.code,
+      name: def.name,
+      category: def.category,
+      unit: def.unit,
+      value: computed.value,
+      source: def.category === 'PAYROLL' ? 'snapshot' : 'live',
+      asOf: new Date(),
+      period: {
+        from: from.toISOString().slice(0, 10),
+        to: to.toISOString().slice(0, 10),
+      },
+      breakdown: computed.breakdown,
+      bySite,
+      notes,
+    };
+  }
+
+  private async siteBreakdown(
+    code: string,
+    organizationId: string,
+    from: Date,
+    to: Date,
+  ): Promise<
+    { siteId: string; siteCode: string; siteName: string; value: number }[]
+  > {
+    const toEnd = new Date(to);
+    toEnd.setHours(23, 59, 59, 999);
+
+    let pairs: { siteId: string; value: number }[] = [];
+
+    switch (code) {
+      case 'GUARD_ON_DUTY': {
+        const rows = await this.prisma.guardAttendance.groupBy({
+          by: ['siteId'],
+          where: { organizationId, clockOutAt: null },
+          _count: { _all: true },
+        });
+        pairs = rows.map((r) => ({ siteId: r.siteId, value: r._count._all }));
+        break;
+      }
+      case 'ATTENDANCE_CLOCK_INS': {
+        const rows = await this.prisma.guardAttendance.groupBy({
+          by: ['siteId'],
+          where: {
+            organizationId,
+            clockInAt: { gte: from, lte: toEnd },
+          },
+          _count: { _all: true },
+        });
+        pairs = rows.map((r) => ({ siteId: r.siteId, value: r._count._all }));
+        break;
+      }
+      case 'FIELD_ALERTS_OPEN': {
+        const rows = await this.prisma.fieldAlert.groupBy({
+          by: ['siteId'],
+          where: { organizationId, acknowledged: false },
+          _count: { _all: true },
+        });
+        pairs = rows.map((r) => ({ siteId: r.siteId, value: r._count._all }));
+        break;
+      }
+      case 'DEPLOYMENTS_ACTIVE': {
+        const rows = await this.prisma.guardDeployment.groupBy({
+          by: ['siteId'],
+          where: { organizationId, status: DeploymentStatus.ACTIVE },
+          _count: { _all: true },
+        });
+        pairs = rows.map((r) => ({ siteId: r.siteId, value: r._count._all }));
+        break;
+      }
+      case 'OPEN_INCIDENTS': {
+        const rows = await this.prisma.incident.groupBy({
+          by: ['siteId'],
+          where: {
+            organizationId,
+            status: {
+              in: [IncidentStatus.OPEN, IncidentStatus.INVESTIGATING],
+            },
+          },
+          _count: { _all: true },
+        });
+        pairs = rows.map((r) => ({ siteId: r.siteId, value: r._count._all }));
+        break;
+      }
+      case 'INCIDENTS_RESOLVED': {
+        const rows = await this.prisma.incident.groupBy({
+          by: ['siteId'],
+          where: {
+            organizationId,
+            status: IncidentStatus.RESOLVED,
+            resolvedAt: { gte: from, lte: toEnd },
+          },
+          _count: { _all: true },
+        });
+        pairs = rows.map((r) => ({ siteId: r.siteId, value: r._count._all }));
+        break;
+      }
+      case 'VISITOR_APPOINTMENTS': {
+        const rows = await this.prisma.visitorAppointment.groupBy({
+          by: ['siteId'],
+          where: {
+            organizationId,
+            createdAt: { gte: from, lte: toEnd },
+          },
+          _count: { _all: true },
+        });
+        pairs = rows.map((r) => ({ siteId: r.siteId, value: r._count._all }));
+        break;
+      }
+      case 'VISITOR_ENTRIES_ALLOWED': {
+        const rows = await this.prisma.visitorEntry.groupBy({
+          by: ['siteId'],
+          where: {
+            organizationId,
+            result: VerificationResult.ALLOWED,
+            recordedAt: { gte: from, lte: toEnd },
+          },
+          _count: { _all: true },
+        });
+        pairs = rows.map((r) => ({ siteId: r.siteId, value: r._count._all }));
+        break;
+      }
+      case 'PARKING_ENTRIES': {
+        const rows = await this.prisma.parkingEntry.groupBy({
+          by: ['siteId'],
+          where: {
+            organizationId,
+            recordedAt: { gte: from, lte: toEnd },
+          },
+          _count: { _all: true },
+        });
+        pairs = rows.map((r) => ({ siteId: r.siteId, value: r._count._all }));
+        break;
+      }
+      case 'PARKING_VIOLATIONS': {
+        const rows = await this.prisma.parkingViolation.groupBy({
+          by: ['siteId'],
+          where: {
+            organizationId,
+            recordedAt: { gte: from, lte: toEnd },
+          },
+          _count: { _all: true },
+        });
+        pairs = rows.map((r) => ({ siteId: r.siteId, value: r._count._all }));
+        break;
+      }
+      case 'ALERTNESS_CONFIRM_RATE': {
+        const rows = await this.prisma.alertnessCheck.groupBy({
+          by: ['siteId'],
+          where: {
+            organizationId,
+            scheduledAt: { gte: from, lte: toEnd },
+            status: AlertnessStatus.CONFIRMED,
+          },
+          _count: { _all: true },
+        });
+        pairs = rows.map((r) => ({ siteId: r.siteId, value: r._count._all }));
+        break;
+      }
+      default:
+        return [];
+    }
+
+    const siteIds = pairs.map((p) => p.siteId).filter(Boolean);
+    if (siteIds.length === 0) return [];
+
+    const sites = await this.prisma.site.findMany({
+      where: { organizationId, id: { in: siteIds } },
+      select: { id: true, code: true, name: true },
+    });
+    const siteMap = new Map(sites.map((s) => [s.id, s]));
+
+    return pairs
+      .map((p) => {
+        const s = siteMap.get(p.siteId);
+        return {
+          siteId: p.siteId,
+          siteCode: s?.code ?? p.siteId.slice(0, 8),
+          siteName: s?.name ?? 'Unknown site',
+          value: p.value,
+        };
+      })
+      .sort((a, b) => b.value - a.value)
+      .slice(0, 12);
   }
 
   private async computeOne(

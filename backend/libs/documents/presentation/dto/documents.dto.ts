@@ -2,7 +2,7 @@ import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { IsOptional, IsString, IsUUID, MinLength } from 'class-validator';
 
 export class ListDocumentsQueryDto {
-  @ApiProperty({ example: 'OccurrenceEntry' })
+  @ApiProperty({ example: 'Customer' })
   @IsString()
   @MinLength(2)
   resourceType!: string;

@@ -2,6 +2,7 @@
 
 import {
   acknowledgeFieldAlert,
+  escalateFieldAlert,
   listFieldAlerts,
   listGuards,
   listSites,
@@ -32,6 +33,7 @@ export default function BranchAlertsPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [ackingId, setAckingId] = useState<string | null>(null);
+  const [escalatingId, setEscalatingId] = useState<string | null>(null);
   const [showAcked, setShowAcked] = useState(false);
 
   const refresh = useCallback(async () => {
@@ -69,6 +71,19 @@ export default function BranchAlertsPage() {
     return s ? s.code : shortId(id);
   };
 
+  async function onEscalate(id: string) {
+    setEscalatingId(id);
+    setError(null);
+    try {
+      await escalateFieldAlert(id);
+      await refresh();
+    } catch (err) {
+      setError(formatApiError(err));
+    } finally {
+      setEscalatingId(null);
+    }
+  }
+
   async function onAck(id: string) {
     setAckingId(id);
     setError(null);
@@ -85,7 +100,7 @@ export default function BranchAlertsPage() {
   return (
     <BranchShell
       title="Field alerts"
-      description="Alertness / field escalations for BOM and supervisors. Acknowledge open alerts (operations.manage or attendance.manage)."
+      description="Alertness / field escalations for BOM and supervisors. AL1 ladder: SUPERVISOR → FIELD → BOM → CONTROL. Escalate or acknowledge open alerts (operations.manage or attendance.manage)."
       actions={
         <>
           <label className="flex items-center gap-1.5 text-xs text-[#605e5c]">
@@ -159,27 +174,46 @@ export default function BranchAlertsPage() {
                 ),
               },
               {
+                key: 'escalationStage',
+                label: 'Stage',
+                render: (r) => (
+                  <StatusBadge status={r.escalationStage ?? 'SUPERVISOR'} />
+                ),
+              },
+              {
                 key: 'createdAt',
                 label: 'When',
                 render: (r) => formatDateTime(r.createdAt),
               },
               {
                 key: 'acknowledged',
-                label: '',
+                label: 'Actions',
                 render: (r) =>
                   r.acknowledged ? (
                     <span className="text-[11px] font-medium text-emerald-700">
                       Acked
                     </span>
                   ) : (
-                    <button
-                      type="button"
-                      className={btnPrimary}
-                      disabled={ackingId === r.id}
-                      onClick={() => void onAck(r.id)}
-                    >
-                      {ackingId === r.id ? '…' : 'Acknowledge'}
-                    </button>
+                    <div className="flex flex-wrap gap-1">
+                      {r.escalationStage !== 'CONTROL' ? (
+                        <button
+                          type="button"
+                          className={btnSecondary}
+                          disabled={escalatingId === r.id}
+                          onClick={() => void onEscalate(r.id)}
+                        >
+                          {escalatingId === r.id ? '…' : 'Escalate'}
+                        </button>
+                      ) : null}
+                      <button
+                        type="button"
+                        className={btnPrimary}
+                        disabled={ackingId === r.id}
+                        onClick={() => void onAck(r.id)}
+                      >
+                        {ackingId === r.id ? '…' : 'Acknowledge'}
+                      </button>
+                    </div>
                   ),
               },
             ]}

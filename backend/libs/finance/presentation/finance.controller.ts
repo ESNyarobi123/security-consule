@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  ForbiddenException,
   Get,
   Param,
   Post,
@@ -31,6 +32,7 @@ import {
   CreatePettyCashFundDto,
   CreatePettyCashVoucherDto,
   InvoiceResponseDto,
+  InvoiceScanOverdueResultDto,
   PayVoucherDto,
   PaymentVoucherResponseDto,
   PettyCashFundResponseDto,
@@ -38,7 +40,14 @@ import {
   RecordInvoicePaymentDto,
   RejectPettyCashVoucherDto,
   ReimbursePettyCashVoucherDto,
+  VoidInvoiceDto,
 } from './dto/finance.dto';
+
+function assertStaff(user: AuthUser) {
+  if (user.customerId) {
+    throw new ForbiddenException('Staff only');
+  }
+}
 
 @ApiTags('Finance — Invoices')
 @ApiBearerAuth()
@@ -47,37 +56,75 @@ export class InvoicesController {
   constructor(private readonly service: InvoicesService) {}
 
   @Post()
+  @UseGuards(PermissionsGuard)
+  @RequirePermissions('finance.manage')
   @ApiOperation({ summary: 'Create customer invoice' })
   @ApiCreatedResponse({ type: InvoiceResponseDto })
   create(@Body() dto: CreateInvoiceDto, @CurrentUser() user: AuthUser) {
+    assertStaff(user);
     return this.service.create(dto, user);
   }
 
   @Get()
   @ApiOperation({ summary: 'List invoices' })
   @ApiQuery({ name: 'customerId', required: false })
+  @ApiQuery({ name: 'contractId', required: false })
   @ApiOkResponse({ type: [InvoiceResponseDto] })
   list(
     @CurrentUser() user: AuthUser,
     @Query('customerId') customerId?: string,
+    @Query('contractId') contractId?: string,
   ) {
     const scoped = resolveCustomerScope(user, customerId);
-    return this.service.list(user.organizationId, scoped);
+    return this.service.list(user.organizationId, scoped, contractId);
+  }
+
+  @Post('scan-overdue')
+  @UseGuards(PermissionsGuard)
+  @RequirePermissions('finance.manage')
+  @ApiOperation({
+    summary: 'Mark past-due SENT/PARTIALLY_PAID invoices as OVERDUE',
+    description: 'Also callable by background-worker via internal route.',
+  })
+  @ApiOkResponse({ type: InvoiceScanOverdueResultDto })
+  scanOverdue(@CurrentUser() user: AuthUser) {
+    assertStaff(user);
+    return this.service.scanOverdue(user.organizationId, user);
   }
 
   @Post(':id/send')
+  @UseGuards(PermissionsGuard)
+  @RequirePermissions('finance.manage')
   @ApiOperation({ summary: 'Mark invoice as sent to customer' })
   send(@Param('id') id: string, @CurrentUser() user: AuthUser) {
+    assertStaff(user);
     return this.service.send(id, user);
   }
 
+  @Post(':id/void')
+  @UseGuards(PermissionsGuard)
+  @RequirePermissions('finance.manage')
+  @ApiOperation({ summary: 'Void unpaid DRAFT / SENT / OVERDUE invoice' })
+  @ApiOkResponse({ type: InvoiceResponseDto })
+  voidInvoice(
+    @Param('id') id: string,
+    @Body() dto: VoidInvoiceDto,
+    @CurrentUser() user: AuthUser,
+  ) {
+    assertStaff(user);
+    return this.service.void(id, dto, user);
+  }
+
   @Post(':id/payments')
+  @UseGuards(PermissionsGuard)
+  @RequirePermissions('finance.manage')
   @ApiOperation({ summary: 'Record invoice payment (provider-agnostic reference)' })
   recordPayment(
     @Param('id') id: string,
     @Body() dto: RecordInvoicePaymentDto,
     @CurrentUser() user: AuthUser,
   ) {
+    assertStaff(user);
     return this.service.recordPayment(id, dto, user);
   }
 }

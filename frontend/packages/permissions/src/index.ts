@@ -84,12 +84,40 @@ export const SUPERADMIN_LINKS: NavItem[] = [
 
 /** External customer portal navigation (cookie-isolated from admin). */
 export const CUSTOMER_NAV: NavItem[] = [
-  { href: '/dashboard', label: 'Dashboard', permission: 'contracts.manage' },
-  { href: '/contracts', label: 'Contracts', permission: 'contracts.manage' },
-  { href: '/invoices', label: 'Invoices', permission: 'finance.manage' },
-  { href: '/visitors', label: 'Visitors', permission: 'visitors.manage' },
-  { href: '/access', label: 'Access', permission: 'access.manage' },
-  { href: '/parking', label: 'Parking', permission: 'parking.manage' },
+  { href: '/dashboard', label: 'Overview', permission: 'contracts.manage', group: 'Home' },
+  { href: '/contracts', label: 'Contracts & SLA', permission: 'contracts.manage', group: 'Services' },
+  { href: '/guards', label: 'Assigned guards', permission: 'contracts.manage', group: 'Services' },
+  {
+    href: '/attendance',
+    label: 'Guard attendance',
+    permission: 'contracts.manage',
+    group: 'Services',
+  },
+  { href: '/access', label: 'Staff access', permission: 'access.manage', group: 'Site ops' },
+  { href: '/visitors', label: 'Visitors', permission: 'visitors.manage', group: 'Site ops' },
+  { href: '/parking', label: 'Parking', permission: 'parking.manage', group: 'Site ops' },
+  {
+    href: '/incidents',
+    label: 'Incidents & complaints',
+    permission: 'contracts.manage',
+    group: 'Site ops',
+  },
+  { href: '/invoices', label: 'Invoices & payments', permission: 'finance.manage', group: 'Finance' },
+  {
+    href: '/requests',
+    label: 'Service requests',
+    permission: 'contracts.manage',
+    group: 'Support',
+  },
+  { href: '/sla', label: 'SLA performance', permission: 'contracts.manage', group: 'Support' },
+  { href: '/documents', label: 'Documents', permission: 'contracts.manage', group: 'Support' },
+  {
+    href: '/notifications',
+    label: 'Alerts',
+    permission: 'contracts.manage',
+    group: 'Account',
+  },
+  { href: '/profile', label: 'Profile & users', permission: 'contracts.manage', group: 'Account' },
 ];
 
 /** External supplier portal navigation (cookie-isolated from admin/customer). */
@@ -101,12 +129,42 @@ export const SUPPLIER_NAV: NavItem[] = [
 
 /** Parking ops portal navigation (cookie-isolated). */
 export const PARKING_NAV: NavItem[] = [
-  { href: '/dashboard', label: 'Dashboard', permission: 'parking.manage' },
-  { href: '/permits', label: 'Permits', permission: 'parking.manage' },
-  { href: '/entries', label: 'Entries', permission: 'parking.manage' },
-  { href: '/violations', label: 'Violations', permission: 'parking.manage' },
-  { href: '/anpr', label: 'ANPR', permission: 'parking.manage' },
-  { href: '/blacklist', label: 'Blacklist', permission: 'parking.manage' },
+  {
+    href: '/dashboard',
+    label: 'Dashboard',
+    permission: 'parking.manage',
+    group: 'Overview',
+  },
+  {
+    href: '/permits',
+    label: 'Permits',
+    permission: 'parking.manage',
+    group: 'Access',
+  },
+  {
+    href: '/entries',
+    label: 'Gate entries',
+    permission: 'parking.manage',
+    group: 'Access',
+  },
+  {
+    href: '/anpr',
+    label: 'ANPR decide',
+    permission: 'parking.manage',
+    group: 'Access',
+  },
+  {
+    href: '/violations',
+    label: 'Violations',
+    permission: 'parking.manage',
+    group: 'Enforcement',
+  },
+  {
+    href: '/blacklist',
+    label: 'Blacklist',
+    permission: 'parking.manage',
+    group: 'Enforcement',
+  },
 ];
 
 export function customerNav(): NavItem[] {

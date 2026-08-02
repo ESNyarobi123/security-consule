@@ -11,16 +11,8 @@ import {
   type MovementType,
 } from '@pssms/api-client';
 import { getSessionUser } from '@pssms/auth';
-import {
-  DataTable,
-  GlassCard,
-  Modal,
-  StatusBadge,
-  btnPrimary,
-  btnSecondary,
-  inputCls,
-} from '@pssms/ui';
-import { ArrowLeftRight, Plus, RefreshCw } from 'lucide-react';
+import { Modal, btnPrimary, btnSecondary, inputCls } from '@pssms/ui';
+import { ArrowLeftRight, Plus, RefreshCw, Search } from 'lucide-react';
 import {
   FormEvent,
   useCallback,
@@ -28,6 +20,7 @@ import {
   useMemo,
   useState,
 } from 'react';
+import { MovementRoster } from '../_components/HrRosters';
 import { HrShell } from '../_components/HrShell';
 import { PanelEmpty, formatDate } from '../_components/shared';
 
@@ -43,6 +36,7 @@ export default function HrMovementsPage() {
   const [rejectTarget, setRejectTarget] = useState<EmployeeMovement | null>(
     null,
   );
+  const [query, setQuery] = useState('');
   const sessionUser = useMemo(() => getSessionUser(), []);
 
   const refresh = useCallback(async () => {
@@ -71,6 +65,21 @@ export default function HrMovementsPage() {
     for (const e of employees) map.set(e.id, e.fullName);
     return map;
   }, [employees]);
+
+  const filtered = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (!q) return rows;
+    return rows.filter((r) => {
+      const name = (employeeName.get(r.employeeId) ?? '').toLowerCase();
+      return (
+        name.includes(q) ||
+        r.type.toLowerCase().includes(q) ||
+        r.reason.toLowerCase().includes(q) ||
+        (r.fromDepartment ?? '').toLowerCase().includes(q) ||
+        (r.toDepartment ?? '').toLowerCase().includes(q)
+      );
+    });
+  }, [rows, query, employeeName]);
 
   const onApprove = async (id: string) => {
     setBusyId(id);
@@ -119,129 +128,47 @@ export default function HrMovementsPage() {
         </p>
       ) : null}
 
-      <GlassCard className="!p-0 overflow-hidden">
-        {rows.length === 0 && !loading ? (
-          <div className="p-4">
-            <PanelEmpty
-              icon={<ArrowLeftRight className="h-4 w-4" />}
-              title="No movements"
-              description="Request a transfer or exit for an employee."
+      <MovementRoster
+        rows={filtered}
+        loading={loading}
+        employeeName={employeeName}
+        busyId={busyId}
+        onApprove={(id) => void onApprove(id)}
+        onReject={setRejectTarget}
+        canAct={(r) => {
+          if (norm(r.status) !== 'pending') return false;
+          const isOwn =
+            !!sessionUser?.id &&
+            !!r.createdBy &&
+            r.createdBy === sessionUser.id;
+          const isSuperAdmin =
+            sessionUser?.roles?.includes('SUPER_ADMIN') ?? false;
+          if (isOwn && !isSuperAdmin) return 'own';
+          return true;
+        }}
+        toolbar={
+          <label className="flex min-w-0 items-center gap-2 rounded-lg border border-[#e1dfdd] bg-white px-3 py-2 shadow-sm focus-within:border-[#0078d4] focus-within:ring-1 focus-within:ring-[#0078d4]">
+            <Search className="h-4 w-4 shrink-0 text-[#8a8886]" />
+            <input
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="Search employee, type, dept, reason…"
+              className="w-full min-w-0 bg-transparent text-[13px] outline-none placeholder:text-[#a19f9d]"
             />
-          </div>
-        ) : (
-          <DataTable<EmployeeMovement>
-            loading={loading}
-            keyField="id"
-            rows={rows}
-            emptyMessage="No movements"
-            columns={[
-              {
-                key: 'employeeId',
-                label: 'Employee',
-                render: (r) =>
-                  employeeName.get(r.employeeId) ?? r.employeeId.slice(0, 8),
-              },
-              {
-                key: 'type',
-                label: 'Type',
-                render: (r) => <StatusBadge status={r.type} />,
-              },
-              {
-                key: 'fromDepartment',
-                label: 'From',
-                render: (r) => (
-                  <span className="text-xs text-[#605e5c]">
-                    {r.fromDepartment ?? '—'}
-                  </span>
-                ),
-              },
-              {
-                key: 'toDepartment',
-                label: 'To',
-                render: (r) => (
-                  <span className="text-xs text-[#605e5c]">
-                    {r.toDepartment ?? '—'}
-                  </span>
-                ),
-              },
-              {
-                key: 'effectiveDate',
-                label: 'Effective',
-                render: (r) => formatDate(r.effectiveDate),
-              },
-              {
-                key: 'reason',
-                label: 'Reason',
-                render: (r) => (
-                  <span
-                    className="max-w-[160px] truncate text-xs text-[#605e5c]"
-                    title={r.reason}
-                  >
-                    {r.reason}
-                  </span>
-                ),
-              },
-              {
-                key: 'status',
-                label: 'Status',
-                render: (r) => <StatusBadge status={r.status} />,
-              },
-              {
-                key: 'id',
-                label: '',
-                render: (r) => {
-                  const pending = norm(r.status) === 'pending';
-                  if (!pending) {
-                    return r.rejectedReason ? (
-                      <span
-                        className="max-w-[120px] truncate text-[11px] text-rose-700"
-                        title={r.rejectedReason}
-                      >
-                        {r.rejectedReason}
-                      </span>
-                    ) : (
-                      <span className="text-[11px] text-[#a19f9d]">—</span>
-                    );
-                  }
-                  const isOwn =
-                    !!sessionUser?.id &&
-                    !!r.createdBy &&
-                    r.createdBy === sessionUser.id;
-                  const isSuperAdmin =
-                    sessionUser?.roles?.includes('SUPER_ADMIN') ?? false;
-                  if (isOwn && !isSuperAdmin) {
-                    return (
-                      <span className="text-[11px] text-[#a19f9d]">
-                        Awaiting other approver
-                      </span>
-                    );
-                  }
-                  return (
-                    <div className="flex flex-wrap gap-1">
-                      <button
-                        type="button"
-                        className={btnPrimary}
-                        disabled={busyId === r.id}
-                        onClick={() => void onApprove(r.id)}
-                      >
-                        Approve
-                      </button>
-                      <button
-                        type="button"
-                        className={btnSecondary}
-                        disabled={busyId === r.id}
-                        onClick={() => setRejectTarget(r)}
-                      >
-                        Reject
-                      </button>
-                    </div>
-                  );
-                },
-              },
-            ]}
+          </label>
+        }
+        empty={
+          <PanelEmpty
+            icon={<ArrowLeftRight className="h-4 w-4" />}
+            title={rows.length === 0 ? 'No movements' : 'No matches'}
+            description={
+              rows.length === 0
+                ? 'Request a transfer or exit for an employee.'
+                : 'Try another search.'
+            }
           />
-        )}
-      </GlassCard>
+        }
+      />
 
       {open ? (
         <CreateMovementModal

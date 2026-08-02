@@ -7,16 +7,8 @@ import {
   type Employee,
   type SalaryAssignment,
 } from '@pssms/api-client';
-import {
-  DataTable,
-  GlassCard,
-  Modal,
-  StatusBadge,
-  btnPrimary,
-  btnSecondary,
-  inputCls,
-} from '@pssms/ui';
-import { Banknote, Plus, RefreshCw } from 'lucide-react';
+import { Modal, btnPrimary, btnSecondary, inputCls } from '@pssms/ui';
+import { Banknote, Plus, RefreshCw, Search } from 'lucide-react';
 import {
   FormEvent,
   useCallback,
@@ -24,6 +16,7 @@ import {
   useMemo,
   useState,
 } from 'react';
+import { SalaryRoster } from '../_components/HrRosters';
 import { HrShell } from '../_components/HrShell';
 import { PanelEmpty, formatDate, formatMoney } from '../_components/shared';
 
@@ -33,6 +26,8 @@ export default function HrSalaryPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState('');
+  const [activeOnly, setActiveOnly] = useState(false);
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -60,6 +55,16 @@ export default function HrSalaryPage() {
     for (const e of employees) map.set(e.id, e.fullName);
     return map;
   }, [employees]);
+
+  const filtered = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    return rows.filter((r) => {
+      if (activeOnly && !r.isActive) return false;
+      if (!q) return true;
+      const name = (employeeName.get(r.employeeId) ?? '').toLowerCase();
+      return name.includes(q) || r.currency.toLowerCase().includes(q);
+    });
+  }, [rows, query, activeOnly, employeeName]);
 
   return (
     <HrShell
@@ -95,73 +100,46 @@ export default function HrSalaryPage() {
         </p>
       ) : null}
 
-      <GlassCard className="!p-0 overflow-hidden">
-        {rows.length === 0 && !loading ? (
-          <div className="p-4">
-            <PanelEmpty
-              icon={<Banknote className="h-4 w-4" />}
-              title="No salary assignments"
-              description="Assign basic salary before running payroll."
-            />
+      <SalaryRoster
+        rows={filtered}
+        loading={loading}
+        employeeName={employeeName}
+        toolbar={
+          <div className="flex flex-col gap-2.5 sm:flex-row sm:items-center sm:justify-between">
+            <label className="flex min-w-0 flex-1 items-center gap-2 rounded-lg border border-[#e1dfdd] bg-white px-3 py-2 shadow-sm focus-within:border-[#0078d4] focus-within:ring-1 focus-within:ring-[#0078d4]">
+              <Search className="h-4 w-4 shrink-0 text-[#8a8886]" />
+              <input
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                placeholder="Search employee or currency…"
+                className="w-full min-w-0 bg-transparent text-[13px] outline-none placeholder:text-[#a19f9d]"
+              />
+            </label>
+            <button
+              type="button"
+              onClick={() => setActiveOnly((v) => !v)}
+              className={`rounded-full px-2.5 py-1 text-[11px] font-semibold ${
+                activeOnly
+                  ? 'bg-[#0078d4] text-white'
+                  : 'bg-white text-[#605e5c] ring-1 ring-[#e1dfdd]'
+              }`}
+            >
+              Active only
+            </button>
           </div>
-        ) : (
-          <DataTable<SalaryAssignment>
-            loading={loading}
-            keyField="id"
-            rows={rows}
-            emptyMessage="No salary assignments"
-            columns={[
-              {
-                key: 'employeeId',
-                label: 'Employee',
-                render: (r) =>
-                  employeeName.get(r.employeeId) ?? r.employeeId.slice(0, 8),
-              },
-              {
-                key: 'basicSalary',
-                label: 'Basic',
-                render: (r) => (
-                  <span className="font-medium text-[#1b1a19]">
-                    {formatMoney(r.basicSalary, r.currency)}
-                  </span>
-                ),
-              },
-              {
-                key: 'currency',
-                label: 'Currency',
-                render: (r) => (
-                  <span className="font-mono text-xs">{r.currency}</span>
-                ),
-              },
-              {
-                key: 'hourlyRate',
-                label: 'Hourly',
-                render: (r) =>
-                  r.hourlyRate != null
-                    ? formatMoney(r.hourlyRate, r.currency)
-                    : '—',
-              },
-              {
-                key: 'effectiveFrom',
-                label: 'From',
-                render: (r) => formatDate(r.effectiveFrom),
-              },
-              {
-                key: 'effectiveUntil',
-                label: 'Until',
-                render: (r) => formatDate(r.effectiveUntil),
-              },
-              {
-                key: 'isActive',
-                label: 'Status',
-                render: (r) => (
-                  <StatusBadge status={r.isActive ? 'ACTIVE' : 'INACTIVE'} />
-                ),
-              },
-            ]}
+        }
+        empty={
+          <PanelEmpty
+            icon={<Banknote className="h-4 w-4" />}
+            title={rows.length === 0 ? 'No salary assignments' : 'No matches'}
+            description={
+              rows.length === 0
+                ? 'Assign basic salary before running payroll.'
+                : 'Try another search or clear Active only.'
+            }
           />
-        )}
-      </GlassCard>
+        }
+      />
 
       {open ? (
         <AssignSalaryModal

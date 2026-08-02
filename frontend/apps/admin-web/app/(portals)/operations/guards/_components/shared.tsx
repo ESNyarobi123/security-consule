@@ -87,6 +87,33 @@ export function guardInitials(g: Guard): string {
   return (num.slice(-2) || 'GD').toUpperCase();
 }
 
+export function guardReadinessOk(g: Guard): boolean {
+  return Boolean(g.trainingCompleted) && Boolean(g.clearanceVerified);
+}
+
+export function firearmExpiryLabel(iso?: string | null): string {
+  if (!iso) return '—';
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '—';
+  return d.toLocaleDateString('en-TZ', { dateStyle: 'medium' });
+}
+
+export function readinessTone(g: Guard): {
+  label: string;
+  className: string;
+} {
+  if (guardReadinessOk(g)) {
+    return {
+      label: 'Readiness OK',
+      className: 'bg-emerald-400/15 text-emerald-200 ring-emerald-400/25',
+    };
+  }
+  return {
+    label: 'Incomplete',
+    className: 'bg-amber-400/15 text-amber-200 ring-amber-400/25',
+  };
+}
+
 export function matchesFilter(g: Guard, filter: RosterFilter): boolean {
   switch (filter) {
     case 'active':

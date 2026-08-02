@@ -87,6 +87,7 @@ export class InvoiceResponseDto {
   @ApiProperty() organizationId!: string;
   @ApiProperty() customerId!: string;
   @ApiPropertyOptional() contractId?: string | null;
+  @ApiPropertyOptional() contractNumber?: string | null;
   @ApiProperty() invoiceNumber!: string;
   @ApiProperty() issueDate!: Date;
   @ApiProperty() dueDate!: Date;
@@ -115,6 +116,19 @@ export class RecordInvoicePaymentDto {
   @IsOptional()
   @IsEnum(PaymentMethod)
   paymentMethod?: PaymentMethod;
+}
+
+export class VoidInvoiceDto {
+  @ApiPropertyOptional({ example: 'Duplicate / superseded by INV-…' })
+  @IsOptional()
+  @IsString()
+  @MinLength(3)
+  reason?: string;
+}
+
+export class InvoiceScanOverdueResultDto {
+  @ApiProperty() markedOverdue!: number;
+  @ApiProperty({ type: [String] }) invoiceNumbers!: string[];
 }
 
 export class CreatePettyCashFundDto {

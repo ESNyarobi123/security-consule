@@ -3,6 +3,7 @@
 import type { Guard } from '@pssms/api-client';
 import {
   BadgeCheck,
+  ClipboardCheck,
   MapPin,
   Phone,
   Rocket,
@@ -13,6 +14,8 @@ import {
   WALL,
   guardDisplayName,
   guardInitials,
+  guardReadinessOk,
+  readinessTone,
   statusTone,
 } from './shared';
 
@@ -31,7 +34,9 @@ export function GuardCard({
 }) {
   const active = guard.status === 'ACTIVE';
   const ready = active && guard.deploymentEligible;
+  const checklistOk = guardReadinessOk(guard);
   const tone = statusTone(guard.status);
+  const rTone = readinessTone(guard);
   const name = guardDisplayName(guard);
   const site =
     guard.activeDeployment?.siteCode ||
@@ -87,6 +92,17 @@ export function GuardCard({
                   Not deployable
                 </span>
               )}
+              <span
+                className={`inline-flex items-center gap-0.5 rounded-md px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide ring-1 ${rTone.className}`}
+                title={
+                  checklistOk
+                    ? 'Training + clearance verified'
+                    : 'Training / clearance incomplete'
+                }
+              >
+                <ClipboardCheck className="h-3 w-3" />
+                {checklistOk ? 'Ready' : 'Checklist'}
+              </span>
             </div>
           </div>
         </div>

@@ -14,6 +14,7 @@ import {
 } from '@pssms/shared';
 import { FieldAlertsService } from '../application/field-alerts.service';
 import { FieldAlertResponseDto } from './dto/attendance.dto';
+import { FIELD_ALERT_ESCALATION_STAGES } from '../domain/field-alert.constants';
 
 @ApiTags('Field Alerts')
 @ApiBearerAuth()
@@ -31,11 +32,17 @@ export class FieldAlertsController {
     required: false,
     enum: ['true', 'false'],
   })
+  @ApiQuery({
+    name: 'escalationStage',
+    required: false,
+    enum: FIELD_ALERT_ESCALATION_STAGES,
+  })
   @ApiOkResponse({ type: [FieldAlertResponseDto] })
   list(
     @CurrentUser() user: AuthUser,
     @Query('siteId') siteId?: string,
     @Query('acknowledged') acknowledged?: string,
+    @Query('escalationStage') escalationStage?: string,
   ) {
     const acked =
       acknowledged === 'true'
@@ -43,7 +50,29 @@ export class FieldAlertsController {
         : acknowledged === 'false'
           ? false
           : undefined;
-    return this.service.list(user.organizationId, siteId, acked);
+    const stage =
+      escalationStage &&
+      (FIELD_ALERT_ESCALATION_STAGES as readonly string[]).includes(
+        escalationStage,
+      )
+        ? (escalationStage as (typeof FIELD_ALERT_ESCALATION_STAGES)[number])
+        : undefined;
+    return this.service.list(
+      user.organizationId,
+      siteId,
+      acked,
+      stage,
+    );
+  }
+
+  @Post(':id/escalate')
+  @ApiOperation({
+    summary:
+      'Advance field-alert escalation (ALERTNESS_MISSED / PATROL_MISSED: SUPERVISOR→FIELD→BOM→CONTROL)',
+  })
+  @ApiOkResponse({ type: FieldAlertResponseDto })
+  escalate(@Param('id') id: string, @CurrentUser() user: AuthUser) {
+    return this.service.escalate(id, user);
   }
 
   @Post(':id/acknowledge')

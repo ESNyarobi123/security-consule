@@ -1,6 +1,7 @@
 import {
   BadRequestException,
   ConflictException,
+  ForbiddenException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
@@ -23,6 +24,37 @@ const ALLOWED_TRANSITIONS: Record<IncidentStatus, IncidentStatus[]> = {
   [IncidentStatus.CLOSED]: [IncidentStatus.CLOSED],
 };
 
+/** Staff who may change status despite also holding GUARD (mobile). */
+const INCIDENT_STATUS_STAFF_ROLES = new Set([
+  'SUPER_ADMIN',
+  'GENERAL_MANAGER',
+  'SUPERVISOR',
+  'CEO',
+  'CMD',
+  'DEVELOPER',
+  'HR_OFFICER',
+  'LEGAL',
+  'MARKETING',
+  'COMPLIANCE_OFFICER',
+]);
+
+/** Can close non-CRITICAL (BOM/GM thin — no separate BOM role seeded). */
+const INCIDENT_CLOSE_ROLES = new Set([
+  'SUPER_ADMIN',
+  'GENERAL_MANAGER',
+  'CEO',
+  'CMD',
+  'DEVELOPER',
+]);
+
+/** CRITICAL close requires GM or CEO (or SuperAdmin/CMD). */
+const INCIDENT_CRITICAL_CLOSE_ROLES = new Set([
+  'SUPER_ADMIN',
+  'GENERAL_MANAGER',
+  'CEO',
+  'CMD',
+]);
+
 type IncidentRow = {
   id: string;
   incidentNumber: string;
@@ -32,6 +64,7 @@ type IncidentRow = {
   status: IncidentStatus;
   title: string;
   description: string;
+  reporterId: string;
   assignedTo: string | null;
   resolvedAt: Date | null;
   createdAt: Date;
@@ -68,7 +101,7 @@ export class IncidentsService {
           where: { id: dup.siteId, organizationId: user.organizationId },
           select: { code: true, name: true },
         });
-        return this.toDto(dup, dupSite ?? undefined);
+        return this.toDto(dup, dupSite ?? undefined, user);
       }
     }
 
@@ -98,7 +131,6 @@ export class IncidentsService {
         },
       });
     } catch (err) {
-      // RLS may hide another org's row on findUnique; unique still fires on insert.
       if (
         err instanceof Prisma.PrismaClientKnownRequestError &&
         err.code === 'P2002' &&
@@ -120,7 +152,7 @@ export class IncidentsService {
       after: incident,
     });
 
-    return this.toDto(incident, site);
+    return this.toDto(incident, site, user);
   }
 
   async updateStatus(
@@ -129,6 +161,8 @@ export class IncidentsService {
     assignedTo: string | undefined,
     user: AuthUser,
   ): Promise<IncidentResponseDto> {
+    this.assertCanChangeStatus(user);
+
     const existing = await this.prisma.incident.findFirst({
       where: { id, organizationId: user.organizationId },
     });
@@ -139,6 +173,17 @@ export class IncidentsService {
       throw new BadRequestException(
         `Cannot transition from ${existing.status} to ${status}`,
       );
+    }
+
+    if (status !== existing.status) {
+      const gate = this.statusGate(user, existing, status);
+      if (!gate.ok) {
+        throw new ForbiddenException({
+          error: 'FORBIDDEN',
+          message: gate.reason,
+          requiredRoleHint: gate.requiredRoleHint,
+        });
+      }
     }
 
     const updated = await this.prisma.incident.update({
@@ -159,8 +204,12 @@ export class IncidentsService {
       action: `incident.status.${status.toLowerCase()}`,
       resourceType: 'Incident',
       resourceId: id,
-      before: existing,
-      after: updated,
+      before: { status: existing.status, severity: existing.severity },
+      after: {
+        status: updated.status,
+        severity: updated.severity,
+        actorRoles: user.roles,
+      },
     });
 
     const site = await this.prisma.site.findFirst({
@@ -168,11 +217,12 @@ export class IncidentsService {
       select: { code: true, name: true },
     });
 
-    return this.toDto(updated, site ?? undefined);
+    return this.toDto(updated, site ?? undefined, user);
   }
 
   async list(
     organizationId: string,
+    user: AuthUser,
     siteId?: string,
   ): Promise<IncidentResponseDto[]> {
     const rows = await this.prisma.incident.findMany({
@@ -191,13 +241,143 @@ export class IncidentsService {
           });
     const siteMap = new Map(sites.map((s) => [s.id, s]));
 
-    return rows.map((r) => this.toDto(r, siteMap.get(r.siteId)));
+    return rows.map((r) => this.toDto(r, siteMap.get(r.siteId), user));
+  }
+
+  /** Guard-only JWT cannot escalate (still may create + list). */
+  private assertCanChangeStatus(user: AuthUser): void {
+    if (
+      user.roles.includes('GUARD') &&
+      !user.roles.some((r) => INCIDENT_STATUS_STAFF_ROLES.has(r))
+    ) {
+      throw new ForbiddenException({
+        error: 'FORBIDDEN',
+        message: 'Guards cannot escalate incident status',
+      });
+    }
+  }
+
+  private isStaff(user: AuthUser): boolean {
+    return (
+      !user.roles.includes('GUARD') ||
+      user.roles.some((r) => INCIDENT_STATUS_STAFF_ROLES.has(r))
+    );
+  }
+
+  private statusGate(
+    user: AuthUser,
+    incident: IncidentRow,
+    to: IncidentStatus,
+  ): { ok: boolean; reason: string; requiredRoleHint?: string } {
+    if (
+      (to === IncidentStatus.RESOLVED || to === IncidentStatus.CLOSED) &&
+      incident.reporterId === user.id
+    ) {
+      return {
+        ok: false,
+        reason: 'Reporter cannot resolve or close their own incident',
+        requiredRoleHint: 'Another authorized officer',
+      };
+    }
+
+    if (to === IncidentStatus.INVESTIGATING) {
+      if (!this.isStaff(user)) {
+        return {
+          ok: false,
+          reason: 'Guards cannot escalate incident status',
+          requiredRoleHint: 'SUPERVISOR',
+        };
+      }
+      return { ok: true, reason: '' };
+    }
+
+    if (to === IncidentStatus.RESOLVED) {
+      // Thin Field: SUPERVISOR or elevated (not Guard-only)
+      const can =
+        user.roles.includes('SUPERVISOR') ||
+        user.roles.some((r) => INCIDENT_CLOSE_ROLES.has(r));
+      if (!can) {
+        return {
+          ok: false,
+          reason: 'Resolve requires Supervisor, Field/BOM, or GM',
+          requiredRoleHint: 'SUPERVISOR',
+        };
+      }
+      return { ok: true, reason: '' };
+    }
+
+    if (to === IncidentStatus.CLOSED) {
+      if (incident.severity === IncidentSeverity.CRITICAL) {
+        const can = user.roles.some((r) =>
+          INCIDENT_CRITICAL_CLOSE_ROLES.has(r),
+        );
+        if (!can) {
+          return {
+            ok: false,
+            reason: 'CRITICAL close requires GM or CEO',
+            requiredRoleHint: 'GENERAL_MANAGER or CEO',
+          };
+        }
+        return { ok: true, reason: '' };
+      }
+      const can = user.roles.some((r) => INCIDENT_CLOSE_ROLES.has(r));
+      if (!can) {
+        return {
+          ok: false,
+          reason: 'Close requires Branch Ops Manager / GM (or above)',
+          requiredRoleHint: 'GENERAL_MANAGER',
+        };
+      }
+      return { ok: true, reason: '' };
+    }
+
+    return { ok: true, reason: '' };
+  }
+
+  private allowedNextForUser(
+    user: AuthUser,
+    incident: IncidentRow,
+  ): {
+    allowedNextStatuses: IncidentStatus[];
+    blockedReason?: string;
+    requiredRoleHint?: string;
+  } {
+    const candidates = (ALLOWED_TRANSITIONS[incident.status] ?? []).filter(
+      (s) => s !== incident.status,
+    );
+    if (!this.isStaff(user)) {
+      return {
+        allowedNextStatuses: [],
+        blockedReason: 'Guards cannot escalate incident status',
+        requiredRoleHint: 'SUPERVISOR',
+      };
+    }
+
+    const allowed: IncidentStatus[] = [];
+    let blockedReason: string | undefined;
+    let requiredRoleHint: string | undefined;
+
+    for (const next of candidates) {
+      const gate = this.statusGate(user, incident, next);
+      if (gate.ok) allowed.push(next);
+      else if (!blockedReason) {
+        blockedReason = gate.reason;
+        requiredRoleHint = gate.requiredRoleHint;
+      }
+    }
+
+    return { allowedNextStatuses: allowed, blockedReason, requiredRoleHint };
   }
 
   private toDto(
     i: IncidentRow,
-    site?: { code: string; name: string } | null,
+    site: { code: string; name: string } | null | undefined,
+    user?: AuthUser,
   ): IncidentResponseDto {
+    const next = user
+      ? this.allowedNextForUser(user, i)
+      : { allowedNextStatuses: [] as IncidentStatus[] };
+
     return {
       id: i.id,
       incidentNumber: i.incidentNumber,
@@ -209,9 +389,13 @@ export class IncidentsService {
       status: i.status,
       title: i.title,
       description: i.description,
+      reporterId: i.reporterId,
       assignedTo: i.assignedTo,
       resolvedAt: i.resolvedAt,
       createdAt: i.createdAt,
+      allowedNextStatuses: next.allowedNextStatuses,
+      blockedReason: next.blockedReason,
+      requiredRoleHint: next.requiredRoleHint,
     };
   }
 }

@@ -10,17 +10,43 @@ import {
   type CreateAssetBody,
 } from '@pssms/api-client';
 import {
-  DataTable,
-  GlassCard,
   Modal,
-  StatusBadge,
+  StatCard,
   btnPrimary,
   btnSecondary,
   inputCls,
 } from '@pssms/ui';
-import { Package, Plus, RefreshCw, UserPlus } from 'lucide-react';
+import {
+  CheckCircle2,
+  Clock3,
+  Package,
+  Plus,
+  RefreshCw,
+  Search,
+  UserCheck,
+} from 'lucide-react';
 import { FormEvent, useCallback, useEffect, useMemo, useState } from 'react';
+import { AssetRoster, AssetsEmpty } from './_components/AssetRoster';
 import { AssetsShell } from './_components/AssetsShell';
+
+type StatusFilter =
+  | 'all'
+  | 'available'
+  | 'assigned'
+  | 'return_pending'
+  | 'other';
+
+const FILTERS: { id: StatusFilter; label: string }[] = [
+  { id: 'all', label: 'All' },
+  { id: 'available', label: 'Available' },
+  { id: 'assigned', label: 'Assigned' },
+  { id: 'return_pending', label: 'Return pending' },
+  { id: 'other', label: 'Other' },
+];
+
+function norm(s: string) {
+  return s.trim().toLowerCase().replace(/[\s-]+/g, '_');
+}
 
 function formatApiError(err: unknown): string {
   const raw = err instanceof Error ? err.message : String(err);
@@ -38,17 +64,6 @@ function formatApiError(err: unknown): string {
   return raw;
 }
 
-function formatDate(value?: string | null) {
-  if (!value) return '—';
-  const d = new Date(value);
-  if (Number.isNaN(d.getTime())) return String(value).slice(0, 10);
-  return d.toLocaleDateString('en-GB', {
-    day: '2-digit',
-    month: 'short',
-    year: 'numeric',
-  });
-}
-
 export default function AssetsRegisterPage() {
   const [assets, setAssets] = useState<Asset[]>([]);
   const [assignees, setAssignees] = useState<AssetAssigneeOptions>({
@@ -59,6 +74,8 @@ export default function AssetsRegisterPage() {
   const [error, setError] = useState<string | null>(null);
   const [createOpen, setCreateOpen] = useState(false);
   const [assignTarget, setAssignTarget] = useState<Asset | null>(null);
+  const [query, setQuery] = useState('');
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -81,7 +98,7 @@ export default function AssetsRegisterPage() {
     void refresh();
   }, [refresh]);
 
-  const assigneeLabel = useMemo(() => {
+  const assigneeMaps = useMemo(() => {
     const emp = new Map(
       assignees.employees.map((e) => [
         e.id,
@@ -96,6 +113,71 @@ export default function AssetsRegisterPage() {
     );
     return { emp, grd };
   }, [assignees]);
+
+  const resolveAssignee = useCallback(
+    (r: Asset): string | null => {
+      const a = r.activeAssignment;
+      if (!a) return null;
+      const parts: string[] = [];
+      if (a.assignedToEmployeeId) {
+        parts.push(
+          assigneeMaps.emp.get(a.assignedToEmployeeId) ??
+            `Emp ${a.assignedToEmployeeId.slice(0, 8)}`,
+        );
+      }
+      if (a.assignedToGuardId) {
+        parts.push(
+          assigneeMaps.grd.get(a.assignedToGuardId) ??
+            `Guard ${a.assignedToGuardId.slice(0, 8)}`,
+        );
+      }
+      return parts.length ? parts.join(' · ') : null;
+    },
+    [assigneeMaps],
+  );
+
+  const counts = useMemo(() => {
+    const c = {
+      all: assets.length,
+      available: 0,
+      assigned: 0,
+      return_pending: 0,
+      other: 0,
+    };
+    for (const r of assets) {
+      const s = norm(r.status);
+      if (s === 'available') c.available += 1;
+      else if (s === 'assigned') c.assigned += 1;
+      else if (s === 'return_pending') c.return_pending += 1;
+      else c.other += 1;
+    }
+    return c;
+  }, [assets]);
+
+  const filtered = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    return assets.filter((r) => {
+      const s = norm(r.status);
+      if (statusFilter === 'available' && s !== 'available') return false;
+      if (statusFilter === 'assigned' && s !== 'assigned') return false;
+      if (statusFilter === 'return_pending' && s !== 'return_pending')
+        return false;
+      if (
+        statusFilter === 'other' &&
+        (s === 'available' || s === 'assigned' || s === 'return_pending')
+      )
+        return false;
+      if (!q) return true;
+      const who = (resolveAssignee(r) ?? '').toLowerCase();
+      return (
+        r.name.toLowerCase().includes(q) ||
+        r.assetTag.toLowerCase().includes(q) ||
+        (r.category ?? '').toLowerCase().includes(q) ||
+        (r.serialNumber ?? '').toLowerCase().includes(q) ||
+        who.includes(q)
+      );
+    });
+  }, [assets, query, statusFilter, resolveAssignee]);
 
   return (
     <AssetsShell
@@ -125,114 +207,120 @@ export default function AssetsRegisterPage() {
         </>
       }
     >
+      <div className="mb-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        <StatCard
+          label="Total assets"
+          value={counts.all}
+          hint="Tagged equipment"
+          accent="blue"
+          icon={<Package className="h-5 w-5" />}
+        />
+        <StatCard
+          label="Available"
+          value={counts.available}
+          hint="Ready to assign"
+          accent="emerald"
+          icon={<CheckCircle2 className="h-5 w-5" />}
+        />
+        <StatCard
+          label="Assigned"
+          value={counts.assigned}
+          hint="With employees / guards"
+          accent="sky"
+          icon={<UserCheck className="h-5 w-5" />}
+        />
+        <StatCard
+          label="Return pending"
+          value={counts.return_pending}
+          hint="Confirm under Returns"
+          accent="amber"
+          icon={<Clock3 className="h-5 w-5" />}
+        />
+      </div>
+
       {error ? (
         <p className="mb-3 rounded border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
           {error}
         </p>
       ) : null}
 
-      <GlassCard className="!p-0 overflow-hidden">
-        {assets.length === 0 && !loading ? (
-          <div className="flex flex-col items-center justify-center gap-1.5 px-4 py-10 text-center">
-            <span className="flex h-8 w-8 items-center justify-center rounded-md bg-[#eff6fc] text-[#0078d4]">
-              <Package className="h-4 w-4" />
+      <div className="mb-2.5 flex flex-wrap items-end justify-between gap-2">
+        <div>
+          <div className="flex items-center gap-2">
+            <Package className="h-4 w-4 text-[#0078d4]" />
+            <h2 className="text-[15px] font-semibold text-[#1b1a19]">
+              Assets
+            </h2>
+            <span className="inline-flex min-w-[1.5rem] items-center justify-center rounded-full bg-[#eff6fc] px-2 py-0.5 text-[11px] font-semibold tabular-nums text-[#0067b8] ring-1 ring-[#c7e0f4]">
+              {filtered.length}
             </span>
-            <p className="text-sm font-medium text-[#323130]">No assets yet</p>
-            <p className="max-w-sm text-xs text-[#605e5c]">
-              Register a tag (e.g. radio, boots, phone) then assign it to an
-              employee or guard.
-            </p>
           </div>
-        ) : (
-          <DataTable<Asset>
-            loading={loading}
-            keyField="id"
-            rows={assets}
-            emptyMessage="No assets"
-            columns={[
-              {
-                key: 'assetTag',
-                label: 'Tag',
-                render: (r) => (
-                  <span className="font-mono text-sm">{r.assetTag}</span>
-                ),
-              },
-              {
-                key: 'name',
-                label: 'Name',
-                render: (r) => r.name,
-              },
-              {
-                key: 'category',
-                label: 'Category',
-                render: (r) => r.category ?? '—',
-              },
-              {
-                key: 'status',
-                label: 'Status',
-                render: (r) => <StatusBadge status={r.status} />,
-              },
-              {
-                key: 'activeAssignment',
-                label: 'Assignee',
-                render: (r) => {
-                  const a = r.activeAssignment;
-                  if (!a) return '—';
-                  const parts: string[] = [];
-                  if (a.assignedToEmployeeId) {
-                    parts.push(
-                      assigneeLabel.emp.get(a.assignedToEmployeeId) ??
-                        `Emp ${a.assignedToEmployeeId.slice(0, 8)}`,
-                    );
-                  }
-                  if (a.assignedToGuardId) {
-                    parts.push(
-                      assigneeLabel.grd.get(a.assignedToGuardId) ??
-                        `Guard ${a.assignedToGuardId.slice(0, 8)}`,
-                    );
-                  }
-                  return (
-                    <span className="text-xs text-[#605e5c]">
-                      {parts.join(' · ') || '—'}
-                    </span>
-                  );
-                },
-              },
-              {
-                key: 'createdAt',
-                label: 'Registered',
-                render: (r) => formatDate(r.createdAt),
-              },
-              {
-                key: 'id',
-                label: '',
-                render: (r) => {
-                  if (r.status !== 'AVAILABLE') {
-                    return (
-                      <span className="text-[11px] text-[#a19f9d]">
-                        {r.status === 'ASSIGNED' ||
-                        r.status === 'RETURN_PENDING'
-                          ? 'Issued'
-                          : r.status}
-                      </span>
-                    );
-                  }
-                  return (
-                    <button
-                      type="button"
-                      className={btnPrimary}
-                      onClick={() => setAssignTarget(r)}
+          <p className="mt-0.5 text-[11px] text-[#605e5c]">
+            Register tags · assign to employee/guard · ESS returns under Returns
+          </p>
+        </div>
+      </div>
+
+      <AssetRoster
+        rows={filtered}
+        loading={loading}
+        assigneeLabel={resolveAssignee}
+        onAssign={setAssignTarget}
+        toolbar={
+          <div className="flex flex-col gap-2.5 sm:flex-row sm:items-center sm:justify-between">
+            <label className="flex min-w-0 flex-1 items-center gap-2 rounded-lg border border-[#e1dfdd] bg-white px-3 py-2 shadow-sm focus-within:border-[#0078d4] focus-within:ring-1 focus-within:ring-[#0078d4]">
+              <Search className="h-4 w-4 shrink-0 text-[#8a8886]" />
+              <input
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                placeholder="Search tag, name, category, assignee…"
+                className="w-full min-w-0 bg-transparent text-[13px] outline-none placeholder:text-[#a19f9d]"
+              />
+            </label>
+            <div className="flex flex-wrap gap-1">
+              {FILTERS.map((f) => {
+                const active = statusFilter === f.id;
+                return (
+                  <button
+                    key={f.id}
+                    type="button"
+                    onClick={() => setStatusFilter(f.id)}
+                    className={`inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[11px] font-semibold transition ${
+                      active
+                        ? 'bg-[#0078d4] text-white shadow-sm'
+                        : 'bg-white text-[#605e5c] ring-1 ring-[#e1dfdd] hover:bg-[#f3f9fd]'
+                    }`}
+                  >
+                    {f.label}
+                    <span
+                      className={`tabular-nums ${
+                        active ? 'text-white/80' : 'text-[#a19f9d]'
+                      }`}
                     >
-                      <UserPlus className="h-3.5 w-3.5" />
-                      Assign
-                    </button>
-                  );
-                },
-              },
-            ]}
+                      {counts[f.id]}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        }
+        empty={
+          <AssetsEmpty
+            title={assets.length === 0 ? 'No assets yet' : 'No matches'}
+            description={
+              assets.length === 0
+                ? 'Register a tag (e.g. radio, boots, phone) then assign it to an employee or guard.'
+                : 'Try another search or status filter.'
+            }
           />
-        )}
-      </GlassCard>
+        }
+      />
+      {!loading && filtered.length > 0 ? (
+        <p className="mt-2 text-[11px] text-[#605e5c]">
+          Showing {filtered.length} of {assets.length} assets
+        </p>
+      ) : null}
 
       {createOpen ? (
         <CreateAssetModal

@@ -1,11 +1,18 @@
 'use client';
 
-import { listGuards, updateGuardStatus, type Guard } from '@pssms/api-client';
+import {
+  listGuards,
+  updateGuardReadiness,
+  updateGuardStatus,
+  type Guard,
+} from '@pssms/api-client';
 import { AZURE, DataTable, StatusBadge } from '@pssms/ui';
 import {
   BadgeCheck,
+  ClipboardCheck,
   LayoutGrid,
   List,
+  Plus,
   Rocket,
   RotateCw,
   Search,
@@ -14,14 +21,20 @@ import {
   Users,
 } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { CreateGuardModal } from './_components/CreateGuardModal';
 import { GuardCard } from './_components/GuardCard';
-import { GuardDetailDrawer } from './_components/GuardDetailDrawer';
+import {
+  GuardDetailDrawer,
+  type GuardReadinessPatch,
+} from './_components/GuardDetailDrawer';
 import {
   FILTER_CHIPS,
   KpiCard,
   WALL,
+  guardReadinessOk,
   matchesFilter,
   matchesSearch,
+  readinessTone,
   type RosterFilter,
   type RosterView,
 } from './_components/shared';
@@ -35,6 +48,7 @@ export default function OperationsGuardsPage() {
   const [view, setView] = useState<RosterView>('cards');
   const [focus, setFocus] = useState<Guard | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [createOpen, setCreateOpen] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -62,7 +76,8 @@ export default function OperationsGuardsPage() {
     const active = rows.filter((r) => r.status === 'ACTIVE').length;
     const deployable = rows.filter((r) => r.deploymentEligible).length;
     const suspended = rows.filter((r) => r.status === 'SUSPENDED').length;
-    return { total, active, deployable, suspended };
+    const readinessOk = rows.filter((r) => guardReadinessOk(r)).length;
+    return { total, active, deployable, suspended, readinessOk };
   }, [rows]);
 
   const filtered = useMemo(
@@ -89,15 +104,40 @@ export default function OperationsGuardsPage() {
 
   async function toggleDeployable(guard: Guard) {
     if (guard.status !== 'ACTIVE') return;
+    const makingDeployable = !guard.deploymentEligible;
+    if (
+      makingDeployable &&
+      !guardReadinessOk(guard) &&
+      typeof window !== 'undefined' &&
+      !window.confirm(
+        'Training and/or clearance are incomplete. Deployable is still allowed (G3 thin checklist does not hard-block). Continue?',
+      )
+    ) {
+      return;
+    }
     setBusyId(guard.id);
     setError(null);
     try {
       await updateGuardStatus(guard.id, guard.status, {
-        deploymentEligible: !guard.deploymentEligible,
+        deploymentEligible: makingDeployable,
       });
       await load();
     } catch {
       setError('Deployable toggle failed.');
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  async function saveReadiness(guard: Guard, patch: GuardReadinessPatch) {
+    setBusyId(guard.id);
+    setError(null);
+    try {
+      await updateGuardReadiness(guard.id, patch);
+      await load();
+    } catch {
+      setError('Readiness update failed.');
+      throw new Error('readiness failed');
     } finally {
       setBusyId(null);
     }
@@ -130,16 +170,16 @@ export default function OperationsGuardsPage() {
                     Guard Mgmt §8
                   </span>
                   <span className="rounded-full bg-emerald-400/15 px-2.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-emerald-200 ring-1 ring-emerald-300/25">
-                    Module 17 · readiness
+                    Module 17 · G1–G3
                   </span>
                 </div>
                 <h1 className="mt-2 text-2xl font-bold tracking-tight text-white sm:text-[1.7rem]">
                   Security Guards
                 </h1>
                 <p className="mt-1.5 max-w-2xl text-sm leading-relaxed text-slate-300">
-                  Ops readiness roster — profile → deployment eligibility. Not
-                  full HR: training, firearm auth, and equipment live in HR +
-                  Assets.
+                  Ops readiness roster — profile, thin checklist (training /
+                  clearance / firearm), deployment eligibility. Full §8 matrix
+                  and equipment remain HR + Assets.
                 </p>
               </div>
             </div>
@@ -151,6 +191,14 @@ export default function OperationsGuardsPage() {
               >
                 ← Ops Console
               </a>
+              <button
+                type="button"
+                onClick={() => setCreateOpen(true)}
+                className="inline-flex items-center gap-1.5 rounded-lg border border-emerald-300/40 bg-emerald-400/20 px-3 py-2 text-sm font-bold text-emerald-50 backdrop-blur-sm transition hover:bg-emerald-400/30"
+              >
+                <Plus className="h-4 w-4" />
+                New guard
+              </button>
               <button
                 type="button"
                 onClick={() => void load()}
@@ -165,7 +213,7 @@ export default function OperationsGuardsPage() {
             </div>
           </div>
 
-          <div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+          <div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
             <KpiCard
               label="Total"
               value={loading ? '…' : stats.total}
@@ -190,6 +238,13 @@ export default function OperationsGuardsPage() {
               hint="Eligible for field deployment"
               tone="teal"
               icon={<Rocket className="h-4 w-4" />}
+            />
+            <KpiCard
+              label="Readiness OK"
+              value={loading ? '…' : stats.readinessOk}
+              hint="Training + clearance verified"
+              tone="amber"
+              icon={<ClipboardCheck className="h-4 w-4" />}
             />
             <KpiCard
               label="Suspended"
@@ -345,18 +400,30 @@ export default function OperationsGuardsPage() {
                   style={{ color: WALL.muted }}
                 >
                   {rows.length === 0
-                    ? 'Register guard profiles via API/seed, then refresh. Ops manages readiness — HR owns full employment records.'
+                    ? 'Create a guard with New guard (link an IAM user), or refresh if you just seeded. Ops manages readiness — HR owns full employment records.'
                     : 'Try All, clear search, or adjust status chips.'}
                 </p>
               </div>
-              <button
-                type="button"
-                onClick={() => void load()}
-                className="inline-flex items-center gap-1.5 rounded-lg bg-sky-400 px-3 py-2 text-sm font-bold text-[#072033] shadow-md transition hover:bg-sky-300"
-              >
-                <RotateCw className="h-4 w-4" />
-                Refresh
-              </button>
+              <div className="flex flex-wrap items-center justify-center gap-2">
+                {rows.length === 0 ? (
+                  <button
+                    type="button"
+                    onClick={() => setCreateOpen(true)}
+                    className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-400 px-3 py-2 text-sm font-bold text-[#072033] shadow-md transition hover:bg-emerald-300"
+                  >
+                    <Plus className="h-4 w-4" />
+                    New guard
+                  </button>
+                ) : null}
+                <button
+                  type="button"
+                  onClick={() => void load()}
+                  className="inline-flex items-center gap-1.5 rounded-lg bg-sky-400 px-3 py-2 text-sm font-bold text-[#072033] shadow-md transition hover:bg-sky-300"
+                >
+                  <RotateCw className="h-4 w-4" />
+                  Refresh
+                </button>
+              </div>
             </div>
           ) : view === 'cards' ? (
             <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
@@ -431,6 +498,26 @@ export default function OperationsGuardsPage() {
                       ),
                   },
                   {
+                    key: 'trainingCompleted',
+                    label: 'Checklist',
+                    render: (r) => {
+                      const ok = guardReadinessOk(r);
+                      return (
+                        <span
+                          className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium ring-1 ${
+                            ok
+                              ? 'bg-[#dff6dd] text-[#107c10] ring-[#107c10]/25'
+                              : 'bg-[#fff4ce] text-[#835c00] ring-[#835c00]/20'
+                          }`}
+                          title={readinessTone(r).label}
+                        >
+                          <ClipboardCheck className="h-3.5 w-3.5" />
+                          {ok ? 'OK' : 'Incomplete'}
+                        </span>
+                      );
+                    },
+                  },
+                  {
                     key: 'id',
                     label: 'Actions',
                     render: (r) => (
@@ -473,10 +560,17 @@ export default function OperationsGuardsPage() {
       </section>
 
       <p className="mt-4 text-center text-[11px] leading-relaxed text-[#605e5c]">
-        Ops slice: suspend / reactivate + deployment eligibility. Deferred to HR
-        + Assets: training records, firearm authorization, uniform/equipment
-        assignment, and full employment matrix.
+        Ops slices G1–G3: create, contract deploy, thin readiness checklist.
+        Incomplete checklist does not hard-block deployable. Deferred: full
+        Employment→CEO matrix, rich training records, firearm license CRUD.
       </p>
+
+      {createOpen ? (
+        <CreateGuardModal
+          onClose={() => setCreateOpen(false)}
+          onCreated={() => void load()}
+        />
+      ) : null}
 
       {focus ? (
         <GuardDetailDrawer
@@ -485,6 +579,7 @@ export default function OperationsGuardsPage() {
           onClose={() => setFocus(null)}
           onToggleSuspend={(g) => void toggleSuspend(g)}
           onToggleDeployable={(g) => void toggleDeployable(g)}
+          onSaveReadiness={saveReadiness}
         />
       ) : null}
     </div>

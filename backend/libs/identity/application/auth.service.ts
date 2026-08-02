@@ -2,14 +2,20 @@ import {
   Injectable,
   UnauthorizedException,
   ForbiddenException,
+  BadRequestException,
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
 import * as bcrypt from 'bcryptjs';
-import { PrismaService, verifyTotp } from '@pssms/shared';
+import {
+  PrismaService,
+  verifyTotp,
+  evaluatePasswordPolicy,
+} from '@pssms/shared';
 import { AuthUser } from '@pssms/shared';
 import {
   AuthUserProfileDto,
+  ChangePasswordDto,
   LoginDto,
   LoginResponseDto,
 } from '../presentation/dto/login.dto';
@@ -69,7 +75,6 @@ export class AuthService {
       await fail();
     }
 
-    // MFA step-up: when enabled, a valid TOTP code is mandatory.
     if (user!.mfaEnabled) {
       if (!dto.mfaCode) {
         throw new UnauthorizedException({
@@ -111,6 +116,52 @@ export class AuthService {
       }),
     ]);
 
+    return { tokens, user: profile };
+  }
+
+  async changePassword(
+    userId: string,
+    dto: ChangePasswordDto,
+  ): Promise<LoginResponseDto> {
+    const user = await this.prisma.user.findUnique({ where: { id: userId } });
+    if (!user || !user.isActive) {
+      throw new ForbiddenException('User inactive or not found');
+    }
+
+    const currentOk = await bcrypt.compare(
+      dto.currentPassword,
+      user.passwordHash,
+    );
+    if (!currentOk) {
+      throw new UnauthorizedException({
+        error: 'UNAUTHORIZED',
+        message: 'Current password is incorrect',
+      });
+    }
+
+    if (dto.currentPassword === dto.newPassword) {
+      throw new BadRequestException({
+        error: 'SAME_PASSWORD',
+        message: 'New password must be different from the current password',
+      });
+    }
+
+    const policyFailures = evaluatePasswordPolicy(dto.newPassword);
+    if (policyFailures.length > 0) {
+      throw new BadRequestException({
+        error: 'WEAK_PASSWORD',
+        message: `Password must contain ${policyFailures.join(', ')}`,
+      });
+    }
+
+    const passwordHash = await bcrypt.hash(dto.newPassword, 12);
+    await this.prisma.user.update({
+      where: { id: userId },
+      data: { passwordHash, mustChangePassword: false },
+    });
+
+    const profile = await this.loadProfile(userId);
+    const tokens = await this.issueTokens(profile);
     return { tokens, user: profile };
   }
 
@@ -169,6 +220,7 @@ export class AuthService {
     organizationId: string;
     customerId?: string | null;
     supplierId?: string | null;
+    mustChangePassword?: boolean;
     roles: Array<{
       role: {
         code: string;
@@ -193,6 +245,7 @@ export class AuthService {
       organizationId: user.organizationId,
       customerId: user.customerId ?? null,
       supplierId: user.supplierId ?? null,
+      mustChangePassword: user.mustChangePassword === true,
       roles,
       permissions,
       allowedBranchIds: user.branchAccess.map((b) => b.branchId),
@@ -213,6 +266,7 @@ export class AuthService {
       allowedSiteIds: user.allowedSiteIds,
       customerId: user.customerId ?? null,
       supplierId: user.supplierId ?? null,
+      mustChangePassword: user.mustChangePassword === true,
     };
 
     const expiresIn = this.config.get('JWT_EXPIRES_IN', '15m') as `${number}m`;

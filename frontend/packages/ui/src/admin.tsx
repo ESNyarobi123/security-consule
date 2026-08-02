@@ -24,7 +24,7 @@ export function Modal({
   description?: string;
   onClose: () => void;
   children: ReactNode;
-  size?: 'sm' | 'md' | 'lg';
+  size?: 'sm' | 'md' | 'lg' | 'xl';
 }) {
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
@@ -35,7 +35,13 @@ export function Modal({
   }, [onClose]);
 
   const width =
-    size === 'sm' ? 'max-w-sm' : size === 'lg' ? 'max-w-2xl' : 'max-w-md';
+    size === 'sm'
+      ? 'max-w-sm'
+      : size === 'lg'
+        ? 'max-w-2xl'
+        : size === 'xl'
+          ? 'max-w-4xl'
+          : 'max-w-md';
 
   return (
     <div
@@ -799,30 +805,328 @@ export function SupplierShell({
   );
 }
 
-/** Thin shell for parking ops portal. */
+/**
+ * Parking ops shell — Azure/AdminShell-grade sidebar (groups, colored
+ * service icons, collapse, search) for Portal 35.12.
+ */
 export function ParkingShell({
   userName,
+  userRole = 'PARKING_OFFICER',
   nav,
   pathname,
   onLogout,
   children,
 }: {
   userName: string;
+  userRole?: string;
   nav: NavItem[];
   pathname: string;
   onLogout: () => void;
   children: ReactNode;
 }) {
+  const groups = nav.reduce<Record<string, NavItem[]>>((acc, item) => {
+    const g = item.group ?? 'Parking';
+    acc[g] = acc[g] ?? [];
+    acc[g].push(item);
+    return acc;
+  }, {});
+
+  const initials =
+    userName
+      .split(/\s+/)
+      .filter(Boolean)
+      .slice(0, 2)
+      .map((p) => p[0]?.toUpperCase() ?? '')
+      .join('') || 'PK';
+
+  const [collapsed, setCollapsed] = useState(false);
+  const [mobileOpen, setMobileOpen] = useState(false);
+  const [ready, setReady] = useState(false);
+  const [query, setQuery] = useState('');
+  const [searchOpen, setSearchOpen] = useState(false);
+  const searchRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const saved = localStorage.getItem('pssms_parking_sidebar');
+    if (saved === 'collapsed') setCollapsed(true);
+    setReady(true);
+  }, []);
+
+  useEffect(() => {
+    function onClick(e: MouseEvent) {
+      if (searchRef.current && !searchRef.current.contains(e.target as Node)) {
+        setSearchOpen(false);
+      }
+    }
+    document.addEventListener('mousedown', onClick);
+    return () => document.removeEventListener('mousedown', onClick);
+  }, []);
+
+  function toggleCollapsed() {
+    setCollapsed((prev) => {
+      const next = !prev;
+      localStorage.setItem(
+        'pssms_parking_sidebar',
+        next ? 'collapsed' : 'expanded',
+      );
+      return next;
+    });
+  }
+
+  function onHamburger() {
+    const isDesktop =
+      typeof window !== 'undefined' &&
+      window.matchMedia('(min-width: 768px)').matches;
+    if (isDesktop) toggleCollapsed();
+    else setMobileOpen(true);
+  }
+
+  const isActive = (href: string) =>
+    pathname === href ||
+    (pathname.startsWith(`${href}/`) &&
+      !nav.some(
+        (other) =>
+          other.href !== href &&
+          other.href.startsWith(`${href}/`) &&
+          (pathname === other.href || pathname.startsWith(`${other.href}/`)),
+      ));
+
+  const searchResults = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (!q) return [] as NavItem[];
+    return nav
+      .filter(
+        (n) =>
+          n.label.toLowerCase().includes(q) ||
+          (n.group ?? '').toLowerCase().includes(q) ||
+          n.href.toLowerCase().includes(q),
+      )
+      .slice(0, 8);
+  }, [query, nav]);
+
+  const sidebarInner = (
+    <>
+      <div
+        className={`mb-3 rounded-xl bg-gradient-to-br from-[#0f2744] to-[#0d9488] text-white shadow-sm ${
+          collapsed ? 'mx-auto flex h-10 w-10 items-center justify-center p-0' : 'px-3 py-3'
+        }`}
+      >
+        {collapsed ? (
+          <span className="text-[11px] font-bold">PK</span>
+        ) : (
+          <>
+            <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-teal-100/90">
+              HIGHLINK Parking
+            </p>
+            <p className="mt-1 truncate text-[13px] font-semibold">{userName}</p>
+            <p className="truncate text-[11px] text-teal-100/80">{userRole}</p>
+          </>
+        )}
+      </div>
+
+      <a
+        href="/dashboard"
+        onClick={() => setMobileOpen(false)}
+        title={collapsed ? 'Control room' : undefined}
+        className={`flex items-center rounded-md text-[13px] font-semibold text-[#0067b8] transition hover:bg-[#f3f2f1] ${
+          collapsed ? 'justify-center px-0 py-2.5' : 'gap-2 px-2.5 py-2'
+        }`}
+      >
+        <span className="flex h-5 w-5 items-center justify-center rounded-[4px] bg-[#0078d4] text-white">
+          <AzureGlyph name="home" className="h-3.5 w-3.5" />
+        </span>
+        {!collapsed ? <span>Control room</span> : null}
+      </a>
+
+      <nav className="no-scrollbar mt-3 flex-1 space-y-4 overflow-y-auto pb-4">
+        {Object.entries(groups).map(([group, items], gi) => (
+          <div key={group}>
+            {!collapsed ? (
+              <p className="mb-1 flex items-center gap-1.5 px-2.5 text-[10px] font-semibold uppercase tracking-wider text-[#605e5c]">
+                {gi === 0 ? (
+                  <AzureGlyph name="star" className="h-3 w-3 text-[#f2b100]" />
+                ) : null}
+                {group}
+              </p>
+            ) : (
+              <div className="mx-auto mb-1 h-px w-6 bg-[#e1dfdd]" />
+            )}
+            <ul className="space-y-0.5">
+              {items.map((item) => {
+                const active = isActive(item.href) && !query;
+                const vis = moduleVisual(item.href);
+                return (
+                  <li key={item.href}>
+                    <a
+                      href={item.href}
+                      title={collapsed ? item.label : undefined}
+                      onClick={() => setMobileOpen(false)}
+                      className={`group relative flex items-center rounded-md text-[13px] transition ${
+                        collapsed
+                          ? 'justify-center px-0 py-2'
+                          : 'gap-2.5 px-2.5 py-[6px]'
+                      } ${
+                        active
+                          ? 'bg-[#eff6fc] font-semibold text-[#004578]'
+                          : 'text-[#323130] hover:bg-[#f3f2f1]'
+                      }`}
+                    >
+                      {active ? (
+                        <span className="absolute left-0 top-1/2 h-4 w-[3px] -translate-y-1/2 rounded-r bg-[#0078d4]" />
+                      ) : null}
+                      <ServiceIcon glyph={vis.glyph} color={vis.color} size="sm" />
+                      {!collapsed ? (
+                        <span className="truncate">{item.label}</span>
+                      ) : null}
+                    </a>
+                  </li>
+                );
+              })}
+            </ul>
+          </div>
+        ))}
+      </nav>
+
+      {!collapsed ? (
+        <div className="mt-auto border-t border-[#edebe9] px-2.5 pt-3">
+          <p className="text-[10px] leading-relaxed text-[#605e5c]">
+            ANPR = plate metadata only. Video stays on NVR.
+          </p>
+        </div>
+      ) : null}
+    </>
+  );
+
   return (
-    <ExternalPortalShell
-      userName={userName}
-      brand="HIGHLINK Parking"
-      mobileLabel="Parking Portal"
-      nav={nav}
-      pathname={pathname}
-      onLogout={onLogout}
-    >
-      {children}
-    </ExternalPortalShell>
+    <div className="flex h-[100dvh] flex-col overflow-hidden bg-[#f5f6fa] text-[#323130]">
+      <header className="z-40 flex h-12 shrink-0 items-center gap-2 bg-gradient-to-r from-[#0b1f3a] via-[#0e2f52] to-[#123a63] px-2 text-white shadow-[0_1px_0_rgba(255,255,255,0.06)] md:px-3">
+        <button
+          type="button"
+          onClick={onHamburger}
+          className="flex h-9 w-9 items-center justify-center rounded text-slate-200 transition hover:bg-white/10"
+          aria-label="Toggle navigation menu"
+          aria-expanded={mobileOpen}
+        >
+          <AzureGlyph name="menu" className="h-5 w-5" />
+        </button>
+
+        <a href="/dashboard" className="flex items-center gap-2 pr-2">
+          <span className="flex h-7 w-7 items-center justify-center rounded-md bg-gradient-to-br from-sky-400 to-[#0078d4] text-[11px] font-bold shadow">
+            HL
+          </span>
+          <span className="hidden text-[15px] font-semibold tracking-tight text-white sm:inline">
+            HIGHLINK{' '}
+            <span className="font-normal text-slate-300">Parking Portal</span>
+          </span>
+          <span className="text-[13px] text-slate-200 sm:hidden">Parking</span>
+        </a>
+
+        <div ref={searchRef} className="relative mx-auto hidden w-full max-w-md md:block">
+          <div className="flex items-center gap-2 rounded border border-white/10 bg-white/95 px-3 py-1.5 text-[13px] text-slate-600 shadow-sm focus-within:ring-2 focus-within:ring-sky-400/60">
+            <AzureGlyph name="search" className="h-4 w-4 text-slate-400" />
+            <input
+              value={query}
+              onChange={(e) => {
+                setQuery(e.target.value);
+                setSearchOpen(true);
+              }}
+              onFocus={() => setSearchOpen(true)}
+              placeholder="Search parking modules"
+              aria-label="Search parking modules"
+              className="w-full bg-transparent text-slate-800 outline-none placeholder:text-slate-500"
+            />
+          </div>
+          {searchOpen && query ? (
+            <div className="absolute left-0 right-0 top-full mt-1 overflow-hidden rounded-lg border border-slate-200 bg-white py-1 text-slate-800 shadow-xl">
+              {searchResults.length ? (
+                searchResults.map((r) => {
+                  const vis = moduleVisual(r.href);
+                  return (
+                    <a
+                      key={r.href}
+                      href={r.href}
+                      onClick={() => {
+                        setSearchOpen(false);
+                        setQuery('');
+                      }}
+                      className="flex items-center gap-2.5 px-3 py-2 text-[13px] hover:bg-[#f3f9fd]"
+                    >
+                      <ServiceIcon glyph={vis.glyph} color={vis.color} size="sm" />
+                      <span className="font-medium">{r.label}</span>
+                      <span className="ml-auto text-[11px] text-slate-400">
+                        {r.group}
+                      </span>
+                    </a>
+                  );
+                })
+              ) : (
+                <p className="px-3 py-3 text-[13px] text-slate-400">
+                  No modules match “{query}”.
+                </p>
+              )}
+            </div>
+          ) : null}
+        </div>
+
+        <div className="ml-auto flex items-center gap-0.5">
+          <span className="mr-1 hidden items-center gap-1.5 rounded bg-white/10 px-2.5 py-1 text-[12px] font-medium text-white lg:inline-flex">
+            <AzureGlyph name="car" className="h-4 w-4 text-sky-300" />
+            Ops
+          </span>
+          <div className="ml-1.5 flex items-center gap-2 rounded pl-1 pr-1.5">
+            <div className="hidden text-right leading-tight sm:block">
+              <p className="text-[12px] font-semibold text-white">{userName}</p>
+              <p className="text-[10.5px] text-slate-300">{userRole}</p>
+            </div>
+            <span className="flex h-8 w-8 items-center justify-center rounded-full bg-gradient-to-br from-sky-400 to-[#0078d4] text-[11px] font-semibold text-white ring-2 ring-white/20">
+              {initials}
+            </span>
+            <button
+              type="button"
+              onClick={onLogout}
+              title="Sign out"
+              className="flex h-8 w-8 items-center justify-center rounded text-slate-300 transition hover:bg-white/10 hover:text-white"
+              aria-label="Sign out"
+            >
+              <AzureGlyph name="logout" className="h-[18px] w-[18px]" />
+            </button>
+          </div>
+        </div>
+      </header>
+
+      <div className="flex min-h-0 flex-1">
+        <aside
+          className={`hidden shrink-0 flex-col border-r border-[#e1dfdd] bg-white px-2 py-3 transition-[width] duration-200 ease-in-out md:flex ${
+            collapsed ? 'w-[60px]' : 'w-64'
+          } ${ready ? '' : 'opacity-0'}`}
+        >
+          {sidebarInner}
+        </aside>
+
+        {mobileOpen ? (
+          <div
+            className="fixed inset-0 z-50 md:hidden"
+            role="dialog"
+            aria-modal="true"
+            aria-label="Navigation menu"
+            onKeyDown={(e) => {
+              if (e.key === 'Escape') setMobileOpen(false);
+            }}
+          >
+            <button
+              type="button"
+              aria-label="Close menu"
+              className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm"
+              onClick={() => setMobileOpen(false)}
+            />
+            <aside className="absolute left-0 top-0 flex h-full w-64 flex-col border-r border-[#e1dfdd] bg-white px-2 py-3 shadow-xl">
+              {sidebarInner}
+            </aside>
+          </div>
+        ) : null}
+
+        <main className="min-w-0 flex-1 overflow-auto p-4 md:p-7">{children}</main>
+      </div>
+    </div>
   );
 }

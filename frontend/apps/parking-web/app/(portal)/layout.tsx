@@ -17,6 +17,7 @@ export default function PortalLayout({
   const router = useRouter();
   const pathname = usePathname();
   const [userName, setUserName] = useState('');
+  const [userRole, setUserRole] = useState('PARKING_OFFICER');
   const [ready, setReady] = useState(false);
 
   useEffect(() => {
@@ -26,6 +27,7 @@ export default function PortalLayout({
       return;
     }
     setUserName(user.fullName);
+    setUserRole(user.roles?.[0] ?? 'PARKING_OFFICER');
     setReady(true);
   }, [router]);
 
@@ -45,6 +47,7 @@ export default function PortalLayout({
   return (
     <ParkingShell
       userName={userName}
+      userRole={userRole}
       nav={parkingNav()}
       pathname={pathname}
       onLogout={logout}

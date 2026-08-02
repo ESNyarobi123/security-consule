@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Post } from '@nestjs/common';
+import { Body, Controller, Get, Param, Post, UseGuards } from '@nestjs/common';
 import {
   ApiBearerAuth,
   ApiCreatedResponse,
@@ -6,7 +6,12 @@ import {
   ApiOperation,
   ApiTags,
 } from '@nestjs/swagger';
-import { AuthUser, CurrentUser } from '@pssms/shared';
+import {
+  AuthUser,
+  CurrentUser,
+  PermissionsGuard,
+  RequirePermissions,
+} from '@pssms/shared';
 import { ApprovalsService } from '../application/approvals.service';
 import {
   ApprovalActionDto,
@@ -17,6 +22,8 @@ import {
 @ApiTags('Approvals')
 @ApiBearerAuth()
 @Controller('approvals')
+@UseGuards(PermissionsGuard)
+@RequirePermissions('approvals.act')
 export class ApprovalsController {
   constructor(private readonly service: ApprovalsService) {}
 
@@ -24,7 +31,7 @@ export class ApprovalsController {
   @ApiOperation({
     summary: 'Start an approval workflow instance',
     description:
-      'Creates a pending approval for a resource (e.g. Contract). Creator cannot later approve the same instance.',
+      'Creates a pending approval for a resource (e.g. Contract). Creator cannot later approve the same instance. Requires approvals.act.',
   })
   @ApiCreatedResponse({ type: ApprovalInstanceResponseDto })
   start(@Body() dto: StartApprovalDto, @CurrentUser() user: AuthUser) {
@@ -35,7 +42,7 @@ export class ApprovalsController {
   @ApiOperation({
     summary: 'Approve or reject (creator ≠ approver enforced)',
     description:
-      'Records an approval action. Returns 403 CREATOR_CANNOT_APPROVE if actor created the request.',
+      'Records an approval action. Returns 403 CREATOR_CANNOT_APPROVE if actor created the request. For Contract resources, terminal APPROVE/REJECT also syncs contract status (avoids PENDING_APPROVAL desync). Prefer domain routes (/contracts/:id/approve) when available.',
   })
   @ApiOkResponse({ type: ApprovalInstanceResponseDto })
   act(

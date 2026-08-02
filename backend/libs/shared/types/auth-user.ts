@@ -11,4 +11,6 @@ export interface AuthUser {
   customerId?: string | null;
   /** Set for SUPPLIER_PORTAL users — force-scopes data access */
   supplierId?: string | null;
+  /** True until the user replaces a temporary/invite password */
+  mustChangePassword?: boolean;
 }

@@ -14,23 +14,47 @@ import {
 import {
   btnPrimary,
   btnSecondary,
-  DataTable,
   inputCls,
   Modal,
   PageHeader,
-  SectionTitle,
   StatCard,
-  StatusBadge,
 } from '@pssms/ui';
 import {
   BadgeCheck,
   ClipboardList,
   Plus,
+  RefreshCw,
+  Search,
   Trash2,
   Truck,
   Wallet,
 } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import {
+  ProcurementEmpty,
+  PurchaseOrderRoster,
+  SupplierRoster,
+} from './_components/ProcurementRosters';
+
+type SupplierFilter = 'all' | 'pending' | 'approved';
+type PoFilter = 'all' | 'draft' | 'pending' | 'approved';
+
+const SUPPLIER_FILTERS: { id: SupplierFilter; label: string }[] = [
+  { id: 'all', label: 'All' },
+  { id: 'pending', label: 'Pending' },
+  { id: 'approved', label: 'Approved' },
+];
+
+const PO_FILTERS: { id: PoFilter; label: string }[] = [
+  { id: 'all', label: 'All' },
+  { id: 'draft', label: 'Draft' },
+  { id: 'pending', label: 'Pending' },
+  { id: 'approved', label: 'Approved' },
+];
+
+function norm(s: string) {
+  return s.trim().toLowerCase().replace(/[\s-]+/g, '_');
+}
 
 const money = (n: number, currency = 'TZS') =>
   new Intl.NumberFormat('en-TZ', {
@@ -63,9 +87,16 @@ export default function ProcurementPage() {
   const [poForm, setPoForm] = useState<PoForm>(emptyPo(''));
   const [savingSupplier, setSavingSupplier] = useState(false);
   const [savingPo, setSavingPo] = useState(false);
+  const [busyId, setBusyId] = useState<string | null>(null);
+  const [supplierQuery, setSupplierQuery] = useState('');
+  const [supplierFilter, setSupplierFilter] =
+    useState<SupplierFilter>('all');
+  const [poQuery, setPoQuery] = useState('');
+  const [poFilter, setPoFilter] = useState<PoFilter>('all');
 
   const load = useCallback(async () => {
     setLoading(true);
+    setError(null);
     try {
       const [s, p] = await Promise.all([
         listSuppliers(),
@@ -85,15 +116,87 @@ export default function ProcurementPage() {
   }, [load]);
 
   const stats = useMemo(() => {
-    const approved = suppliers.filter((s) => s.status === 'APPROVED').length;
+    const approved = suppliers.filter(
+      (s) => norm(s.status) === 'approved' || norm(s.status) === 'active',
+    ).length;
     const totalValue = pos.reduce(
       (sum, p) => sum + (Number.isFinite(p.totalAmount) ? p.totalAmount : 0),
       0,
     );
-    const pending = pos.filter((p) => p.status === 'PENDING_APPROVAL').length;
-    const drafts = pos.filter((p) => p.status === 'DRAFT').length;
+    const pending = pos.filter(
+      (p) =>
+        norm(p.status) === 'pending_approval' ||
+        norm(p.status) === 'submitted',
+    ).length;
+    const drafts = pos.filter((p) => norm(p.status) === 'draft').length;
     return { approved, totalValue, pending, drafts };
   }, [suppliers, pos]);
+
+  const supplierCounts = useMemo(() => {
+    const c = { all: suppliers.length, pending: 0, approved: 0 };
+    for (const s of suppliers) {
+      const st = norm(s.status);
+      if (st === 'approved' || st === 'active') c.approved += 1;
+      else c.pending += 1;
+    }
+    return c;
+  }, [suppliers]);
+
+  const poCounts = useMemo(() => {
+    const c = { all: pos.length, draft: 0, pending: 0, approved: 0 };
+    for (const p of pos) {
+      const st = norm(p.status);
+      if (st === 'draft') c.draft += 1;
+      else if (st === 'pending_approval' || st === 'submitted') c.pending += 1;
+      else if (st === 'approved') c.approved += 1;
+    }
+    return c;
+  }, [pos]);
+
+  const supplierNameMap = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const s of suppliers) map.set(s.id, s.name);
+    return map;
+  }, [suppliers]);
+
+  const filteredSuppliers = useMemo(() => {
+    const q = supplierQuery.trim().toLowerCase();
+    return suppliers.filter((s) => {
+      const st = norm(s.status);
+      const isApproved = st === 'approved' || st === 'active';
+      if (supplierFilter === 'approved' && !isApproved) return false;
+      if (supplierFilter === 'pending' && isApproved) return false;
+      if (!q) return true;
+      return (
+        s.name.toLowerCase().includes(q) ||
+        s.code.toLowerCase().includes(q) ||
+        (s.email ?? '').toLowerCase().includes(q) ||
+        (s.phone ?? '').toLowerCase().includes(q)
+      );
+    });
+  }, [suppliers, supplierQuery, supplierFilter]);
+
+  const filteredPos = useMemo(() => {
+    const q = poQuery.trim().toLowerCase();
+    return pos.filter((p) => {
+      const st = norm(p.status);
+      if (poFilter === 'draft' && st !== 'draft') return false;
+      if (
+        poFilter === 'pending' &&
+        st !== 'pending_approval' &&
+        st !== 'submitted'
+      )
+        return false;
+      if (poFilter === 'approved' && st !== 'approved') return false;
+      if (!q) return true;
+      const name = (supplierNameMap.get(p.supplierId) ?? '').toLowerCase();
+      return (
+        p.poNumber.toLowerCase().includes(q) ||
+        name.includes(q) ||
+        p.status.toLowerCase().includes(q)
+      );
+    });
+  }, [pos, poQuery, poFilter, supplierNameMap]);
 
   function openSupplierModal() {
     setSupplierForm(emptySupplier);
@@ -201,10 +304,44 @@ export default function ProcurementPage() {
     }));
   }
 
-  const supplierName = useCallback(
-    (id: string) => suppliers.find((s) => s.id === id)?.name ?? '—',
-    [suppliers],
-  );
+  async function runSupplierApprove(s: Supplier) {
+    setBusyId(s.id);
+    setError(null);
+    try {
+      await approveSupplier(s.id);
+      await load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Approve failed');
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  async function runPoSubmit(po: PurchaseOrder) {
+    setBusyId(po.id);
+    setError(null);
+    try {
+      await submitPurchaseOrder(po.id);
+      await load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Submit failed');
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  async function runPoApprove(po: PurchaseOrder) {
+    setBusyId(po.id);
+    setError(null);
+    try {
+      await approvePurchaseOrder(po.id);
+      await load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Approve failed');
+    } finally {
+      setBusyId(null);
+    }
+  }
 
   return (
     <div className="space-y-6">
@@ -213,7 +350,22 @@ export default function ProcurementPage() {
         description="Manage suppliers and purchase orders — onboard vendors, raise POs, submit and approve."
         actions={
           <>
-            <button type="button" onClick={openSupplierModal} className={btnSecondary}>
+            <button
+              type="button"
+              onClick={() => void load()}
+              className={btnSecondary}
+              disabled={loading}
+            >
+              <RefreshCw
+                className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`}
+              />
+              Refresh
+            </button>
+            <button
+              type="button"
+              onClick={openSupplierModal}
+              className={btnSecondary}
+            >
               <Plus className="h-4 w-4" />
               New supplier
             </button>
@@ -267,103 +419,159 @@ export default function ProcurementPage() {
       </div>
 
       <section>
-        <SectionTitle>Suppliers</SectionTitle>
-        <DataTable
+        <div className="mb-2.5 flex flex-wrap items-end justify-between gap-2">
+          <div>
+            <div className="flex items-center gap-2">
+              <Truck className="h-4 w-4 text-[#0078d4]" />
+              <h2 className="text-[15px] font-semibold text-[#1b1a19]">
+                Suppliers
+              </h2>
+              <span className="inline-flex min-w-[1.5rem] items-center justify-center rounded-full bg-[#eff6fc] px-2 py-0.5 text-[11px] font-semibold tabular-nums text-[#0067b8] ring-1 ring-[#c7e0f4]">
+                {filteredSuppliers.length}
+              </span>
+            </div>
+            <p className="mt-0.5 text-[11px] text-[#605e5c]">
+              Onboard vendors · approve before raising purchase orders
+            </p>
+          </div>
+        </div>
+
+        <SupplierRoster
+          rows={filteredSuppliers}
           loading={loading}
-          keyField="id"
-          rows={suppliers}
-          emptyMessage="No suppliers yet — add your first vendor."
-          columns={[
-            { key: 'code', label: 'Code' },
-            { key: 'name', label: 'Name' },
-            {
-              key: 'email',
-              label: 'Contact',
-              render: (r) => r.email || r.phone || '—',
-            },
-            {
-              key: 'status',
-              label: 'Status',
-              render: (r) => <StatusBadge status={r.status} />,
-            },
-            {
-              key: 'id',
-              label: 'Actions',
-              render: (r) =>
-                r.status !== 'APPROVED' ? (
-                  <button
-                    type="button"
-                    className="text-[#0067b8] hover:underline text-xs font-medium"
-                    onClick={() => void approveSupplier(r.id).then(load)}
-                  >
-                    Approve
-                  </button>
-                ) : (
-                  <span className="text-xs text-[#605e5c]">—</span>
-                ),
-            },
-          ]}
+          busyId={busyId}
+          onApprove={(s) => void runSupplierApprove(s)}
+          toolbar={
+            <div className="flex flex-col gap-2.5 sm:flex-row sm:items-center sm:justify-between">
+              <label className="flex min-w-0 flex-1 items-center gap-2 rounded-lg border border-[#e1dfdd] bg-white px-3 py-2 shadow-sm focus-within:border-[#0078d4] focus-within:ring-1 focus-within:ring-[#0078d4]">
+                <Search className="h-4 w-4 shrink-0 text-[#8a8886]" />
+                <input
+                  value={supplierQuery}
+                  onChange={(e) => setSupplierQuery(e.target.value)}
+                  placeholder="Search name, code, email…"
+                  className="w-full min-w-0 bg-transparent text-[13px] outline-none placeholder:text-[#a19f9d]"
+                />
+              </label>
+              <div className="flex flex-wrap gap-1">
+                {SUPPLIER_FILTERS.map((f) => {
+                  const active = supplierFilter === f.id;
+                  return (
+                    <button
+                      key={f.id}
+                      type="button"
+                      onClick={() => setSupplierFilter(f.id)}
+                      className={`inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[11px] font-semibold transition ${
+                        active
+                          ? 'bg-[#0078d4] text-white shadow-sm'
+                          : 'bg-white text-[#605e5c] ring-1 ring-[#e1dfdd] hover:bg-[#f3f9fd]'
+                      }`}
+                    >
+                      {f.label}
+                      <span
+                        className={`tabular-nums ${
+                          active ? 'text-white/80' : 'text-[#a19f9d]'
+                        }`}
+                      >
+                        {supplierCounts[f.id]}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          }
+          empty={
+            <ProcurementEmpty
+              title={
+                suppliers.length === 0 ? 'No suppliers yet' : 'No matches'
+              }
+              description={
+                suppliers.length === 0
+                  ? 'Add your first vendor, then approve them before raising purchase orders.'
+                  : 'Try another search or status filter.'
+              }
+              icon="truck"
+            />
+          }
         />
       </section>
 
       <section>
-        <SectionTitle>Purchase orders</SectionTitle>
-        <DataTable
+        <div className="mb-2.5 flex flex-wrap items-end justify-between gap-2">
+          <div>
+            <div className="flex items-center gap-2">
+              <ClipboardList className="h-4 w-4 text-[#0078d4]" />
+              <h2 className="text-[15px] font-semibold text-[#1b1a19]">
+                Purchase orders
+              </h2>
+              <span className="inline-flex min-w-[1.5rem] items-center justify-center rounded-full bg-[#eff6fc] px-2 py-0.5 text-[11px] font-semibold tabular-nums text-[#0067b8] ring-1 ring-[#c7e0f4]">
+                {filteredPos.length}
+              </span>
+            </div>
+            <p className="mt-0.5 text-[11px] text-[#605e5c]">
+              Raise POs · submit for approval · approve against approved
+              suppliers
+            </p>
+          </div>
+        </div>
+
+        <PurchaseOrderRoster
+          rows={filteredPos}
           loading={loading}
-          keyField="id"
-          rows={pos}
-          emptyMessage="No purchase orders yet — raise one against an approved supplier."
-          columns={[
-            { key: 'poNumber', label: 'PO #' },
-            {
-              key: 'supplierId',
-              label: 'Supplier',
-              render: (r) => supplierName(r.supplierId),
-            },
-            {
-              key: 'status',
-              label: 'Status',
-              render: (r) => <StatusBadge status={r.status} />,
-            },
-            {
-              key: 'totalAmount',
-              label: 'Total',
-              render: (r) => (
-                <span className="font-medium text-[#1b1a19]">
-                  {money(r.totalAmount, r.currency)}
-                </span>
-              ),
-            },
-            {
-              key: 'id',
-              label: 'Actions',
-              render: (r) => (
-                <div className="flex gap-3">
-                  {r.status === 'DRAFT' ? (
+          supplierName={supplierNameMap}
+          busyId={busyId}
+          onSubmit={(po) => void runPoSubmit(po)}
+          onApprove={(po) => void runPoApprove(po)}
+          toolbar={
+            <div className="flex flex-col gap-2.5 sm:flex-row sm:items-center sm:justify-between">
+              <label className="flex min-w-0 flex-1 items-center gap-2 rounded-lg border border-[#e1dfdd] bg-white px-3 py-2 shadow-sm focus-within:border-[#0078d4] focus-within:ring-1 focus-within:ring-[#0078d4]">
+                <Search className="h-4 w-4 shrink-0 text-[#8a8886]" />
+                <input
+                  value={poQuery}
+                  onChange={(e) => setPoQuery(e.target.value)}
+                  placeholder="Search PO #, supplier…"
+                  className="w-full min-w-0 bg-transparent text-[13px] outline-none placeholder:text-[#a19f9d]"
+                />
+              </label>
+              <div className="flex flex-wrap gap-1">
+                {PO_FILTERS.map((f) => {
+                  const active = poFilter === f.id;
+                  return (
                     <button
+                      key={f.id}
                       type="button"
-                      className="text-[#0067b8] hover:underline text-xs font-medium"
-                      onClick={() => void submitPurchaseOrder(r.id).then(load)}
+                      onClick={() => setPoFilter(f.id)}
+                      className={`inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[11px] font-semibold transition ${
+                        active
+                          ? 'bg-[#0078d4] text-white shadow-sm'
+                          : 'bg-white text-[#605e5c] ring-1 ring-[#e1dfdd] hover:bg-[#f3f9fd]'
+                      }`}
                     >
-                      Submit
+                      {f.label}
+                      <span
+                        className={`tabular-nums ${
+                          active ? 'text-white/80' : 'text-[#a19f9d]'
+                        }`}
+                      >
+                        {poCounts[f.id]}
+                      </span>
                     </button>
-                  ) : null}
-                  {r.status === 'PENDING_APPROVAL' ? (
-                    <button
-                      type="button"
-                      className="text-[#0067b8] hover:underline text-xs font-medium"
-                      onClick={() => void approvePurchaseOrder(r.id).then(load)}
-                    >
-                      Approve
-                    </button>
-                  ) : null}
-                  {r.status !== 'DRAFT' && r.status !== 'PENDING_APPROVAL' ? (
-                    <span className="text-xs text-[#605e5c]">—</span>
-                  ) : null}
-                </div>
-              ),
-            },
-          ]}
+                  );
+                })}
+              </div>
+            </div>
+          }
+          empty={
+            <ProcurementEmpty
+              title={pos.length === 0 ? 'No purchase orders yet' : 'No matches'}
+              description={
+                pos.length === 0
+                  ? 'Raise a PO against an approved supplier, then submit for approval.'
+                  : 'Try another search or status filter.'
+              }
+              icon="po"
+            />
+          }
         />
       </section>
 

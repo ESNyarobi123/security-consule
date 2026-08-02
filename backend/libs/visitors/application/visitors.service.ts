@@ -49,28 +49,32 @@ export class VisitorsService {
     customerCode: string;
     siteCode: string;
   }> {
+    // Organization lookup is outside RLS tenant tables; customer/site need org
+    // context (same pattern as public createAppointment — fail-closed RLS).
     const org = await this.prisma.organization.findFirst({
       where: { code: 'HIGHLINK' },
     });
     if (!org) throw new NotFoundException('Demo organization not found');
 
-    const customer = await this.prisma.customer.findFirst({
-      where: { organizationId: org.id, code: 'CUST-DEMO' },
-    });
-    if (!customer) throw new NotFoundException('Demo customer not found');
+    return this.prisma.runInRequestContext({ organizationId: org.id }, async () => {
+      const customer = await this.prisma.customer.findFirst({
+        where: { organizationId: org.id, code: 'CUST-DEMO' },
+      });
+      if (!customer) throw new NotFoundException('Demo customer not found');
 
-    const site = await this.prisma.site.findFirst({
-      where: { organizationId: org.id, code: 'SITE-WAREHOUSE-A' },
-    });
-    if (!site) throw new NotFoundException('Demo site not found');
+      const site = await this.prisma.site.findFirst({
+        where: { organizationId: org.id, code: 'SITE-WAREHOUSE-A' },
+      });
+      if (!site) throw new NotFoundException('Demo site not found');
 
-    return {
-      organizationId: org.id,
-      customerId: customer.id,
-      siteId: site.id,
-      customerCode: customer.code,
-      siteCode: site.code,
-    };
+      return {
+        organizationId: org.id,
+        customerId: customer.id,
+        siteId: site.id,
+        customerCode: customer.code,
+        siteCode: site.code,
+      };
+    });
   }
 
   async createAppointment(
@@ -151,14 +155,33 @@ export class VisitorsService {
       orderBy: { createdAt: 'desc' },
       take: 100,
     });
-    return rows.map((a) => this.toAppointmentDto(a));
+    if (rows.length === 0) return [];
+
+    const siteIds = [...new Set(rows.map((r) => r.siteId))];
+    const sites = await this.prisma.site.findMany({
+      where: { id: { in: siteIds } },
+      select: { id: true, code: true, name: true },
+    });
+    const siteById = new Map(sites.map((s) => [s.id, s]));
+
+    return rows.map((a) => {
+      const site = siteById.get(a.siteId);
+      return this.toAppointmentDto(a, {
+        siteCode: site?.code ?? null,
+        siteName: site?.name ?? null,
+      });
+    });
   }
 
   async approveAppointment(
     id: string,
     user: AuthUser,
   ): Promise<IssueCodeResponseDto> {
-    const appointment = await this.findAppointmentOrThrow(id, user.organizationId);
+    const appointment = await this.findAppointmentOrThrow(
+      id,
+      user.organizationId,
+      user.customerId,
+    );
     if (appointment.createdBy && appointment.createdBy === user.id) {
       throw new ForbiddenException({
         error: 'CREATOR_CANNOT_APPROVE',
@@ -234,7 +257,11 @@ export class VisitorsService {
     dto: RejectAppointmentDto,
     user: AuthUser,
   ): Promise<VisitorAppointmentResponseDto> {
-    const appointment = await this.findAppointmentOrThrow(id, user.organizationId);
+    const appointment = await this.findAppointmentOrThrow(
+      id,
+      user.organizationId,
+      user.customerId,
+    );
     if (appointment.createdBy && appointment.createdBy === user.id) {
       throw new ForbiddenException({
         error: 'CREATOR_CANNOT_APPROVE',
@@ -541,9 +568,17 @@ export class VisitorsService {
     return `${prefix}${String(count + 1).padStart(4, '0')}`;
   }
 
-  private async findAppointmentOrThrow(id: string, organizationId: string) {
+  private async findAppointmentOrThrow(
+    id: string,
+    organizationId: string,
+    customerId?: string | null,
+  ) {
     const appointment = await this.prisma.visitorAppointment.findFirst({
-      where: { id, organizationId },
+      where: {
+        id,
+        organizationId,
+        ...(customerId ? { customerId } : {}),
+      },
     });
     if (!appointment) throw new NotFoundException('Appointment not found');
     return appointment;
@@ -561,29 +596,32 @@ export class VisitorsService {
     }
   }
 
-  private toAppointmentDto(a: {
-    id: string;
-    organizationId: string;
-    customerId: string;
-    siteId: string;
-    gateId: string | null;
-    referenceNumber: string;
-    visitorName: string;
-    visitorEmail: string | null;
-    visitorPhone: string | null;
-    companyName: string | null;
-    purpose: string;
-    hostUserId: string | null;
-    hostName: string | null;
-    vehiclePlate: string | null;
-    validFrom: Date;
-    validUntil: Date;
-    status: AppointmentStatus;
-    approvedBy: string | null;
-    approvedAt: Date | null;
-    rejectedReason: string | null;
-    createdAt: Date;
-  }): VisitorAppointmentResponseDto {
+  private toAppointmentDto(
+    a: {
+      id: string;
+      organizationId: string;
+      customerId: string;
+      siteId: string;
+      gateId: string | null;
+      referenceNumber: string;
+      visitorName: string;
+      visitorEmail: string | null;
+      visitorPhone: string | null;
+      companyName: string | null;
+      purpose: string;
+      hostUserId: string | null;
+      hostName: string | null;
+      vehiclePlate: string | null;
+      validFrom: Date;
+      validUntil: Date;
+      status: AppointmentStatus;
+      approvedBy: string | null;
+      approvedAt: Date | null;
+      rejectedReason: string | null;
+      createdAt: Date;
+    },
+    labels?: { siteCode?: string | null; siteName?: string | null },
+  ): VisitorAppointmentResponseDto {
     return {
       id: a.id,
       organizationId: a.organizationId,
@@ -606,6 +644,8 @@ export class VisitorsService {
       approvedAt: a.approvedAt,
       rejectedReason: a.rejectedReason,
       createdAt: a.createdAt,
+      siteCode: labels?.siteCode ?? null,
+      siteName: labels?.siteName ?? null,
     };
   }
 

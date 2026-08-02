@@ -39,6 +39,12 @@ export class HttpExceptionFilter implements ExceptionFilter {
           code = 'VALIDATION_ERROR';
         }
       }
+      // Nest often returns error: "Unauthorized" — normalize to stable codes.
+      if (status === HttpStatus.UNAUTHORIZED) {
+        code = 'UNAUTHORIZED';
+      } else if (status === HttpStatus.FORBIDDEN) {
+        code = 'FORBIDDEN';
+      }
     } else if (exception instanceof Error) {
       message = exception.message;
     }

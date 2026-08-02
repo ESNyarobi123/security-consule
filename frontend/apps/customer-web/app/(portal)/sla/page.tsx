@@ -1,0 +1,182 @@
+'use client';
+
+import {
+  listCustomerContracts,
+  type CustomerContractView,
+} from '@pssms/api-client';
+import { Gauge, RefreshCw, ShieldCheck } from 'lucide-react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import {
+  PortalDeferral,
+  PortalEmpty,
+  PortalError,
+  PortalHero,
+  PortalStat,
+  StatusPill,
+  formatDate,
+  money,
+} from '../../_components/portal-ui';
+
+export default function SlaPage() {
+  const [rows, setRows] = useState<CustomerContractView[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      setRows((await listCustomerContracts()) as CustomerContractView[]);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to load SLA');
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  const active = useMemo(
+    () => rows.filter((r) => r.status.toUpperCase().includes('ACTIVE')),
+    [rows],
+  );
+  const expiring = useMemo(() => {
+    const in90 = Date.now() + 90 * 24 * 60 * 60 * 1000;
+    return rows.filter((r) => {
+      const s = r.status.toUpperCase();
+      if (s.includes('EXPIR')) return true;
+      if (!r.endDate || !s.includes('ACTIVE')) return false;
+      const end = new Date(r.endDate).getTime();
+      return !Number.isNaN(end) && end <= in90 && end >= Date.now();
+    });
+  }, [rows]);
+  const withSla = useMemo(
+    () => rows.filter((r) => (r.slaTerms ?? '').trim().length > 0),
+    [rows],
+  );
+
+  function cardStatus(c: CustomerContractView) {
+    const s = c.status.toUpperCase();
+    if (expiring.some((e) => e.id === c.id) && !s.includes('EXPIR')) {
+      return 'EXPIRING';
+    }
+    return c.status;
+  }
+
+  return (
+    <div className="w-full">
+      <PortalHero
+        eyebrow="Performance"
+        title="SLA performance"
+        subtitle="Service-level commitments taken from your live contracts — not synthetic scores."
+        actions={
+          <button
+            type="button"
+            onClick={() => void load()}
+            className="inline-flex items-center gap-2 rounded-lg bg-white/15 px-3 py-2 text-sm font-semibold text-white ring-1 ring-white/25 hover:bg-white/20"
+          >
+            <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
+            Refresh
+          </button>
+        }
+      />
+
+      {error ? <PortalError message={error} /> : null}
+
+      <div className="mb-6 grid gap-4 sm:grid-cols-3">
+        <PortalStat
+          label="Active services"
+          value={loading ? '—' : active.length}
+          hint="Contracts in ACTIVE status"
+          tone="teal"
+        />
+        <PortalStat
+          label="Expiring soon"
+          value={loading ? '—' : expiring.length}
+          hint="Renewal attention"
+          tone="amber"
+        />
+        <PortalStat
+          label="With SLA terms"
+          value={loading ? '—' : withSla.length}
+          hint={`${rows.length} contracts total`}
+          tone="sky"
+        />
+      </div>
+
+      {loading ? (
+        <p className="text-sm text-[#605e5c]">Loading SLA pack…</p>
+      ) : rows.length === 0 ? (
+        <PortalEmpty
+          title="No contracts yet"
+          description="SLA cards appear once HIGHLINK attaches service agreements to your account."
+          icon={<Gauge className="h-5 w-5" />}
+        />
+      ) : (
+        <div className="grid gap-4 lg:grid-cols-2">
+          {rows.map((c) => (
+            <article
+              key={c.id}
+              className="rounded-2xl border border-[#e1dfdd] bg-white p-5 shadow-sm transition hover:border-[#0078d4]/50 hover:shadow-md"
+            >
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <p className="font-mono text-xs text-[#605e5c]">
+                    {c.contractNumber}
+                  </p>
+                  <h3 className="mt-1 text-base font-semibold text-[#1b1a19]">
+                    {c.title}
+                  </h3>
+                  <p className="mt-1 text-xs font-semibold uppercase tracking-wide text-[#0078d4]">
+                    {c.serviceType}
+                  </p>
+                </div>
+                <StatusPill status={cardStatus(c)} />
+              </div>
+
+              <div className="mt-4 rounded-xl bg-gradient-to-br from-[#eff6fc] to-teal-50/40 px-4 py-3 ring-1 ring-[#c7e0f4]">
+                <div className="flex items-center gap-2 text-teal-800">
+                  <ShieldCheck className="h-4 w-4" />
+                  <span className="text-[11px] font-semibold uppercase tracking-wide">
+                    SLA terms
+                  </span>
+                </div>
+                <p className="mt-2 text-sm leading-relaxed text-[#323130]">
+                  {(c.slaTerms ?? '').trim() ||
+                    'No written SLA on this contract yet — ask your HIGHLINK account manager.'}
+                </p>
+              </div>
+
+              <dl className="mt-4 grid grid-cols-2 gap-3 text-xs text-[#605e5c]">
+                <div>
+                  <dt className="uppercase">Period</dt>
+                  <dd className="mt-0.5 font-medium text-[#323130]">
+                    {formatDate(c.startDate)} → {formatDate(c.endDate)}
+                  </dd>
+                </div>
+                <div>
+                  <dt className="uppercase">Monthly fee</dt>
+                  <dd className="mt-0.5 font-medium text-[#323130]">
+                    {money(c.monthlyFee, c.currency)}
+                  </dd>
+                </div>
+                {c.guardCount != null && c.guardCount > 0 ? (
+                  <div>
+                    <dt className="uppercase">Guards committed</dt>
+                    <dd className="mt-0.5 font-medium text-[#323130]">
+                      {c.guardCount}
+                    </dd>
+                  </div>
+                ) : null}
+              </dl>
+            </article>
+          ))}
+        </div>
+      )}
+
+      <PortalDeferral note="Percentile SLA dashboards (missed patrol %, response time) will appear after ops analytics are customer-scoped — this page shows contractual commitments only." />
+    </div>
+  );
+}

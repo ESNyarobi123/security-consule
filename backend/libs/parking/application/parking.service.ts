@@ -142,8 +142,27 @@ export class ParkingService {
       },
       orderBy: { createdAt: 'desc' },
       take: 100,
+      include: {
+        vehicle: { select: { plateNumber: true, make: true, model: true } },
+      },
     });
-    return rows.map((p) => this.toPermitDto(p));
+    if (rows.length === 0) return [];
+
+    const siteIds = [...new Set(rows.map((r) => r.siteId))];
+    const sites = await this.prisma.site.findMany({
+      where: { id: { in: siteIds } },
+      select: { id: true, code: true, name: true },
+    });
+    const siteById = new Map(sites.map((s) => [s.id, s]));
+
+    return rows.map((p) => {
+      const site = siteById.get(p.siteId);
+      return this.toPermitDto(p, {
+        plateNumber: p.vehicle?.plateNumber ?? null,
+        siteCode: site?.code ?? null,
+        siteName: site?.name ?? null,
+      });
+    });
   }
 
   async approvePermit(
@@ -246,7 +265,22 @@ export class ParkingService {
       orderBy: { recordedAt: 'desc' },
       take: 100,
     });
-    return rows.map((v) => this.toViolationDto(v));
+    if (rows.length === 0) return [];
+
+    const siteIds = [...new Set(rows.map((r) => r.siteId))];
+    const sites = await this.prisma.site.findMany({
+      where: { id: { in: siteIds } },
+      select: { id: true, code: true, name: true },
+    });
+    const siteById = new Map(sites.map((s) => [s.id, s]));
+
+    return rows.map((v) => {
+      const site = siteById.get(v.siteId);
+      return this.toViolationDto(v, {
+        siteCode: site?.code ?? null,
+        siteName: site?.name ?? null,
+      });
+    });
   }
 
   async listBlacklist(
@@ -547,7 +581,22 @@ export class ParkingService {
       orderBy: { recordedAt: 'desc' },
       take: 100,
     });
-    return rows.map((e) => this.toEntryDto(e));
+    if (rows.length === 0) return [];
+
+    const siteIds = [...new Set(rows.map((r) => r.siteId))];
+    const sites = await this.prisma.site.findMany({
+      where: { id: { in: siteIds } },
+      select: { id: true, code: true, name: true },
+    });
+    const siteById = new Map(sites.map((s) => [s.id, s]));
+
+    return rows.map((e) => {
+      const site = siteById.get(e.siteId);
+      return this.toEntryDto(e, {
+        siteCode: site?.code ?? null,
+        siteName: site?.name ?? null,
+      });
+    });
   }
 
   async listAnprResults(
@@ -564,7 +613,22 @@ export class ParkingService {
       orderBy: { capturedAt: 'desc' },
       take: 100,
     });
-    return rows.map((r) => this.toAnprDto(r));
+    if (rows.length === 0) return [];
+
+    const siteIds = [...new Set(rows.map((r) => r.siteId))];
+    const sites = await this.prisma.site.findMany({
+      where: { id: { in: siteIds } },
+      select: { id: true, code: true, name: true },
+    });
+    const siteById = new Map(sites.map((s) => [s.id, s]));
+
+    return rows.map((r) => {
+      const site = siteById.get(r.siteId);
+      return this.toAnprDto(r, {
+        siteCode: site?.code ?? null,
+        siteName: site?.name ?? null,
+      });
+    });
   }
 
   private assertNotCreator(createdBy: string | null, actorId: string) {
@@ -637,18 +701,25 @@ export class ParkingService {
     };
   }
 
-  private toPermitDto(p: {
-    id: string;
-    organizationId: string;
-    vehicleId: string;
-    siteId: string;
-    permitNumber: string;
-    permitType: string;
-    status: string;
-    validFrom: Date;
-    validUntil: Date;
-    createdAt: Date;
-  }): ParkingPermitResponseDto {
+  private toPermitDto(
+    p: {
+      id: string;
+      organizationId: string;
+      vehicleId: string;
+      siteId: string;
+      permitNumber: string;
+      permitType: string;
+      status: string;
+      validFrom: Date;
+      validUntil: Date;
+      createdAt: Date;
+    },
+    labels?: {
+      plateNumber?: string | null;
+      siteCode?: string | null;
+      siteName?: string | null;
+    },
+  ): ParkingPermitResponseDto {
     return {
       id: p.id,
       organizationId: p.organizationId,
@@ -660,25 +731,31 @@ export class ParkingService {
       validFrom: p.validFrom,
       validUntil: p.validUntil,
       createdAt: p.createdAt,
+      plateNumber: labels?.plateNumber ?? null,
+      siteCode: labels?.siteCode ?? null,
+      siteName: labels?.siteName ?? null,
     };
   }
 
-  private toAnprDto(r: {
-    id: string;
-    organizationId: string;
-    siteId: string;
-    gateId: string | null;
-    plateNumber: string;
-    confidence: number | null;
-    cameraId: string | null;
-    imageUrl: string | null;
-    decision: string;
-    decidedBy: string | null;
-    decidedAt: Date | null;
-    denyReason: string | null;
-    capturedAt: Date;
-    createdAt: Date;
-  }): AnprResultResponseDto {
+  private toAnprDto(
+    r: {
+      id: string;
+      organizationId: string;
+      siteId: string;
+      gateId: string | null;
+      plateNumber: string;
+      confidence: number | null;
+      cameraId: string | null;
+      imageUrl: string | null;
+      decision: string;
+      decidedBy: string | null;
+      decidedAt: Date | null;
+      denyReason: string | null;
+      capturedAt: Date;
+      createdAt: Date;
+    },
+    labels?: { siteCode?: string | null; siteName?: string | null },
+  ): AnprResultResponseDto {
     return {
       id: r.id,
       organizationId: r.organizationId,
@@ -694,23 +771,28 @@ export class ParkingService {
       denyReason: r.denyReason,
       capturedAt: r.capturedAt,
       createdAt: r.createdAt,
+      siteCode: labels?.siteCode ?? null,
+      siteName: labels?.siteName ?? null,
     };
   }
 
-  private toEntryDto(e: {
-    id: string;
-    organizationId: string;
-    siteId: string;
-    gateId: string | null;
-    vehicleId: string | null;
-    plateNumber: string;
-    direction: string;
-    permitId: string | null;
-    decision: string;
-    recordedBy: string | null;
-    recordedAt: Date;
-    createdAt: Date;
-  }): ParkingEntryResponseDto {
+  private toEntryDto(
+    e: {
+      id: string;
+      organizationId: string;
+      siteId: string;
+      gateId: string | null;
+      vehicleId: string | null;
+      plateNumber: string;
+      direction: string;
+      permitId: string | null;
+      decision: string;
+      recordedBy: string | null;
+      recordedAt: Date;
+      createdAt: Date;
+    },
+    labels?: { siteCode?: string | null; siteName?: string | null },
+  ): ParkingEntryResponseDto {
     return {
       id: e.id,
       organizationId: e.organizationId,
@@ -724,20 +806,25 @@ export class ParkingService {
       recordedBy: e.recordedBy,
       recordedAt: e.recordedAt,
       createdAt: e.createdAt,
+      siteCode: labels?.siteCode ?? null,
+      siteName: labels?.siteName ?? null,
     };
   }
 
-  private toViolationDto(v: {
-    id: string;
-    organizationId: string;
-    siteId: string;
-    plateNumber: string;
-    vehicleId: string | null;
-    violationType: string;
-    description: string | null;
-    recordedAt: Date;
-    createdAt: Date;
-  }): ParkingViolationResponseDto {
+  private toViolationDto(
+    v: {
+      id: string;
+      organizationId: string;
+      siteId: string;
+      plateNumber: string;
+      vehicleId: string | null;
+      violationType: string;
+      description: string | null;
+      recordedAt: Date;
+      createdAt: Date;
+    },
+    labels?: { siteCode?: string | null; siteName?: string | null },
+  ): ParkingViolationResponseDto {
     return {
       id: v.id,
       organizationId: v.organizationId,
@@ -748,6 +835,8 @@ export class ParkingService {
       description: v.description,
       recordedAt: v.recordedAt,
       createdAt: v.createdAt,
+      siteCode: labels?.siteCode ?? null,
+      siteName: labels?.siteName ?? null,
     };
   }
 

@@ -20,6 +20,16 @@ export class SitesService {
     });
     if (!branch) throw new NotFoundException('Branch not found');
 
+    if (dto.customerId) {
+      const customer = await this.prisma.customer.findFirst({
+        where: {
+          id: dto.customerId,
+          organizationId: user.organizationId,
+        },
+      });
+      if (!customer) throw new NotFoundException('Customer not found');
+    }
+
     const exists = await this.prisma.site.findFirst({
       where: { organizationId: user.organizationId, code: dto.code },
     });

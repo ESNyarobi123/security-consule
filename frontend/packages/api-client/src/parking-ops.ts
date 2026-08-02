@@ -65,6 +65,9 @@ export type ParkingOpsPermit = {
   validFrom: string;
   validUntil: string;
   createdAt: string;
+  plateNumber?: string | null;
+  siteCode?: string | null;
+  siteName?: string | null;
 };
 
 export type ParkingOpsEntry = {
@@ -80,6 +83,8 @@ export type ParkingOpsEntry = {
   recordedBy?: string | null;
   recordedAt: string;
   createdAt: string;
+  siteCode?: string | null;
+  siteName?: string | null;
 };
 
 export type ParkingOpsViolation = {
@@ -92,6 +97,8 @@ export type ParkingOpsViolation = {
   description?: string | null;
   recordedAt: string;
   createdAt: string;
+  siteCode?: string | null;
+  siteName?: string | null;
 };
 
 export type AnprResult = {
@@ -109,6 +116,8 @@ export type AnprResult = {
   denyReason?: string | null;
   capturedAt: string;
   createdAt?: string;
+  siteCode?: string | null;
+  siteName?: string | null;
 };
 
 export type ParkingBlacklistEntry = {
@@ -146,6 +155,13 @@ export const listPermits = (status?: string, token?: string) => {
 /** POST /parking/permits/:id/approve */
 export const approvePermit = (id: string, token?: string) =>
   parkingOpsFetch<ParkingOpsPermit>(`/api/v1/parking/permits/${id}/approve`, {
+    method: 'POST',
+    token,
+  });
+
+/** POST /parking/permits/:id/reject */
+export const rejectPermit = (id: string, token?: string) =>
+  parkingOpsFetch<ParkingOpsPermit>(`/api/v1/parking/permits/${id}/reject`, {
     method: 'POST',
     token,
   });

@@ -9,16 +9,8 @@ import {
   type DisciplineSeverity,
   type Employee,
 } from '@pssms/api-client';
-import {
-  DataTable,
-  GlassCard,
-  Modal,
-  StatusBadge,
-  btnPrimary,
-  btnSecondary,
-  inputCls,
-} from '@pssms/ui';
-import { Plus, RefreshCw, Scale } from 'lucide-react';
+import { Modal, btnPrimary, btnSecondary, inputCls } from '@pssms/ui';
+import { Plus, RefreshCw, Scale, Search } from 'lucide-react';
 import {
   FormEvent,
   useCallback,
@@ -26,6 +18,7 @@ import {
   useMemo,
   useState,
 } from 'react';
+import { DisciplineRoster } from '../_components/HrRosters';
 import { HrShell } from '../_components/HrShell';
 import { PanelEmpty, formatDate } from '../_components/shared';
 
@@ -45,6 +38,7 @@ export default function HrDisciplinePage() {
   const [error, setError] = useState<string | null>(null);
   const [open, setOpen] = useState(false);
   const [closeTarget, setCloseTarget] = useState<DisciplineCase | null>(null);
+  const [query, setQuery] = useState('');
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -72,6 +66,19 @@ export default function HrDisciplinePage() {
     for (const e of employees) map.set(e.id, e.fullName);
     return map;
   }, [employees]);
+
+  const filtered = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (!q) return rows;
+    return rows.filter((r) => {
+      const name = (employeeName.get(r.employeeId) ?? '').toLowerCase();
+      return (
+        name.includes(q) ||
+        r.category.toLowerCase().includes(q) ||
+        r.description.toLowerCase().includes(q)
+      );
+    });
+  }, [rows, query, employeeName]);
 
   return (
     <HrShell
@@ -107,103 +114,34 @@ export default function HrDisciplinePage() {
         </p>
       ) : null}
 
-      <GlassCard className="!p-0 overflow-hidden">
-        {rows.length === 0 && !loading ? (
-          <div className="p-4">
-            <PanelEmpty
-              icon={<Scale className="h-4 w-4" />}
-              title="No discipline cases"
-              description="Record incidents and close them with an outcome."
+      <DisciplineRoster
+        rows={filtered}
+        loading={loading}
+        employeeName={employeeName}
+        onClose={setCloseTarget}
+        toolbar={
+          <label className="flex min-w-0 items-center gap-2 rounded-lg border border-[#e1dfdd] bg-white px-3 py-2 shadow-sm focus-within:border-[#0078d4] focus-within:ring-1 focus-within:ring-[#0078d4]">
+            <Search className="h-4 w-4 shrink-0 text-[#8a8886]" />
+            <input
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="Search employee, category, description…"
+              className="w-full min-w-0 bg-transparent text-[13px] outline-none placeholder:text-[#a19f9d]"
             />
-          </div>
-        ) : (
-          <DataTable<DisciplineCase>
-            loading={loading}
-            keyField="id"
-            rows={rows}
-            emptyMessage="No discipline cases"
-            columns={[
-              {
-                key: 'employeeId',
-                label: 'Employee',
-                render: (r) =>
-                  employeeName.get(r.employeeId) ?? r.employeeId.slice(0, 8),
-              },
-              {
-                key: 'incidentDate',
-                label: 'Incident',
-                render: (r) => formatDate(r.incidentDate),
-              },
-              {
-                key: 'category',
-                label: 'Category',
-                render: (r) => (
-                  <span className="text-xs font-medium text-[#1b1a19]">
-                    {r.category}
-                  </span>
-                ),
-              },
-              {
-                key: 'severity',
-                label: 'Severity',
-                render: (r) => <StatusBadge status={r.severity} />,
-              },
-              {
-                key: 'description',
-                label: 'Description',
-                render: (r) => (
-                  <span
-                    className="max-w-[180px] truncate text-xs text-[#605e5c]"
-                    title={r.description}
-                  >
-                    {r.description}
-                  </span>
-                ),
-              },
-              {
-                key: 'status',
-                label: 'Status',
-                render: (r) => <StatusBadge status={r.status} />,
-              },
-              {
-                key: 'outcome',
-                label: 'Outcome',
-                render: (r) =>
-                  r.outcome ? (
-                    <span
-                      className="max-w-[140px] truncate text-xs text-[#605e5c]"
-                      title={r.outcome}
-                    >
-                      {r.outcome}
-                    </span>
-                  ) : (
-                    <span className="text-[11px] text-[#a19f9d]">—</span>
-                  ),
-              },
-              {
-                key: 'id',
-                label: '',
-                render: (r) => {
-                  if (norm(r.status) !== 'open') {
-                    return (
-                      <span className="text-[11px] text-[#a19f9d]">—</span>
-                    );
-                  }
-                  return (
-                    <button
-                      type="button"
-                      className={btnPrimary}
-                      onClick={() => setCloseTarget(r)}
-                    >
-                      Close
-                    </button>
-                  );
-                },
-              },
-            ]}
+          </label>
+        }
+        empty={
+          <PanelEmpty
+            icon={<Scale className="h-4 w-4" />}
+            title={rows.length === 0 ? 'No discipline cases' : 'No matches'}
+            description={
+              rows.length === 0
+                ? 'Record incidents and close them with an outcome.'
+                : 'Try another search.'
+            }
           />
-        )}
-      </GlassCard>
+        }
+      />
 
       {open ? (
         <CreateDisciplineModal

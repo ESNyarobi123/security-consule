@@ -2,11 +2,17 @@
 
 import {
   acknowledgeFieldAlert,
+  approveAttendance,
+  escalateFieldAlert,
   listAttendance,
   listFieldAlerts,
   listGuards,
   listPendingAlertness,
   listSites,
+  markAlertnessMissed,
+  scanMissedAlertness,
+  scheduleAlertness,
+  supervisorClockIn,
   type AttendanceRecord,
   type FieldAlert,
   type Guard,
@@ -16,13 +22,21 @@ import {
 import {
   DataTable,
   GlassCard,
+  Modal,
   SectionTitle,
   StatusBadge,
   btnPrimary,
   btnSecondary,
+  inputCls,
 } from '@pssms/ui';
-import { Bell, Clock3, RefreshCw } from 'lucide-react';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { AlarmClock, Bell, Clock3, LogIn, Plus, RefreshCw } from 'lucide-react';
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+  type FormEvent,
+} from 'react';
 import { BranchShell } from '../_components/BranchShell';
 import {
   formatApiError,
@@ -36,6 +50,19 @@ function localDayBounds(d = new Date()) {
   const to = new Date(from);
   to.setDate(to.getDate() + 1);
   return { from: from.toISOString(), to: to.toISOString() };
+}
+
+function plusMinutesLocalIso(minutes: number) {
+  const d = new Date();
+  d.setMinutes(d.getMinutes() + minutes);
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+function localInputToIso(local: string) {
+  const d = new Date(local);
+  if (Number.isNaN(d.getTime())) return new Date().toISOString();
+  return d.toISOString();
 }
 
 type AttendanceRow = AttendanceRecord & { dutyStatus: string };
@@ -52,9 +79,27 @@ export default function BranchAttendancePage() {
   const [guards, setGuards] = useState<Guard[]>([]);
   const [sites, setSites] = useState<Site[]>([]);
   const [siteId, setSiteId] = useState('');
+  /** '' = all · 'false' = pending · 'true' = approved */
+  const [approvedFilter, setApprovedFilter] = useState('');
+  const [geofenceFilter, setGeofenceFilter] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [info, setInfo] = useState<string | null>(null);
   const [ackingId, setAckingId] = useState<string | null>(null);
+  const [escalatingId, setEscalatingId] = useState<string | null>(null);
+  const [approvingId, setApprovingId] = useState<string | null>(null);
+  const [busyId, setBusyId] = useState<string | null>(null);
+  const [scanning, setScanning] = useState(false);
+  const [scheduleOpen, setScheduleOpen] = useState(false);
+  const [clockInOpen, setClockInOpen] = useState(false);
+  const [formGuardId, setFormGuardId] = useState('');
+  const [formSiteId, setFormSiteId] = useState('');
+  const [formAt, setFormAt] = useState(() => plusMinutesLocalIso(30));
+  const [formClockInGuardId, setFormClockInGuardId] = useState('');
+  const [formClockInSiteId, setFormClockInSiteId] = useState('');
+  const [formClockInRemarks, setFormClockInRemarks] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [clockInSaving, setClockInSaving] = useState(false);
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -63,10 +108,13 @@ export default function BranchAttendancePage() {
       const { from, to } = localDayBounds();
       const attParams: {
         siteId?: string;
+        supervisorApproved?: boolean;
         from: string;
         to: string;
       } = { from, to };
       if (siteId) attParams.siteId = siteId;
+      if (approvedFilter === 'true') attParams.supervisorApproved = true;
+      if (approvedFilter === 'false') attParams.supervisorApproved = false;
 
       const alertParams: { siteId?: string; acknowledged: boolean } = {
         acknowledged: false,
@@ -80,12 +128,8 @@ export default function BranchAttendancePage() {
         listGuards(),
         listSites(),
       ]);
-      setRows(
-        att.map((r) => ({ ...r, dutyStatus: dutyStatus(r) })),
-      );
-      setPending(
-        siteId ? pend.filter((p) => p.siteId === siteId) : pend,
-      );
+      setRows(att.map((r) => ({ ...r, dutyStatus: dutyStatus(r) })));
+      setPending(siteId ? pend.filter((p) => p.siteId === siteId) : pend);
       setAlerts(openAlerts);
       setGuards(g);
       setSites(s);
@@ -94,7 +138,7 @@ export default function BranchAttendancePage() {
     } finally {
       setLoading(false);
     }
-  }, [siteId]);
+  }, [siteId, approvedFilter]);
 
   useEffect(() => {
     void refresh();
@@ -113,6 +157,35 @@ export default function BranchAttendancePage() {
     return (id: string) => map.get(id) ?? shortId(id);
   }, [sites]);
 
+  const overduePending = useMemo(() => {
+    const now = Date.now();
+    return new Set(
+      pending.filter((p) => new Date(p.scheduledAt).getTime() < now).map((p) => p.id),
+    );
+  }, [pending]);
+
+  const displayRows = useMemo(() => {
+    if (!geofenceFilter) return rows;
+    return rows.filter((r) => r.geofenceWarning);
+  }, [rows, geofenceFilter]);
+
+  function hasNoGps(row: AttendanceRecord) {
+    return (row.remarks ?? '').includes('NO_GPS');
+  }
+
+  async function onEscalate(id: string) {
+    setEscalatingId(id);
+    setError(null);
+    try {
+      await escalateFieldAlert(id);
+      await refresh();
+    } catch (err) {
+      setError(formatApiError(err));
+    } finally {
+      setEscalatingId(null);
+    }
+  }
+
   async function onAck(id: string) {
     setAckingId(id);
     setError(null);
@@ -126,10 +199,125 @@ export default function BranchAttendancePage() {
     }
   }
 
+  async function onMarkMissed(id: string) {
+    setBusyId(id);
+    setError(null);
+    setInfo(null);
+    try {
+      await markAlertnessMissed(id);
+      setInfo('Marked missed — FieldAlert ALERTNESS_MISSED raised for ops queue.');
+      await refresh();
+    } catch (err) {
+      setError(formatApiError(err));
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  async function onScanMissed() {
+    setScanning(true);
+    setError(null);
+    setInfo(null);
+    try {
+      const res = await scanMissedAlertness(0);
+      await refresh();
+      if (res.markedMissed === 0) {
+        setInfo('Scan complete — no past-due SCHEDULED checks.');
+      } else {
+        setInfo(
+          `Auto-missed ${res.markedMissed}: ${res.referenceNumbers.join(', ') || 'checks'} → FieldAlert`,
+        );
+      }
+    } catch (err) {
+      setError(formatApiError(err));
+    } finally {
+      setScanning(false);
+    }
+  }
+
+  function openSchedule() {
+    setFormGuardId(guards[0]?.id ?? '');
+    setFormSiteId(siteId || sites[0]?.id || '');
+    setFormAt(plusMinutesLocalIso(30));
+    setScheduleOpen(true);
+  }
+
+  function openSupervisorClockIn() {
+    setFormClockInGuardId(guards[0]?.id ?? '');
+    setFormClockInSiteId(siteId || sites[0]?.id || '');
+    setFormClockInRemarks('');
+    setClockInOpen(true);
+  }
+
+  async function submitSupervisorClockIn(e: FormEvent) {
+    e.preventDefault();
+    if (!formClockInGuardId || !formClockInSiteId) return;
+    setClockInSaving(true);
+    setError(null);
+    setInfo(null);
+    try {
+      const created = await supervisorClockIn({
+        guardId: formClockInGuardId,
+        siteId: formClockInSiteId,
+        ...(formClockInRemarks.trim()
+          ? { remarks: formClockInRemarks.trim() }
+          : {}),
+      });
+      setClockInOpen(false);
+      setInfo(
+        `Supervisor clock-in recorded for ${guardLabel(created.guardId)}${created.alertnessChecksScheduled ? ` — ${created.alertnessChecksScheduled} alertness check(s) scheduled` : ''}.`,
+      );
+      await refresh();
+    } catch (err) {
+      setError(formatApiError(err));
+    } finally {
+      setClockInSaving(false);
+    }
+  }
+
+  async function submitSchedule(e: FormEvent) {
+    e.preventDefault();
+    if (!formGuardId || !formSiteId || !formAt) return;
+    setSaving(true);
+    setError(null);
+    setInfo(null);
+    try {
+      const created = await scheduleAlertness({
+        guardId: formGuardId,
+        siteId: formSiteId,
+        scheduledAt: localInputToIso(formAt),
+      });
+      setScheduleOpen(false);
+      setInfo(
+        `Scheduled ${created.referenceNumber ?? 'check'} — guard must confirm on app.`,
+      );
+      await refresh();
+    } catch (err) {
+      setError(formatApiError(err));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function onApproveAttendance(row: AttendanceRow) {
+    setApprovingId(row.id);
+    setError(null);
+    setInfo(null);
+    try {
+      await approveAttendance(row.id);
+      setInfo(`Approved attendance for ${guardLabel(row.guardId)}.`);
+      await refresh();
+    } catch (err) {
+      setError(formatApiError(err));
+    } finally {
+      setApprovingId(null);
+    }
+  }
+
   return (
     <BranchShell
       title="Attendance board"
-      description="Today’s guard clock events and open alertness / field escalations for BOM supervision (operations.manage)."
+      description="Today’s clock events (§9) with supervisor approve (guard ≠ approver) + supervisor manual clock-in (A2) + Guard Alertness (§10): schedule / mark / scan missed → FieldAlert."
       actions={
         <>
           <label className="flex items-center gap-1.5 text-xs text-[#605e5c]">
@@ -147,6 +335,48 @@ export default function BranchAttendancePage() {
               ))}
             </select>
           </label>
+          <label className="flex items-center gap-1.5 text-xs text-[#605e5c]">
+            Approval
+            <select
+              value={approvedFilter}
+              onChange={(e) => setApprovedFilter(e.target.value)}
+              className="rounded border border-[#e1dfdd] bg-white px-2 py-1 text-xs text-[#323130]"
+            >
+              <option value="">All</option>
+              <option value="false">Pending</option>
+              <option value="true">Approved</option>
+            </select>
+          </label>
+          <button
+            type="button"
+            onClick={() => setGeofenceFilter((v) => !v)}
+            className={
+              geofenceFilter
+                ? `${btnPrimary} !bg-amber-600 !border-amber-600`
+                : btnSecondary
+            }
+          >
+            Geofence warnings
+          </button>
+          <button
+            type="button"
+            onClick={() => void onScanMissed()}
+            disabled={scanning || loading}
+            className={btnSecondary}
+          >
+            <AlarmClock
+              className={`h-3.5 w-3.5 ${scanning ? 'animate-pulse' : ''}`}
+            />
+            {scanning ? 'Scanning…' : 'Scan missed'}
+          </button>
+          <button type="button" onClick={openSupervisorClockIn} className={btnPrimary}>
+            <LogIn className="h-3.5 w-3.5" />
+            Supervisor clock-in
+          </button>
+          <button type="button" onClick={openSchedule} className={btnPrimary}>
+            <Plus className="h-3.5 w-3.5" />
+            Schedule check
+          </button>
           <button
             type="button"
             onClick={() => void refresh()}
@@ -162,8 +392,14 @@ export default function BranchAttendancePage() {
       }
     >
       <p className="mb-4 rounded border border-[#e1dfdd] bg-[#faf9f8] px-3 py-2 text-xs text-[#605e5c]">
-        Honest scope: data from GET /attendance (today) + alertness/pending +
-        field-alerts. Live SSE deferred — refresh manually. Patrols under Branch → Patrols.
+        Attendance (§9): supervisor Approve verifies today&apos;s punches (SoD —
+        cannot approve own guard clock). Supervisor clock-in (A2) records
+        SUPERVISOR method when mobile punch fails. A3 list enrichment shows
+        clock-in method, geofence/NO_GPS warnings, and compute-only late/OT vs
+        linked shift (no payroll yet). Alertness (§10): clock-in auto-schedules
+        checks; Scan / Mark missed → HIGH FieldAlert. AL1 escalation ladder:
+        SUPERVISOR → FIELD → BOM → CONTROL (Escalate on open alerts). Bio
+        face/QR deferred.
       </p>
 
       {error ? (
@@ -171,19 +407,28 @@ export default function BranchAttendancePage() {
           {error}
         </p>
       ) : null}
+      {info ? (
+        <p className="mb-3 rounded border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-900">
+          {info}
+        </p>
+      ) : null}
 
       <SectionTitle>Today — clock in / out</SectionTitle>
       <GlassCard className="mb-6 !p-0 overflow-hidden">
-        {rows.length === 0 && !loading ? (
+        {displayRows.length === 0 && !loading ? (
           <div className="flex flex-col items-center gap-2 px-4 py-10 text-center text-sm text-[#605e5c]">
             <Clock3 className="h-5 w-5 text-[#a19f9d]" />
-            <p>No attendance clocked today for this filter</p>
+            <p>
+              {geofenceFilter
+                ? 'No geofence warnings for this filter'
+                : 'No attendance clocked today for this filter'}
+            </p>
           </div>
         ) : (
           <DataTable<AttendanceRow>
             loading={loading}
             keyField="id"
-            rows={rows}
+            rows={displayRows}
             emptyMessage="No attendance"
             columns={[
               {
@@ -201,6 +446,13 @@ export default function BranchAttendancePage() {
                 render: (r) => siteLabel(r.siteId),
               },
               {
+                key: 'clockInMethod',
+                label: 'Method',
+                render: (r) => (
+                  <span className="font-mono text-[11px]">{r.clockInMethod}</span>
+                ),
+              },
+              {
                 key: 'dutyStatus',
                 label: 'Status',
                 render: (r) => <StatusBadge status={r.dutyStatus} />,
@@ -216,6 +468,51 @@ export default function BranchAttendancePage() {
                 render: (r) => formatDateTime(r.clockOutAt),
               },
               {
+                key: 'isLate',
+                label: 'Late',
+                render: (r) =>
+                  r.isLate ? (
+                    <span className="rounded bg-amber-100 px-1.5 py-0.5 text-[11px] font-medium text-amber-900">
+                      {r.lateMinutes}m
+                    </span>
+                  ) : (
+                    <span className="text-[11px] text-[#a19f9d]">—</span>
+                  ),
+              },
+              {
+                key: 'isOvertime',
+                label: 'OT',
+                render: (r) =>
+                  r.isOvertime ? (
+                    <span className="rounded bg-sky-100 px-1.5 py-0.5 text-[11px] font-medium text-sky-900">
+                      {r.overtimeMinutes}m
+                    </span>
+                  ) : (
+                    <span className="text-[11px] text-[#a19f9d]">—</span>
+                  ),
+              },
+              {
+                key: 'geofenceWarning',
+                label: 'Warning',
+                render: (r) => {
+                  if (r.geofenceWarning) {
+                    return (
+                      <span className="text-[11px] font-medium text-amber-700">
+                        Geofence
+                      </span>
+                    );
+                  }
+                  if (hasNoGps(r)) {
+                    return (
+                      <span className="text-[11px] font-medium text-rose-700">
+                        No GPS
+                      </span>
+                    );
+                  }
+                  return <span className="text-[11px] text-[#a19f9d]">—</span>;
+                },
+              },
+              {
                 key: 'supervisorApproved',
                 label: 'Approved',
                 render: (r) =>
@@ -224,7 +521,14 @@ export default function BranchAttendancePage() {
                       Yes
                     </span>
                   ) : (
-                    <span className="text-[11px] text-[#a19f9d]">No</span>
+                    <button
+                      type="button"
+                      disabled={approvingId === r.id}
+                      onClick={() => void onApproveAttendance(r)}
+                      className={`${btnSecondary} !px-2 !py-0.5 text-[11px]`}
+                    >
+                      {approvingId === r.id ? '…' : 'Approve'}
+                    </button>
                   ),
               },
               {
@@ -243,7 +547,7 @@ export default function BranchAttendancePage() {
       <GlassCard className="mb-6 !p-0 overflow-hidden">
         {pending.length === 0 && !loading ? (
           <div className="px-4 py-8 text-center text-sm text-[#605e5c]">
-            No scheduled alertness checks pending
+            No scheduled alertness checks pending — use Schedule check
           </div>
         ) : (
           <DataTable<PendingAlertness>
@@ -277,13 +581,38 @@ export default function BranchAttendancePage() {
               },
               {
                 key: 'scheduledAt',
-                label: 'Scheduled',
-                render: (r) => formatDateTime(r.scheduledAt),
+                label: 'Due',
+                render: (r) => (
+                  <span
+                    className={
+                      overduePending.has(r.id)
+                        ? 'font-semibold text-rose-700'
+                        : undefined
+                    }
+                  >
+                    {formatDateTime(r.scheduledAt)}
+                    {overduePending.has(r.id) ? ' · overdue' : ''}
+                  </span>
+                ),
               },
               {
                 key: 'status',
                 label: 'Status',
                 render: (r) => <StatusBadge status={r.status} />,
+              },
+              {
+                key: 'id',
+                label: '',
+                render: (r) => (
+                  <button
+                    type="button"
+                    className={btnSecondary}
+                    disabled={busyId === r.id}
+                    onClick={() => void onMarkMissed(r.id)}
+                  >
+                    {busyId === r.id ? '…' : 'Mark missed'}
+                  </button>
+                ),
               },
             ]}
           />
@@ -334,28 +663,191 @@ export default function BranchAttendancePage() {
                 ),
               },
               {
+                key: 'escalationStage',
+                label: 'Stage',
+                render: (r) => (
+                  <StatusBadge status={r.escalationStage ?? 'SUPERVISOR'} />
+                ),
+              },
+              {
                 key: 'createdAt',
                 label: 'When',
                 render: (r) => formatDateTime(r.createdAt),
               },
               {
                 key: 'acknowledged',
-                label: '',
+                label: 'Actions',
                 render: (r) => (
-                  <button
-                    type="button"
-                    className={btnPrimary}
-                    disabled={ackingId === r.id}
-                    onClick={() => void onAck(r.id)}
-                  >
-                    {ackingId === r.id ? '…' : 'Acknowledge'}
-                  </button>
+                  <div className="flex flex-wrap gap-1">
+                    {r.escalationStage !== 'CONTROL' ? (
+                      <button
+                        type="button"
+                        className={btnSecondary}
+                        disabled={escalatingId === r.id}
+                        onClick={() => void onEscalate(r.id)}
+                      >
+                        {escalatingId === r.id ? '…' : 'Escalate'}
+                      </button>
+                    ) : null}
+                    <button
+                      type="button"
+                      className={btnPrimary}
+                      disabled={ackingId === r.id}
+                      onClick={() => void onAck(r.id)}
+                    >
+                      {ackingId === r.id ? '…' : 'Acknowledge'}
+                    </button>
+                  </div>
                 ),
               },
             ]}
           />
         )}
       </GlassCard>
+
+      {clockInOpen ? (
+        <Modal
+          title="Supervisor clock-in"
+          description="Manual punch (SUPERVISOR method) when the guard mobile app fails. Uses site coordinates when GPS is omitted."
+          onClose={() => setClockInOpen(false)}
+        >
+          <form
+            onSubmit={(e) => void submitSupervisorClockIn(e)}
+            className="space-y-3"
+          >
+            <div>
+              <label className="text-sm font-medium text-[#323130]">Guard</label>
+              <select
+                className={inputCls}
+                value={formClockInGuardId}
+                onChange={(e) => setFormClockInGuardId(e.target.value)}
+                required
+              >
+                <option value="">Select guard…</option>
+                {guards
+                  .filter((g) => !g.status || g.status === 'ACTIVE')
+                  .map((g) => (
+                  <option key={g.id} value={g.id}>
+                    {g.employeeNumber}
+                    {g.fullName ? ` — ${g.fullName}` : ''}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="text-sm font-medium text-[#323130]">Site</label>
+              <select
+                className={inputCls}
+                value={formClockInSiteId}
+                onChange={(e) => setFormClockInSiteId(e.target.value)}
+                required
+              >
+                <option value="">Select site…</option>
+                {sites.map((s) => (
+                  <option key={s.id} value={s.id}>
+                    {s.code} — {s.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="text-sm font-medium text-[#323130]">
+                Remarks (optional)
+              </label>
+              <input
+                className={inputCls}
+                value={formClockInRemarks}
+                onChange={(e) => setFormClockInRemarks(e.target.value)}
+                placeholder="e.g. Mobile app offline — verified on post"
+              />
+            </div>
+            <div className="flex justify-end gap-2 pt-2">
+              <button
+                type="button"
+                onClick={() => setClockInOpen(false)}
+                className={btnSecondary}
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                className={btnPrimary}
+                disabled={clockInSaving}
+              >
+                {clockInSaving ? 'Clocking in…' : 'Clock in'}
+              </button>
+            </div>
+          </form>
+        </Modal>
+      ) : null}
+
+      {scheduleOpen ? (
+        <Modal
+          title="Schedule alertness check"
+          description="Guard must confirm on the Guard app (GPS). Face / fingerprint / QR / selfie capture deferred."
+          onClose={() => setScheduleOpen(false)}
+        >
+          <form onSubmit={(e) => void submitSchedule(e)} className="space-y-3">
+            <div>
+              <label className="text-sm font-medium text-[#323130]">Guard</label>
+              <select
+                className={inputCls}
+                value={formGuardId}
+                onChange={(e) => setFormGuardId(e.target.value)}
+                required
+              >
+                <option value="">Select guard…</option>
+                {guards.map((g) => (
+                  <option key={g.id} value={g.id}>
+                    {g.employeeNumber}
+                    {g.fullName ? ` — ${g.fullName}` : ''}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="text-sm font-medium text-[#323130]">Site</label>
+              <select
+                className={inputCls}
+                value={formSiteId}
+                onChange={(e) => setFormSiteId(e.target.value)}
+                required
+              >
+                <option value="">Select site…</option>
+                {sites.map((s) => (
+                  <option key={s.id} value={s.id}>
+                    {s.code} — {s.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="text-sm font-medium text-[#323130]">
+                Due at
+              </label>
+              <input
+                className={inputCls}
+                type="datetime-local"
+                value={formAt}
+                onChange={(e) => setFormAt(e.target.value)}
+                required
+              />
+            </div>
+            <div className="flex justify-end gap-2 pt-2">
+              <button
+                type="button"
+                onClick={() => setScheduleOpen(false)}
+                className={btnSecondary}
+              >
+                Cancel
+              </button>
+              <button type="submit" className={btnPrimary} disabled={saving}>
+                {saving ? 'Scheduling…' : 'Schedule'}
+              </button>
+            </div>
+          </form>
+        </Modal>
+      ) : null}
     </BranchShell>
   );
 }

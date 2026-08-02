@@ -9,16 +9,8 @@ import {
   type TrainingRecord,
   type TrainingStatus,
 } from '@pssms/api-client';
-import {
-  DataTable,
-  GlassCard,
-  Modal,
-  StatusBadge,
-  btnPrimary,
-  btnSecondary,
-  inputCls,
-} from '@pssms/ui';
-import { GraduationCap, Plus, RefreshCw } from 'lucide-react';
+import { Modal, btnPrimary, btnSecondary, inputCls } from '@pssms/ui';
+import { GraduationCap, Plus, RefreshCw, Search } from 'lucide-react';
 import {
   FormEvent,
   useCallback,
@@ -26,10 +18,9 @@ import {
   useMemo,
   useState,
 } from 'react';
+import { TrainingRoster } from '../_components/HrRosters';
 import { HrShell } from '../_components/HrShell';
 import { PanelEmpty, formatDate } from '../_components/shared';
-
-const norm = (s: string) => s.trim().toLowerCase().replace(/[\s-]+/g, '_');
 
 export default function HrTrainingPage() {
   const [employees, setEmployees] = useState<Employee[]>([]);
@@ -38,6 +29,7 @@ export default function HrTrainingPage() {
   const [error, setError] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState('');
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -65,6 +57,19 @@ export default function HrTrainingPage() {
     for (const e of employees) map.set(e.id, e.fullName);
     return map;
   }, [employees]);
+
+  const filtered = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (!q) return rows;
+    return rows.filter((r) => {
+      const name = (employeeName.get(r.employeeId) ?? '').toLowerCase();
+      return (
+        name.includes(q) ||
+        r.title.toLowerCase().includes(q) ||
+        (r.provider ?? '').toLowerCase().includes(q)
+      );
+    });
+  }, [rows, query, employeeName]);
 
   const setStatus = async (id: string, status: TrainingStatus) => {
     setBusyId(id);
@@ -113,110 +118,36 @@ export default function HrTrainingPage() {
         </p>
       ) : null}
 
-      <GlassCard className="!p-0 overflow-hidden">
-        {rows.length === 0 && !loading ? (
-          <div className="p-4">
-            <PanelEmpty
-              icon={<GraduationCap className="h-4 w-4" />}
-              title="No training records"
-              description="Log courses and certifications for employees."
+      <TrainingRoster
+        rows={filtered}
+        loading={loading}
+        employeeName={employeeName}
+        busyId={busyId}
+        onComplete={(id) => void setStatus(id, 'COMPLETED')}
+        onCancel={(id) => void setStatus(id, 'CANCELLED')}
+        toolbar={
+          <label className="flex min-w-0 items-center gap-2 rounded-lg border border-[#e1dfdd] bg-white px-3 py-2 shadow-sm focus-within:border-[#0078d4] focus-within:ring-1 focus-within:ring-[#0078d4]">
+            <Search className="h-4 w-4 shrink-0 text-[#8a8886]" />
+            <input
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="Search employee, course, provider…"
+              className="w-full min-w-0 bg-transparent text-[13px] outline-none placeholder:text-[#a19f9d]"
             />
-          </div>
-        ) : (
-          <DataTable<TrainingRecord>
-            loading={loading}
-            keyField="id"
-            rows={rows}
-            emptyMessage="No training records"
-            columns={[
-              {
-                key: 'employeeId',
-                label: 'Employee',
-                render: (r) =>
-                  employeeName.get(r.employeeId) ?? r.employeeId.slice(0, 8),
-              },
-              {
-                key: 'title',
-                label: 'Title',
-                render: (r) => (
-                  <span className="font-medium text-[#1b1a19]">{r.title}</span>
-                ),
-              },
-              {
-                key: 'provider',
-                label: 'Provider',
-                render: (r) => (
-                  <span className="text-xs text-[#605e5c]">
-                    {r.provider ?? '—'}
-                  </span>
-                ),
-              },
-              {
-                key: 'startDate',
-                label: 'Start',
-                render: (r) => formatDate(r.startDate),
-              },
-              {
-                key: 'endDate',
-                label: 'End',
-                render: (r) => formatDate(r.endDate),
-              },
-              {
-                key: 'status',
-                label: 'Status',
-                render: (r) => <StatusBadge status={r.status} />,
-              },
-              {
-                key: 'notes',
-                label: 'Notes',
-                render: (r) =>
-                  r.notes ? (
-                    <span
-                      className="max-w-[160px] truncate text-xs text-[#605e5c]"
-                      title={r.notes}
-                    >
-                      {r.notes}
-                    </span>
-                  ) : (
-                    <span className="text-[11px] text-[#a19f9d]">—</span>
-                  ),
-              },
-              {
-                key: 'id',
-                label: '',
-                render: (r) => {
-                  const planned = norm(r.status) === 'planned';
-                  if (!planned) {
-                    return (
-                      <span className="text-[11px] text-[#a19f9d]">—</span>
-                    );
-                  }
-                  return (
-                    <div className="flex flex-wrap gap-1">
-                      <button
-                        type="button"
-                        className={btnPrimary}
-                        disabled={busyId === r.id}
-                        onClick={() => void setStatus(r.id, 'COMPLETED')}
-                      >
-                        Complete
-                      </button>
-                      <button
-                        type="button"
-                        className={btnSecondary}
-                        disabled={busyId === r.id}
-                        onClick={() => void setStatus(r.id, 'CANCELLED')}
-                      >
-                        Cancel
-                      </button>
-                    </div>
-                  );
-                },
-              },
-            ]}
+          </label>
+        }
+        empty={
+          <PanelEmpty
+            icon={<GraduationCap className="h-4 w-4" />}
+            title={rows.length === 0 ? 'No training records' : 'No matches'}
+            description={
+              rows.length === 0
+                ? 'Log courses and certifications for employees.'
+                : 'Try another search.'
+            }
           />
-        )}
-      </GlassCard>
+        }
+      />
 
       {open ? (
         <CreateTrainingModal

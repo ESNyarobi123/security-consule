@@ -59,6 +59,28 @@ export class AlertnessController {
     return this.service.listPending(user, guardId);
   }
 
+  @Post('scan-missed')
+  @UseGuards(PermissionsGuard)
+  @RequireAnyPermissions('operations.manage', 'attendance.manage')
+  @ApiOperation({
+    summary:
+      'Mark past-due SCHEDULED alertness as MISSED + FieldAlert (ALERTNESS_MISSED)',
+    description:
+      'Default grace 0 minutes (due when scheduledAt passes). Worker: ALERTNESS_MISS_SCAN_ENABLED.',
+  })
+  @ApiQuery({ name: 'graceMinutes', required: false, type: Number })
+  scanMissed(
+    @CurrentUser() user: AuthUser,
+    @Query('graceMinutes') graceMinutes?: string,
+  ) {
+    const grace = graceMinutes ? Number(graceMinutes) : 0;
+    return this.service.scanMissed(
+      user.organizationId,
+      user,
+      Number.isFinite(grace) && grace >= 0 ? grace : 0,
+    );
+  }
+
   @Post(':id/missed')
   @UseGuards(PermissionsGuard)
   @RequireAnyPermissions('operations.manage', 'attendance.manage')

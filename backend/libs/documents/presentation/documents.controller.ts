@@ -42,16 +42,16 @@ type MultipartFilePart = {
 @ApiTags('Documents')
 @ApiBearerAuth()
 @UseGuards(PermissionsGuard)
-@RequirePermissions('documents.manage')
 @Controller('documents')
 export class DocumentsController {
   constructor(private readonly service: DocumentsService) {}
 
   @Post('upload')
+  @RequirePermissions('documents.manage')
   @ApiOperation({
     summary: 'Upload document to MinIO and store metadata',
     description:
-      'Multipart: file + resourceType + resourceId. Max 10MB; pdf/png/jpeg/webp. Requires documents.manage plus parent domain permission (OccurrenceEntry → operations.manage, PettyCashVoucher → finance.manage) and org ownership of the parent resource.',
+      'Multipart: file + resourceType + resourceId. Max 10MB; pdf/png/jpeg/webp. Requires documents.manage plus parent domain permission (OccurrenceEntry → operations.manage, PettyCashVoucher → finance.manage, Customer → customers.manage, Contract → contracts.manage) and org ownership of the parent resource.',
   })
   @ApiConsumes('multipart/form-data')
   @ApiBody({
@@ -62,7 +62,13 @@ export class DocumentsController {
         file: { type: 'string', format: 'binary' },
         resourceType: {
           type: 'string',
-          example: 'OccurrenceEntry',
+          example: 'Contract',
+          enum: [
+            'OccurrenceEntry',
+            'PettyCashVoucher',
+            'Customer',
+            'Contract',
+          ],
         },
         resourceId: { type: 'string', format: 'uuid' },
       },
@@ -118,7 +124,7 @@ export class DocumentsController {
   @ApiOperation({
     summary: 'List document metadata for a resource',
     description:
-      'Same ownership + parent-permission checks as upload (by resourceType/resourceId).',
+      'Staff: documents.manage + parent permission. Customer portal: read-only on own Customer or Contract resourceId.',
   })
   @ApiOkResponse({ type: [DocumentObjectResponseDto] })
   list(
@@ -132,7 +138,7 @@ export class DocumentsController {
   @ApiOperation({
     summary: 'Short-lived presigned GET URL for object',
     description:
-      'Resolves the document’s resourceType/resourceId and applies the same ownership + parent-permission checks as upload.',
+      'Same ownership + authz as list (portal: own Customer / Contract attachments).',
   })
   @ApiOkResponse({ type: DocumentDownloadUrlResponseDto })
   downloadUrl(@Param('id') id: string, @CurrentUser() user: AuthUser) {

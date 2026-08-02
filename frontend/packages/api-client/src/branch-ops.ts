@@ -101,6 +101,10 @@ export type Deployment = {
   id: string;
   guardId: string;
   siteId: string;
+  /** Required on create (G2); null on legacy seed rows until backfilled. */
+  contractId?: string | null;
+  contractNumber?: string | null;
+  customerId?: string | null;
   status: string;
   startDate: string;
   endDate?: string | null;
@@ -125,6 +129,9 @@ export type FieldAlert = {
   message: string;
   acknowledged: boolean;
   acknowledgedBy?: string | null;
+  escalationStage: string;
+  escalatedAt?: string | null;
+  escalatedBy?: string | null;
   createdAt: string;
 };
 
@@ -135,6 +142,13 @@ export type AttendanceRecord = {
   shiftId?: string | null;
   clockInAt: string;
   clockOutAt?: string | null;
+  clockInMethod: string;
+  clockOutMethod?: string | null;
+  geofenceWarning: boolean;
+  isLate: boolean;
+  lateMinutes: number;
+  isOvertime: boolean;
+  overtimeMinutes: number;
   supervisorApproved: boolean;
   remarks?: string | null;
   syncStatus: string;
@@ -177,7 +191,8 @@ export const createDeployment = (
   body: {
     guardId: string;
     siteId: string;
-    contractId?: string;
+    /** Billable contract covering the site (ContractSite). */
+    contractId: string;
     startDate: string;
     endDate?: string;
   },
@@ -220,7 +235,11 @@ export const createShift = (
   });
 
 export const listFieldAlerts = (
-  params?: { siteId?: string; acknowledged?: boolean },
+  params?: {
+    siteId?: string;
+    acknowledged?: boolean;
+    escalationStage?: string;
+  },
   token?: string,
 ) => {
   const sp = new URLSearchParams();
@@ -228,11 +247,21 @@ export const listFieldAlerts = (
   if (typeof params?.acknowledged === 'boolean') {
     sp.set('acknowledged', String(params.acknowledged));
   }
+  if (params?.escalationStage) {
+    sp.set('escalationStage', params.escalationStage);
+  }
   const q = sp.toString() ? `?${sp}` : '';
   return coreFetch<FieldAlert[]>(`/api/v1/attendance/field-alerts${q}`, {
     token,
   });
 };
+
+export const escalateFieldAlert = (id: string, token?: string) =>
+  coreFetch<FieldAlert>(`/api/v1/attendance/field-alerts/${id}/escalate`, {
+    method: 'POST',
+    body: '{}',
+    token,
+  });
 
 export const acknowledgeFieldAlert = (id: string, token?: string) =>
   coreFetch<FieldAlert>(`/api/v1/attendance/field-alerts/${id}/acknowledge`, {
@@ -262,6 +291,45 @@ export const listAttendance = (
   return coreFetch<AttendanceRecord[]>(`/api/v1/attendance${q}`, { token });
 };
 
+/** POST /attendance/:id/approve — supervisor verify; guard ≠ approver (SoD). */
+export const approveAttendance = (id: string, token?: string) =>
+  coreFetch<AttendanceRecord>(`/api/v1/attendance/${id}/approve`, {
+    method: 'POST',
+    body: '{}',
+    token,
+  });
+
+export type SupervisorClockInResult = {
+  id: string;
+  guardId: string;
+  siteId: string;
+  clockInAt: string;
+  clockOutAt?: string | null;
+  syncStatus: string;
+  geofenceVerified?: boolean;
+  alertnessChecksScheduled?: number;
+};
+
+/** POST /attendance/supervisor-clock-in — manual punch when guard app fails. */
+export const supervisorClockIn = (
+  body: {
+    guardId: string;
+    siteId: string;
+    shiftId?: string;
+    remarks?: string;
+    gps?: { latitude: number; longitude: number; gpsTime?: string };
+  },
+  token?: string,
+) =>
+  coreFetch<SupervisorClockInResult>(
+    '/api/v1/attendance/supervisor-clock-in',
+    {
+      method: 'POST',
+      body: JSON.stringify(body),
+      token,
+    },
+  );
+
 /**
  * Pending alertness checks (SCHEDULED). Non-guard supervisors see org-wide;
  * guards without guardId see only their own (mobile self-service).
@@ -276,6 +344,47 @@ export const listPendingAlertness = (
   return coreFetch<PendingAlertness[]>(
     `/api/v1/attendance/alertness/pending${q}`,
     { token },
+  );
+};
+
+export const scheduleAlertness = (
+  body: {
+    guardId: string;
+    siteId: string;
+    shiftId?: string;
+    scheduledAt: string;
+  },
+  token?: string,
+) =>
+  coreFetch<PendingAlertness>('/api/v1/attendance/alertness/schedule', {
+    method: 'POST',
+    body: JSON.stringify(body),
+    token,
+  });
+
+export const markAlertnessMissed = (id: string, token?: string) =>
+  coreFetch<PendingAlertness>(`/api/v1/attendance/alertness/${id}/missed`, {
+    method: 'POST',
+    body: '{}',
+    token,
+  });
+
+export type AlertnessScanMissedResult = {
+  markedMissed: number;
+  referenceNumbers: string[];
+};
+
+export const scanMissedAlertness = (
+  graceMinutes = 0,
+  token?: string,
+) => {
+  const q =
+    graceMinutes > 0
+      ? `?graceMinutes=${encodeURIComponent(String(graceMinutes))}`
+      : '';
+  return coreFetch<AlertnessScanMissedResult>(
+    `/api/v1/attendance/alertness/scan-missed${q}`,
+    { method: 'POST', token },
   );
 };
 
@@ -431,6 +540,77 @@ export const listPatrolScans = (siteId?: string, token?: string) => {
   return coreFetch<PatrolScan[]>(`/api/v1/attendance/patrols${q}`, { token });
 };
 
+export type PatrolRouteCoverage = 'NOT_STARTED' | 'IN_PROGRESS' | 'COMPLETED';
+export type PatrolSlaStatus = 'OK' | 'ON_TRACK' | 'LATE' | 'MISSED';
+
+export type PatrolRoute = {
+  id: string;
+  siteId: string;
+  siteCode?: string;
+  siteName?: string;
+  name: string;
+  checkpointIds: string[];
+  checkpoints: { id: string; code: string; name: string }[];
+  checkpointCount: number;
+  scannedToday: number;
+  coverageStatus: PatrolRouteCoverage;
+  slaStatus: PatrolSlaStatus;
+  dueMinutesFromMidnight: number;
+  dueAt: string;
+  openPatrolAlertId?: string | null;
+  isActive: boolean;
+  createdAt: string;
+};
+
+export type PatrolScanMissedResult = {
+  markedMissed: number;
+  routeIds: string[];
+  routeNames: string[];
+};
+
+export const listPatrolRoutes = (siteId?: string, token?: string) => {
+  const q = siteId ? `?siteId=${encodeURIComponent(siteId)}` : '';
+  return coreFetch<PatrolRoute[]>(`/api/v1/operations/patrol-routes${q}`, {
+    token,
+  });
+};
+
+export const createPatrolRoute = (
+  body: {
+    siteId: string;
+    name: string;
+    checkpointIds: string[];
+    dueMinutesFromMidnight?: number;
+  },
+  token?: string,
+) =>
+  coreFetch<PatrolRoute>('/api/v1/operations/patrol-routes', {
+    method: 'POST',
+    body: JSON.stringify(body),
+    token,
+  });
+
+/** Mark past-due incomplete routes MISSED + FieldAlert PATROL_MISSED. */
+export const scanMissedPatrolRoutes = (
+  graceMinutes = 0,
+  token?: string,
+) => {
+  const q =
+    graceMinutes > 0
+      ? `?graceMinutes=${encodeURIComponent(String(graceMinutes))}`
+      : '';
+  return coreFetch<PatrolScanMissedResult>(
+    `/api/v1/operations/patrol-routes/scan-missed${q}`,
+    { method: 'POST', token },
+  );
+};
+
+export const markPatrolRouteMissed = (id: string, token?: string) =>
+  coreFetch<PatrolRoute>(`/api/v1/operations/patrol-routes/${id}/mark-missed`, {
+    method: 'POST',
+    token,
+  });
+
 /** Incident — create/list/status require `incidents.manage`. */
 export type IncidentSeverity = 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL';
 export type IncidentStatus =
@@ -450,9 +630,13 @@ export type Incident = {
   status: IncidentStatus;
   title: string;
   description: string;
+  reporterId: string;
   assignedTo?: string | null;
   resolvedAt?: string | null;
   createdAt: string;
+  allowedNextStatuses?: IncidentStatus[];
+  blockedReason?: string;
+  requiredRoleHint?: string;
 };
 
 export const listIncidents = (

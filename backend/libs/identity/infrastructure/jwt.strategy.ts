@@ -148,6 +148,7 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
       allowedSiteIds: payload.allowedSiteIds ?? [],
       customerId: payload.customerId ?? null,
       supplierId: payload.supplierId ?? null,
+      mustChangePassword: payload.mustChangePassword === true,
     };
   }
 }

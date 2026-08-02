@@ -2,6 +2,116 @@
 @tailwind components;
 @tailwind utilities;
 
+:root {
+  --hl-blue: #2563eb;
+  --hl-blue-hover: #1d4ed8;
+  --hl-ink: #0f172a;
+  --hl-muted: #64748b;
+  --hl-border: #e2e8f0;
+  --hl-sidebar: #f1f5f9;
+  --hl-bg: #ffffff;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
 body {
-  @apply bg-slate-100 text-slate-900 antialiased;
+  margin: 0;
+  color: var(--hl-ink);
+  background: var(--hl-bg);
+  font-family: var(--font-body), ui-sans-serif, system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+.font-display {
+  font-family: var(--font-display), ui-sans-serif, system-ui, sans-serif;
+}
+
+/* Clean form controls — match reference */
+.hl-label {
+  display: block;
+  margin-bottom: 0.4rem;
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: #0f172a;
+}
+
+.hl-input {
+  display: block;
+  width: 100%;
+  border: 1px solid var(--hl-border);
+  border-radius: 0.375rem;
+  background: #fff;
+  padding: 0.65rem 0.85rem;
+  font-size: 0.9375rem;
+  color: #0f172a;
+  outline: none;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+
+.hl-input::placeholder {
+  color: #94a3b8;
+}
+
+.hl-input:focus {
+  border-color: var(--hl-blue);
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.12);
+}
+
+textarea.hl-input {
+  min-height: 6.5rem;
+  resize: vertical;
+}
+
+.hl-submit {
+  display: block;
+  width: 100%;
+  border: none;
+  border-radius: 0.5rem;
+  background: var(--hl-blue);
+  padding: 0.85rem 1rem;
+  font-size: 1rem;
+  font-weight: 600;
+  color: #fff;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.hl-submit:hover:not(:disabled) {
+  background: var(--hl-blue-hover);
+}
+
+.hl-submit:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.hl-nav-link {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  border-radius: 0.5rem;
+  padding: 0.55rem 0.75rem;
+  font-size: 0.9rem;
+  font-weight: 500;
+  color: #334155;
+  text-decoration: none;
+  transition: background 0.12s, color 0.12s;
+}
+
+.hl-nav-link:hover {
+  background: #e2e8f0;
+  color: #0f172a;
+}
+
+.hl-nav-link[data-active='true'] {
+  background: #dbeafe;
+  color: #1d4ed8;
+}
+
+@media print {
+  .no-print {
+    display: none !important;
+  }
 }

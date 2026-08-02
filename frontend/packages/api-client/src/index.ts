@@ -15,6 +15,7 @@ export type LoginResult = {
     permissions: string[];
     customerId?: string | null;
     supplierId?: string | null;
+    mustChangePassword?: boolean;
   };
 };
 
@@ -26,6 +27,26 @@ export type KpiItem = {
   value: number;
   source: 'live' | 'snapshot';
   asOf: string;
+  breakdown?: Record<string, unknown>;
+};
+
+export type KpiDrilldown = {
+  code: string;
+  name: string;
+  category: string;
+  unit: string;
+  value: number;
+  source: 'live' | 'snapshot';
+  asOf: string;
+  period: { from: string; to: string };
+  breakdown?: Record<string, unknown>;
+  bySite: {
+    siteId: string;
+    siteCode: string;
+    siteName: string;
+    value: number;
+  }[];
+  notes: string[];
 };
 
 export type ExecutiveDashboard = {
@@ -46,7 +67,24 @@ const reportingUrl = () =>
 
 async function parseEnvelope<T>(res: Response): Promise<T> {
   if (!res.ok) {
-    throw new Error(await res.text());
+    const text = await res.text();
+    try {
+      const json = JSON.parse(text) as {
+        error?: { code?: string; message?: string };
+        message?: string | string[];
+      };
+      const code = json.error?.code;
+      const msg = Array.isArray(json.message)
+        ? json.message.join(', ')
+        : json.error?.message ?? json.message ?? text;
+      const err = new Error(String(msg));
+      (err as Error & { status?: number; code?: string }).status = res.status;
+      (err as Error & { status?: number; code?: string }).code = code;
+      throw err;
+    } catch (e) {
+      if (e instanceof Error && (e as { status?: number }).status) throw e;
+      throw new Error(text);
+    }
   }
   const json = (await res.json()) as ApiEnvelope<T>;
   return json.data;
@@ -59,6 +97,16 @@ export async function login(email: string, password: string) {
     body: JSON.stringify({ email, password }),
   });
   return parseEnvelope<LoginResult>(res);
+}
+
+/** Exchange refresh token for a new access + refresh pair. */
+export async function refreshSession(refreshToken: string) {
+  const res = await fetch(`${coreUrl()}/api/v1/auth/refresh`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ refreshToken }),
+  });
+  return parseEnvelope<LoginResult['tokens']>(res);
 }
 
 export type OidcPublicConfig = {
@@ -124,6 +172,22 @@ export async function getReportingHealth(token: string) {
   return parseEnvelope<{ status: string; analyticsAi: { status: string } }>(
     res,
   );
+}
+
+export async function getKpiDrilldown(
+  token: string,
+  code: string,
+  params?: { from?: string; to?: string },
+) {
+  const url = new URL(
+    `${reportingUrl()}/api/v1/reporting/kpis/${encodeURIComponent(code)}/drilldown`,
+  );
+  if (params?.from) url.searchParams.set('from', params.from);
+  if (params?.to) url.searchParams.set('to', params.to);
+  const res = await fetch(url.toString(), {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  return parseEnvelope<KpiDrilldown>(res);
 }
 
 export function executiveDashboardExportUrl(

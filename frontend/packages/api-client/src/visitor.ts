@@ -36,17 +36,39 @@ export type CreatePublicAppointmentInput = {
 };
 
 /**
- * Optional backend helper — may 404 until implemented.
- * Callers should fall back to NEXT_PUBLIC_* env vars.
+ * Demo org/customer/site IDs for public visitor-web.
+ * Returns null only when the endpoint is missing (true 404 without body) or network fails —
+ * callers fall back to NEXT_PUBLIC_* env vars.
  */
 export async function getVisitorPublicConfig(): Promise<VisitorPublicConfig | null> {
+  let res: Response;
   try {
-    const res = await fetch(`${coreUrl()}/api/v1/visitors/public-config`);
-    if (res.status === 404) return null;
-    return parseEnvelope<VisitorPublicConfig>(res);
+    res = await fetch(`${coreUrl()}/api/v1/visitors/public-config`);
   } catch {
+    // Network / CORS — caller falls back to NEXT_PUBLIC_* env.
     return null;
   }
+  if (!res.ok) {
+    const text = await res.text();
+    try {
+      const json = JSON.parse(text) as {
+        error?: { message?: string };
+        message?: string;
+      };
+      const msg =
+        json.error?.message ?? json.message ?? `public-config ${res.status}`;
+      // Missing endpoint → soft null; other API errors surface to UI.
+      if (res.status === 404 && /not found/i.test(String(msg)) && !/demo/i.test(String(msg))) {
+        return null;
+      }
+      throw new Error(msg);
+    } catch (e) {
+      if (e instanceof Error && e.message !== text) throw e;
+      if (res.status === 404) return null;
+      throw new Error(text || `public-config ${res.status}`);
+    }
+  }
+  return parseEnvelope<VisitorPublicConfig>(res);
 }
 
 /** Public POST /visitors/appointments — never exposes gate verify/approve. */

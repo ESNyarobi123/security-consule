@@ -7,6 +7,7 @@ import {
   Query,
   Res,
   StreamableFile,
+  UseGuards,
 } from '@nestjs/common';
 import type { FastifyReply } from 'fastify';
 import {
@@ -17,7 +18,12 @@ import {
   ApiTags,
 } from '@nestjs/swagger';
 import { KpiPeriodGranularity } from '@prisma/client';
-import { AuthUser, CurrentUser } from '@pssms/shared';
+import {
+  AuthUser,
+  CurrentUser,
+  PermissionsGuard,
+  RequirePermissions,
+} from '@pssms/shared';
 import { DashboardService } from '../application/dashboard.service';
 import { KpiService } from '../application/kpi.service';
 import { AnalyticsBridgeService } from '../application/analytics-bridge.service';
@@ -28,6 +34,7 @@ import {
   ExecutiveDashboardQueryDto,
   ExecutiveDashboardResponseDto,
   ForecastInsightDto,
+  KpiDrilldownResponseDto,
   KpiItemDto,
   RefreshKpisDto,
   ReportingHealthDto,
@@ -35,6 +42,8 @@ import {
 
 @ApiTags('Reporting')
 @ApiBearerAuth()
+@UseGuards(PermissionsGuard)
+@RequirePermissions('reporting.read')
 @Controller('reporting')
 export class ReportingController {
   constructor(
@@ -139,6 +148,30 @@ export class ReportingController {
     return this.kpis.computeAll(user.organizationId, fromDate, toDate, codeList, {
       siteId,
     });
+  }
+
+  @Get('kpis/:code/drilldown')
+  @ApiOperation({
+    summary:
+      'Executive KPI drill-down — scalar + real by-site split (thin, no fake trends)',
+  })
+  @ApiOkResponse({ type: KpiDrilldownResponseDto })
+  async kpiDrilldown(
+    @Param('code') code: string,
+    @CurrentUser() user: AuthUser,
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+  ) {
+    const toDate = to ? new Date(to) : new Date();
+    const fromDate = from
+      ? new Date(from)
+      : new Date(toDate.getFullYear(), toDate.getMonth(), 1);
+    return this.kpis.drilldown(
+      code,
+      user.organizationId,
+      fromDate,
+      toDate,
+    );
   }
 
   @Get('kpis/:code')

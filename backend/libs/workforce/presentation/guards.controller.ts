@@ -24,6 +24,8 @@ import { GuardsService } from '../application/guards.service';
 import {
   CreateGuardDto,
   GuardResponseDto,
+  LinkableGuardUserDto,
+  UpdateGuardReadinessDto,
   UpdateGuardStatusDto,
 } from './dto/guard.dto';
 
@@ -49,8 +51,20 @@ export class GuardsController {
     return this.service.list(user.organizationId);
   }
 
+  @Get('linkable-users')
+  @ApiOperation({
+    summary: 'Active org users without a GuardProfile (create picker)',
+  })
+  @ApiOkResponse({ type: [LinkableGuardUserDto] })
+  listLinkableUsers(@CurrentUser() user: AuthUser) {
+    return this.service.listLinkableUsers(user.organizationId, user);
+  }
+
   @Patch(':id/status')
-  @ApiOperation({ summary: 'Update guard status / deployment eligibility' })
+  @ApiOperation({
+    summary:
+      'Update guard status / deployment eligibility (G3: readiness incomplete does not hard-block)',
+  })
   @ApiOkResponse({ type: GuardResponseDto })
   updateStatus(
     @Param('id') id: string,
@@ -63,5 +77,19 @@ export class GuardsController {
       dto.deploymentEligible,
       user,
     );
+  }
+
+  @Patch(':id/readiness')
+  @ApiOperation({
+    summary:
+      'Thin G3 readiness checklist (training / clearance / firearm flags)',
+  })
+  @ApiOkResponse({ type: GuardResponseDto })
+  updateReadiness(
+    @Param('id') id: string,
+    @Body() dto: UpdateGuardReadinessDto,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.service.updateReadiness(id, dto, user);
   }
 }

@@ -3,6 +3,7 @@ import {
   Injectable,
   NotFoundException,
   BadRequestException,
+  ConflictException,
 } from '@nestjs/common';
 import { ShiftStatus, AttendanceMethod } from '@prisma/client';
 import {
@@ -29,12 +30,27 @@ export interface DevicePunchResult {
 }
 import { AuditService } from '@pssms/audit';
 import { GuardsService } from '@pssms/workforce';
+import { AlertnessService } from './alertness.service';
 import {
   AttendanceListItemDto,
   AttendanceResponseDto,
   ClockInDto,
   ClockOutDto,
+  SupervisorClockInDto,
 } from '../presentation/dto/attendance.dto';
+
+/** Staff roles that may approve / supervisor-punch despite also holding GUARD. */
+const ATTENDANCE_SUPERVISE_ROLES = new Set([
+  'SUPER_ADMIN',
+  'GENERAL_MANAGER',
+  'HR_OFFICER',
+  'SUPERVISOR',
+  'DEVELOPER',
+  'CEO',
+  'CMD',
+  'LEGAL',
+  'MARKETING',
+]);
 
 @Injectable()
 export class AttendanceService {
@@ -42,7 +58,24 @@ export class AttendanceService {
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
     private readonly guards: GuardsService,
+    private readonly alertness: AlertnessService,
   ) {}
+
+  /**
+   * Seeded GUARD also has operations.manage / attendance.manage for mobile.
+   * Approve + supervisor punch stay staff-only (same pattern as G1 guard admin).
+   */
+  private assertCanSuperviseAttendance(user: AuthUser): void {
+    if (
+      user.roles.includes('GUARD') &&
+      !user.roles.some((r) => ATTENDANCE_SUPERVISE_ROLES.has(r))
+    ) {
+      throw new ForbiddenException({
+        error: 'FORBIDDEN',
+        message: 'Guards cannot approve or supervisor-punch attendance',
+      });
+    }
+  }
 
   async clockIn(dto: ClockInDto, user: AuthUser): Promise<AttendanceResponseDto> {
     if (dto.clientEventId) {
@@ -99,16 +132,151 @@ export class AttendanceService {
       });
     }
 
+    const auto = await this.alertness.scheduleForDuty({
+      organizationId: user.organizationId,
+      actorId: user.id,
+      guardId: guard.id,
+      siteId: dto.siteId,
+      shiftId: dto.shiftId,
+      clockInAt: serverNow,
+    });
+
     await this.audit.record({
       organizationId: user.organizationId,
       actorId: user.id,
       action: 'guard.clocked-in',
       resourceType: 'GuardAttendance',
       resourceId: attendance.id,
-      after: { ...attendance, geofenceVerified: geofenceOk },
+      after: {
+        ...attendance,
+        geofenceVerified: geofenceOk,
+        alertnessChecksScheduled: auto.scheduled,
+      },
     });
 
-    return this.toDto(attendance, geofenceOk);
+    return this.toDto(attendance, geofenceOk, auto.scheduled);
+  }
+
+  /** Supervisor manual clock-in when guard mobile punch fails (method SUPERVISOR). */
+  async supervisorClockIn(
+    dto: SupervisorClockInDto,
+    user: AuthUser,
+  ): Promise<AttendanceResponseDto> {
+    this.assertCanSuperviseAttendance(user);
+
+    const guard = await this.prisma.guardProfile.findFirst({
+      where: { id: dto.guardId, organizationId: user.organizationId },
+    });
+    if (!guard) throw new NotFoundException('Guard not found');
+    if (guard.status === 'TERMINATED' || guard.status === 'SUSPENDED') {
+      throw new BadRequestException(
+        `Guard status ${guard.status} cannot clock in`,
+      );
+    }
+
+    const site = await this.prisma.site.findFirst({
+      where: { id: dto.siteId, organizationId: user.organizationId },
+    });
+    if (!site) throw new NotFoundException('Site not found');
+
+    if (dto.shiftId) {
+      const shift = await this.prisma.shift.findFirst({
+        where: {
+          id: dto.shiftId,
+          organizationId: user.organizationId,
+          siteId: dto.siteId,
+        },
+        select: { id: true },
+      });
+      if (!shift) throw new NotFoundException('Shift not found');
+    }
+
+    const open = await this.prisma.guardAttendance.findFirst({
+      where: {
+        organizationId: user.organizationId,
+        guardId: guard.id,
+        clockOutAt: null,
+      },
+    });
+    if (open) {
+      throw new ConflictException({
+        error: 'OPEN_ATTENDANCE_EXISTS',
+        message: 'Guard already has an open attendance record',
+        attendanceId: open.id,
+      });
+    }
+
+    const noGps = !dto.gps;
+    const latitude = dto.gps?.latitude ?? site.latitude ?? 0;
+    const longitude = dto.gps?.longitude ?? site.longitude ?? 0;
+
+    let geofenceOk = true;
+    if (dto.gps) {
+      geofenceOk = this.verifyGeofence(
+        latitude,
+        longitude,
+        site.latitude,
+        site.longitude,
+      );
+    }
+
+    const remarkParts: string[] = [];
+    if (dto.remarks?.trim()) remarkParts.push(dto.remarks.trim());
+    if (noGps) remarkParts.push('NO_GPS');
+    else if (!geofenceOk) remarkParts.push('GEOFENCE_WARNING');
+
+    const serverNow = new Date();
+    const attendance = await this.prisma.guardAttendance.create({
+      data: {
+        organizationId: user.organizationId,
+        guardId: guard.id,
+        siteId: dto.siteId,
+        shiftId: dto.shiftId,
+        clockInAt: serverNow,
+        clockInMethod: AttendanceMethod.SUPERVISOR,
+        clockInLatitude: latitude,
+        clockInLongitude: longitude,
+        deviceClockInAt: serverNow,
+        serverReceivedAt: serverNow,
+        remarks: remarkParts.length ? remarkParts.join('; ') : undefined,
+      },
+    });
+
+    if (dto.shiftId) {
+      await this.prisma.shift.updateMany({
+        where: {
+          id: dto.shiftId,
+          organizationId: user.organizationId,
+          status: ShiftStatus.SCHEDULED,
+        },
+        data: { status: ShiftStatus.ACTIVE },
+      });
+    }
+
+    const auto = await this.alertness.scheduleForDuty({
+      organizationId: user.organizationId,
+      actorId: user.id,
+      guardId: guard.id,
+      siteId: dto.siteId,
+      shiftId: dto.shiftId,
+      clockInAt: serverNow,
+    });
+
+    await this.audit.record({
+      organizationId: user.organizationId,
+      actorId: user.id,
+      action: 'attendance.supervisor-clock-in',
+      resourceType: 'GuardAttendance',
+      resourceId: attendance.id,
+      after: {
+        ...attendance,
+        geofenceVerified: geofenceOk,
+        alertnessChecksScheduled: auto.scheduled,
+        supervisorActorId: user.id,
+      },
+    });
+
+    return this.toDto(attendance, geofenceOk, auto.scheduled);
   }
 
   async clockOut(dto: ClockOutDto, user: AuthUser): Promise<AttendanceResponseDto> {
@@ -239,13 +407,24 @@ export class AttendanceService {
         clientEventId: dto.clientEventId,
       },
     });
+    const auto = await this.alertness.scheduleForDuty({
+      organizationId: user.organizationId,
+      actorId: user.id,
+      guardId: guard.id,
+      siteId: dto.siteId,
+      clockInAt: serverNow,
+    });
     await this.audit.record({
       organizationId: user.organizationId,
       actorId: user.id,
       action: 'guard.clocked-in',
       resourceType: 'GuardAttendance',
       resourceId: created.id,
-      after: { ...created, via: 'device' },
+      after: {
+        ...created,
+        via: 'device',
+        alertnessChecksScheduled: auto.scheduled,
+      },
     });
     return { id: created.id, action: 'clock-in' };
   }
@@ -293,17 +472,42 @@ export class AttendanceService {
       orderBy: { clockInAt: 'desc' },
       take: 100,
     });
-    return rows.map((a) => this.toListItemDto(a));
+    const shiftIds = [
+      ...new Set(
+        rows.map((r) => r.shiftId).filter((id): id is string => id != null),
+      ),
+    ];
+    const shifts =
+      shiftIds.length > 0
+        ? await this.prisma.shift.findMany({
+            where: { organizationId, id: { in: shiftIds } },
+            select: { id: true, startAt: true, endAt: true },
+          })
+        : [];
+    const shiftById = new Map(shifts.map((s) => [s.id, s]));
+
+    return rows.map((a) =>
+      this.enrichListItem(
+        a,
+        a.shiftId ? shiftById.get(a.shiftId) : undefined,
+      ),
+    );
   }
 
   async approve(id: string, user: AuthUser): Promise<AttendanceListItemDto> {
+    this.assertCanSuperviseAttendance(user);
+
     const attendance = await this.prisma.guardAttendance.findFirst({
       where: { id, organizationId: user.organizationId },
     });
     if (!attendance) throw new NotFoundException('Attendance not found');
 
     if (attendance.supervisorApproved) {
-      return this.toListItemDto(attendance);
+      const shift = await this.loadShiftTiming(
+        user.organizationId,
+        attendance.shiftId,
+      );
+      return this.enrichListItem(attendance, shift);
     }
 
     const guard = await this.prisma.guardProfile.findFirst({
@@ -334,7 +538,24 @@ export class AttendanceService {
       after: updated,
     });
 
-    return this.toListItemDto(updated);
+    const shift = await this.loadShiftTiming(
+      user.organizationId,
+      updated.shiftId,
+    );
+    return this.enrichListItem(updated, shift);
+  }
+
+  private async loadShiftTiming(
+    organizationId: string,
+    shiftId: string | null | undefined,
+  ): Promise<{ id: string; startAt: Date; endAt: Date } | undefined> {
+    if (!shiftId) return undefined;
+    return (
+      (await this.prisma.shift.findFirst({
+        where: { id: shiftId, organizationId },
+        select: { id: true, startAt: true, endAt: true },
+      })) ?? undefined
+    );
   }
 
   private verifyGeofence(
@@ -360,6 +581,7 @@ export class AttendanceService {
       remarks?: string | null;
     },
     geofenceVerified: boolean,
+    alertnessChecksScheduled = 0,
   ): AttendanceResponseDto {
     return {
       id: a.id,
@@ -369,20 +591,49 @@ export class AttendanceService {
       clockOutAt: a.clockOutAt,
       syncStatus: a.syncStatus,
       geofenceVerified,
+      alertnessChecksScheduled,
     };
   }
 
-  private toListItemDto(a: {
-    id: string;
-    guardId: string;
-    siteId: string;
-    shiftId: string | null;
-    clockInAt: Date;
-    clockOutAt: Date | null;
-    supervisorApproved: boolean;
-    remarks: string | null;
-    syncStatus: string;
-  }): AttendanceListItemDto {
+  private enrichListItem(
+    a: {
+      id: string;
+      guardId: string;
+      siteId: string;
+      shiftId: string | null;
+      clockInAt: Date;
+      clockOutAt: Date | null;
+      clockInMethod: AttendanceMethod;
+      clockOutMethod: AttendanceMethod | null;
+      supervisorApproved: boolean;
+      remarks: string | null;
+      syncStatus: string;
+    },
+    shift?: { startAt: Date; endAt: Date },
+  ): AttendanceListItemDto {
+    const remarks = a.remarks ?? '';
+    const geofenceWarning = remarks.includes('GEOFENCE_WARNING');
+
+    let isLate = false;
+    let lateMinutes = 0;
+    let isOvertime = false;
+    let overtimeMinutes = 0;
+
+    if (shift) {
+      if (a.clockInAt > shift.startAt) {
+        lateMinutes = Math.ceil(
+          (a.clockInAt.getTime() - shift.startAt.getTime()) / 60000,
+        );
+        isLate = lateMinutes > 0;
+      }
+      if (a.clockOutAt && a.clockOutAt > shift.endAt) {
+        overtimeMinutes = Math.ceil(
+          (a.clockOutAt.getTime() - shift.endAt.getTime()) / 60000,
+        );
+        isOvertime = overtimeMinutes > 0;
+      }
+    }
+
     return {
       id: a.id,
       guardId: a.guardId,
@@ -390,6 +641,13 @@ export class AttendanceService {
       shiftId: a.shiftId,
       clockInAt: a.clockInAt,
       clockOutAt: a.clockOutAt,
+      clockInMethod: a.clockInMethod,
+      clockOutMethod: a.clockOutMethod,
+      geofenceWarning,
+      isLate,
+      lateMinutes,
+      isOvertime,
+      overtimeMinutes,
       supervisorApproved: a.supervisorApproved,
       remarks: a.remarks,
       syncStatus: a.syncStatus,

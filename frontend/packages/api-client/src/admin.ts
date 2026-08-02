@@ -90,61 +90,306 @@ async function coreFetch<T>(
 }
 
 // ── Customers ──
-export type Customer = {
+export type CustomerLifecycleStatus =
+  | 'PROSPECT'
+  | 'ACTIVE'
+  | 'SUSPENDED'
+  | 'TERMINATED';
+
+export type CustomerSiteSummary = {
   id: string;
   code: string;
   name: string;
+  isActive: boolean;
+};
+
+export type Customer = {
+  id: string;
+  organizationId?: string;
+  code: string;
+  name: string;
+  tradingName?: string | null;
+  tin?: string | null;
+  vrn?: string | null;
+  businessLicense?: string | null;
   email?: string | null;
   phone?: string | null;
+  altPhone?: string | null;
+  address?: string | null;
+  postalAddress?: string | null;
+  city?: string | null;
+  region?: string | null;
+  country?: string | null;
+  contactPerson?: string | null;
+  contactDesignation?: string | null;
+  billingEmail?: string | null;
+  opsEmail?: string | null;
+  website?: string | null;
+  category?: string | null;
+  industry?: string | null;
+  ranking?: string | null;
+  status?: CustomerLifecycleStatus;
+  serviceTypes?: string[];
+  preferredStartDate?: string | null;
+  estimatedGuards?: number | null;
+  specialRequirements?: string | null;
+  slaLevel?: string | null;
+  paymentTerms?: string | null;
+  paymentMethod?: string | null;
+  bankName?: string | null;
+  accountNumber?: string | null;
+  creditLimit?: string | null;
+  currency?: string | null;
+  invoiceFrequency?: string | null;
+  taxExempt?: boolean;
+  accountManagerName?: string | null;
+  branchId?: string | null;
   isActive: boolean;
   createdAt: string;
+  updatedAt?: string;
+  siteCount?: number;
+  contractCount?: number;
+  sites?: CustomerSiteSummary[];
+};
+
+export type CreateCustomerBody = {
+  code?: string;
+  name: string;
+  tradingName?: string;
+  category?: string;
+  industry?: string;
+  ranking?: string;
+  status?: CustomerLifecycleStatus;
+  tin?: string;
+  vrn?: string;
+  businessLicense?: string;
+  address?: string;
+  postalAddress?: string;
+  city?: string;
+  region?: string;
+  country?: string;
+  contactPerson?: string;
+  contactDesignation?: string;
+  phone?: string;
+  altPhone?: string;
+  email?: string;
+  billingEmail?: string;
+  opsEmail?: string;
+  website?: string;
+  serviceTypes?: string[];
+  preferredStartDate?: string;
+  estimatedGuards?: number;
+  specialRequirements?: string;
+  slaLevel?: string;
+  paymentTerms?: string;
+  paymentMethod?: string;
+  bankName?: string;
+  accountNumber?: string;
+  creditLimit?: number;
+  currency?: string;
+  invoiceFrequency?: string;
+  taxExempt?: boolean;
+  accountManagerName?: string;
+  branchId?: string;
+  saveAsDraft?: boolean;
+};
+
+export type UpdateCustomerBody = Partial<
+  Omit<
+    CreateCustomerBody,
+    | 'code'
+    | 'saveAsDraft'
+    | 'tin'
+    | 'email'
+    | 'phone'
+    | 'address'
+    | 'contactPerson'
+    | 'contactDesignation'
+    | 'city'
+    | 'billingEmail'
+  >
+> & {
+  tin?: string | null;
+  email?: string | null;
+  phone?: string | null;
+  address?: string | null;
+  contactPerson?: string | null;
+  contactDesignation?: string | null;
+  city?: string | null;
+  billingEmail?: string | null;
+  isActive?: boolean;
 };
 
 export const listCustomers = (token?: string) =>
   coreFetch<Customer[]>('/api/v1/customers', { token });
 
-export const createCustomer = (
-  body: { code: string; name: string; email?: string; phone?: string },
-  token?: string,
-) =>
+export const getCustomer = (id: string, token?: string) =>
+  coreFetch<Customer>(`/api/v1/customers/${id}`, { token });
+
+export const createCustomer = (body: CreateCustomerBody, token?: string) =>
   coreFetch<Customer>('/api/v1/customers', {
     method: 'POST',
     body: JSON.stringify(body),
     token,
   });
 
+export const updateCustomer = (
+  id: string,
+  body: UpdateCustomerBody,
+  token?: string,
+) =>
+  coreFetch<Customer>(`/api/v1/customers/${id}`, {
+    method: 'PATCH',
+    body: JSON.stringify(body),
+    token,
+  });
+
+export type CustomerPortalUser = {
+  id: string;
+  email: string;
+  fullName: string;
+  phone?: string | null;
+  organizationId: string;
+  customerId?: string | null;
+  isActive: boolean;
+  roles: string[];
+  createdAt: string;
+};
+
+export type InviteCustomerPortalUserBody = {
+  email: string;
+  fullName: string;
+  phone?: string;
+};
+
+export type InviteCustomerPortalUserResult = CustomerPortalUser & {
+  temporaryPassword: string;
+  notificationQueued: boolean;
+};
+
+export const listCustomerPortalUsers = (customerId: string, token?: string) =>
+  coreFetch<CustomerPortalUser[]>(
+    `/api/v1/customers/${customerId}/portal-users`,
+    { token },
+  );
+
+export const inviteCustomerPortalUser = (
+  customerId: string,
+  body: InviteCustomerPortalUserBody,
+  token?: string,
+) =>
+  coreFetch<InviteCustomerPortalUserResult>(
+    `/api/v1/customers/${customerId}/portal-users`,
+    {
+      method: 'POST',
+      body: JSON.stringify(body),
+      token,
+    },
+  );
+
 // ── Contracts ──
+export type ContractSiteSummary = {
+  id: string;
+  code: string;
+  name: string;
+};
+
+export const CONTRACT_KINDS = ['NEW', 'RENEWAL', 'AMENDMENT'] as const;
+export const CONTRACT_INVOICE_FREQUENCIES = ['MONTHLY', 'WEEKLY'] as const;
+export const CONTRACT_SLA_LEVELS = ['STANDARD', 'PREMIUM', 'CRITICAL'] as const;
+
+export type ContractKind = (typeof CONTRACT_KINDS)[number];
+export type ContractInvoiceFrequency =
+  (typeof CONTRACT_INVOICE_FREQUENCIES)[number];
+export type ContractSlaLevel = (typeof CONTRACT_SLA_LEVELS)[number];
+
 export type Contract = {
   id: string;
   customerId: string;
   contractNumber: string;
   title: string;
+  /** Primary / display type (first of serviceTypes). */
   serviceType: string;
+  serviceTypes?: string[];
   status: string;
   monthlyFee: string;
   currency: string;
+  paymentTerms?: string | null;
+  contractKind?: string;
+  renewalDate?: string | null;
+  noticePeriodDays?: number;
+  invoiceFrequency?: string | null;
+  vatApplicable?: boolean;
+  slaLevel?: string | null;
   startDate: string;
   endDate: string;
+  guardCount?: number | null;
+  slaTerms?: string | null;
+  approvalInstanceId?: string | null;
+  /** Approval instance status when pending/approved via contract-approval. */
+  approvalStatus?: string;
+  approvalCurrentStepOrder?: number;
+  approvalCurrentStepName?: string | null;
+  approvalRequiredRole?: string | null;
+  /** Bound enterprise site ids (B2). */
+  siteIds?: string[];
+  sites?: ContractSiteSummary[];
 };
 
-export const listContracts = (token?: string) =>
-  coreFetch<Contract[]>('/api/v1/contracts', { token });
+export const listContracts = (
+  tokenOrOpts?: string | { customerId?: string; token?: string },
+) => {
+  const opts =
+    typeof tokenOrOpts === 'string'
+      ? { token: tokenOrOpts }
+      : (tokenOrOpts ?? {});
+  const q = opts.customerId
+    ? `?customerId=${encodeURIComponent(opts.customerId)}`
+    : '';
+  return coreFetch<Contract[]>(`/api/v1/contracts${q}`, { token: opts.token });
+};
 
-export const createContract = (
-  body: {
-    customerId: string;
-    contractNumber: string;
-    title: string;
-    serviceType: string;
-    startDate: string;
-    endDate: string;
-    monthlyFee: number;
-  },
-  token?: string,
-) =>
+export type CreateContractBody = {
+  customerId: string;
+  contractNumber: string;
+  title: string;
+  /** Preferred — min 1 canonical code. */
+  serviceTypes?: string[];
+  /** @deprecated Prefer serviceTypes */
+  serviceType?: string;
+  startDate: string;
+  endDate: string;
+  monthlyFee: number;
+  currency?: string;
+  paymentTerms?: string;
+  contractKind?: ContractKind;
+  renewalDate?: string;
+  noticePeriodDays?: number;
+  invoiceFrequency?: ContractInvoiceFrequency;
+  vatApplicable?: boolean;
+  slaLevel?: ContractSlaLevel;
+  guardCount?: number;
+  slaTerms?: string;
+  /** Optional sites covered by the agreement (must belong to customer). */
+  siteIds?: string[];
+};
+
+export const createContract = (body: CreateContractBody, token?: string) =>
   coreFetch<Contract>('/api/v1/contracts', {
     method: 'POST',
     body: JSON.stringify(body),
+    token,
+  });
+
+/** Replace bound sites — DRAFT contracts only. */
+export const replaceContractSites = (
+  id: string,
+  siteIds: string[],
+  token?: string,
+) =>
+  coreFetch<Contract>(`/api/v1/contracts/${id}/sites`, {
+    method: 'PUT',
+    body: JSON.stringify({ siteIds }),
     token,
   });
 
@@ -159,6 +404,72 @@ export const updateContractStatus = (
     token,
   });
 
+export const submitContract = (id: string, token?: string) =>
+  coreFetch<Contract>(`/api/v1/contracts/${id}/submit`, {
+    method: 'POST',
+    body: JSON.stringify({}),
+    token,
+  });
+
+export const approveContract = (id: string, token?: string) =>
+  coreFetch<Contract>(`/api/v1/contracts/${id}/approve`, {
+    method: 'POST',
+    body: JSON.stringify({}),
+    token,
+  });
+
+export const rejectContract = (
+  id: string,
+  body?: { reason?: string },
+  token?: string,
+) =>
+  coreFetch<Contract>(`/api/v1/contracts/${id}/reject`, {
+    method: 'POST',
+    body: JSON.stringify(body ?? {}),
+    token,
+  });
+
+export type ContractScanExpiringResult = {
+  scannedAt: string;
+  daysAhead: number;
+  markedExpiring: number;
+  notificationsQueued: number;
+  contracts: Array<{
+    id: string;
+    contractNumber: string;
+    customerId: string;
+    endDate: string;
+    status: string;
+  }>;
+};
+
+export type ContractCommercialAlerts = {
+  expiring: Contract[];
+  unpaidByCustomer: Array<{
+    customerId: string;
+    customerCode: string;
+    customerName: string;
+    openInvoiceCount: number;
+    openBalance: string;
+    currency: string;
+    hasExpiringContract: boolean;
+  }>;
+};
+
+/** POST /contracts/scan-expiring — ACTIVE→EXPIRING + EMAIL outbox */
+export const scanExpiringContracts = (daysAhead = 90, token?: string) =>
+  coreFetch<ContractScanExpiringResult>(
+    `/api/v1/contracts/scan-expiring?daysAhead=${daysAhead}`,
+    { method: 'POST', body: JSON.stringify({}), token },
+  );
+
+/** GET /contracts/commercial-alerts */
+export const getContractCommercialAlerts = (token?: string) =>
+  coreFetch<ContractCommercialAlerts>(
+    '/api/v1/contracts/commercial-alerts',
+    { token },
+  );
+
 // ── Guards ──
 export type GuardActiveDeployment = {
   id: string;
@@ -172,6 +483,11 @@ export type Guard = {
   employeeNumber: string;
   status: string;
   deploymentEligible: boolean;
+  /** G3 thin readiness checklist */
+  trainingCompleted?: boolean;
+  firearmAuthorized?: boolean;
+  firearmExpiry?: string | null;
+  clearanceVerified?: boolean;
   userId: string;
   /** Present when backend joins employee / profile fields */
   phone?: string | null;
@@ -202,6 +518,33 @@ export const listGuards = async (token?: string) => {
   return rows.map(normalizeGuard);
 };
 
+export type GuardLinkableUser = {
+  id: string;
+  email: string;
+  fullName: string;
+  isActive: boolean;
+};
+
+export type CreateGuardBody = {
+  userId: string;
+  employeeNumber: string;
+  phone?: string;
+  employeeId?: string;
+  deploymentEligible?: boolean;
+};
+
+export const listGuardLinkableUsers = (token?: string) =>
+  coreFetch<GuardLinkableUser[]>('/api/v1/guards/linkable-users', { token });
+
+export const createGuard = async (body: CreateGuardBody, token?: string) => {
+  const row = await coreFetch<GuardApiRow>('/api/v1/guards', {
+    method: 'POST',
+    body: JSON.stringify(body),
+    token,
+  });
+  return normalizeGuard(row);
+};
+
 export const updateGuardStatus = async (
   id: string,
   status: string,
@@ -220,26 +563,106 @@ export const updateGuardStatus = async (
   return normalizeGuard(row);
 };
 
+export type UpdateGuardReadinessBody = {
+  trainingCompleted?: boolean;
+  firearmAuthorized?: boolean;
+  /** ISO date YYYY-MM-DD, or null to clear */
+  firearmExpiry?: string | null;
+  clearanceVerified?: boolean;
+};
+
+export const updateGuardReadiness = async (
+  id: string,
+  body: UpdateGuardReadinessBody,
+  token?: string,
+) => {
+  const row = await coreFetch<GuardApiRow>(`/api/v1/guards/${id}/readiness`, {
+    method: 'PATCH',
+    body: JSON.stringify(body),
+    token,
+  });
+  return normalizeGuard(row);
+};
+
 // ── Finance ──
 export type Invoice = {
   id: string;
   invoiceNumber: string;
   customerId: string;
+  contractId?: string | null;
+  contractNumber?: string | null;
   status: string;
   totalAmount: number;
   amountPaid: number;
   currency: string;
   dueDate: string;
+  issueDate?: string;
+  notes?: string | null;
 };
 
-export const listInvoices = (token?: string) =>
-  coreFetch<Invoice[]>('/api/v1/finance/invoices', { token });
+export const listInvoices = (
+  tokenOrOpts?: string | { customerId?: string; contractId?: string; token?: string },
+) => {
+  const opts =
+    typeof tokenOrOpts === 'string'
+      ? { token: tokenOrOpts }
+      : (tokenOrOpts ?? {});
+  const params = new URLSearchParams();
+  if (opts.customerId) params.set('customerId', opts.customerId);
+  if (opts.contractId) params.set('contractId', opts.contractId);
+  const q = params.toString() ? `?${params}` : '';
+  return coreFetch<Invoice[]>(`/api/v1/finance/invoices${q}`, {
+    token: opts.token,
+  });
+};
+
+export const createInvoice = (
+  body: {
+    customerId: string;
+    contractId?: string;
+    invoiceNumber: string;
+    issueDate: string;
+    dueDate: string;
+    taxAmount?: number;
+    currency?: string;
+    notes?: string;
+    lines: { description: string; quantity: number; unitPrice: number }[];
+  },
+  token?: string,
+) =>
+  coreFetch<Invoice>('/api/v1/finance/invoices', {
+    method: 'POST',
+    body: JSON.stringify(body),
+    token,
+  });
 
 export const sendInvoice = (id: string, token?: string) =>
   coreFetch<Invoice>(`/api/v1/finance/invoices/${id}/send`, {
     method: 'POST',
     token,
   });
+
+export const voidInvoice = (
+  id: string,
+  body?: { reason?: string },
+  token?: string,
+) =>
+  coreFetch<Invoice>(`/api/v1/finance/invoices/${id}/void`, {
+    method: 'POST',
+    body: JSON.stringify(body ?? {}),
+    token,
+  });
+
+export type InvoiceScanOverdueResult = {
+  markedOverdue: number;
+  invoiceNumbers: string[];
+};
+
+export const scanOverdueInvoices = (token?: string) =>
+  coreFetch<InvoiceScanOverdueResult>(
+    '/api/v1/finance/invoices/scan-overdue',
+    { method: 'POST', token },
+  );
 
 export const recordInvoicePayment = (
   id: string,
@@ -490,6 +913,8 @@ export type VisitorAppointment = {
   hostName?: string | null;
   purpose: string;
   siteId: string;
+  siteCode?: string | null;
+  siteName?: string | null;
   status: string;
   validFrom: string;
   validUntil: string;
@@ -522,6 +947,7 @@ export const approveVisitorAppointment = (id: string, token?: string) =>
     validUntil: string;
   }>(`/api/v1/visitors/appointments/${id}/approve`, {
     method: 'POST',
+    body: JSON.stringify({}),
     token,
   });
 
@@ -737,6 +1163,43 @@ export const issueDeviceCommand = (
 ) =>
   coreFetch<DeviceCommand>(`/api/v1/devices/${deviceId}/commands`, {
     method: 'POST',
+    body: JSON.stringify(body),
+    token,
+  });
+
+export type StaffServiceRequest = {
+  id: string;
+  customerId: string;
+  referenceNumber: string;
+  category: string;
+  urgency: string;
+  status: string;
+  title: string;
+  description: string;
+  siteId?: string | null;
+  siteCode?: string | null;
+  siteName?: string | null;
+  callbackPhone?: string | null;
+  resolutionNotes?: string | null;
+  createdAt: string;
+  customerCode?: string | null;
+  customerName?: string | null;
+};
+
+/** GET /customers/service-requests — call centre / commercial */
+export const listStaffServiceRequests = (token?: string) =>
+  coreFetch<StaffServiceRequest[]>('/api/v1/customers/service-requests', {
+    token,
+  });
+
+/** PATCH /customers/service-requests/:id */
+export const updateStaffServiceRequest = (
+  id: string,
+  body: { status: string; resolutionNotes?: string },
+  token?: string,
+) =>
+  coreFetch<StaffServiceRequest>(`/api/v1/customers/service-requests/${id}`, {
+    method: 'PATCH',
     body: JSON.stringify(body),
     token,
   });

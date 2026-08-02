@@ -50,6 +50,28 @@ export class KpiItemDto {
   @ApiPropertyOptional() breakdown?: Record<string, unknown>;
 }
 
+export class KpiDrilldownSiteDto {
+  @ApiProperty() siteId!: string;
+  @ApiProperty() siteCode!: string;
+  @ApiProperty() siteName!: string;
+  @ApiProperty() value!: number;
+}
+
+export class KpiDrilldownResponseDto {
+  @ApiProperty() code!: string;
+  @ApiProperty() name!: string;
+  @ApiProperty() category!: string;
+  @ApiProperty() unit!: string;
+  @ApiProperty() value!: number;
+  @ApiProperty({ enum: ['live', 'snapshot'] }) source!: 'live' | 'snapshot';
+  @ApiProperty() asOf!: Date;
+  @ApiProperty() period!: { from: string; to: string };
+  @ApiPropertyOptional() breakdown?: Record<string, unknown>;
+  @ApiProperty({ type: [KpiDrilldownSiteDto] })
+  bySite!: KpiDrilldownSiteDto[];
+  @ApiProperty({ type: [String] }) notes!: string[];
+}
+
 export class ExecutiveDashboardResponseDto {
   @ApiProperty() organizationId!: string;
   @ApiProperty() generatedAt!: Date;

@@ -13,16 +13,21 @@ import {
 } from '@pssms/api-client';
 import { getSessionUser } from '@pssms/auth';
 import {
-  DataTable,
-  GlassCard,
   Modal,
   PageHeader,
-  StatusBadge,
+  StatCard,
   btnPrimary,
   btnSecondary,
   inputCls,
 } from '@pssms/ui';
-import { Paperclip, RefreshCw, Wallet } from 'lucide-react';
+import {
+  CheckCircle2,
+  Clock3,
+  RefreshCw,
+  Search,
+  Wallet,
+} from 'lucide-react';
+import Link from 'next/link';
 import {
   FormEvent,
   useCallback,
@@ -30,8 +35,20 @@ import {
   useMemo,
   useState,
 } from 'react';
+import {
+  PettyCashEmpty,
+  PettyCashRoster,
+} from '../_components/PettyCashRoster';
 
 type StatusFilter = 'ALL' | 'PENDING' | 'APPROVED' | 'REIMBURSED' | 'REJECTED';
+
+const FILTERS: { id: StatusFilter; label: string }[] = [
+  { id: 'ALL', label: 'All' },
+  { id: 'PENDING', label: 'Pending' },
+  { id: 'APPROVED', label: 'Approved' },
+  { id: 'REIMBURSED', label: 'Reimbursed' },
+  { id: 'REJECTED', label: 'Rejected' },
+];
 
 const RESOURCE_TYPE = 'PettyCashVoucher';
 const ACCEPT =
@@ -101,6 +118,7 @@ export default function FinancePettyCashPage() {
   const [receiptsTarget, setReceiptsTarget] =
     useState<PettyCashVoucher | null>(null);
   const [filter, setFilter] = useState<StatusFilter>('ALL');
+  const [query, setQuery] = useState('');
   const sessionUser = useMemo(() => getSessionUser(), []);
 
   const load = useCallback(async () => {
@@ -119,18 +137,42 @@ export default function FinancePettyCashPage() {
     void load();
   }, [load]);
 
-  const filtered = useMemo(
-    () => (filter === 'ALL' ? rows : rows.filter((r) => r.status === filter)),
-    [rows, filter],
-  );
-
   const counts = useMemo(() => {
-    const c = { PENDING: 0, APPROVED: 0, REIMBURSED: 0, REJECTED: 0 };
+    const c = {
+      ALL: rows.length,
+      PENDING: 0,
+      APPROVED: 0,
+      REIMBURSED: 0,
+      REJECTED: 0,
+      pendingAmount: 0,
+      reimbursedAmount: 0,
+    };
     for (const r of rows) {
-      if (r.status in c) c[r.status as keyof typeof c] += 1;
+      if (r.status === 'PENDING') {
+        c.PENDING += 1;
+        c.pendingAmount += r.amount;
+      } else if (r.status === 'APPROVED') c.APPROVED += 1;
+      else if (r.status === 'REIMBURSED') {
+        c.REIMBURSED += 1;
+        c.reimbursedAmount += r.amount;
+      } else if (r.status === 'REJECTED') c.REJECTED += 1;
     }
     return c;
   }, [rows]);
+
+  const filtered = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    return rows.filter((r) => {
+      if (filter !== 'ALL' && r.status !== filter) return false;
+      if (!q) return true;
+      return (
+        r.voucherNumber.toLowerCase().includes(q) ||
+        r.purpose.toLowerCase().includes(q) ||
+        r.category.toLowerCase().includes(q) ||
+        r.status.toLowerCase().includes(q)
+      );
+    });
+  }, [rows, filter, query]);
 
   async function onApprove(row: PettyCashVoucher) {
     if (sessionUser?.id && row.createdBy === sessionUser.id) {
@@ -149,33 +191,68 @@ export default function FinancePettyCashPage() {
     }
   }
 
-  const filterTabs: { id: StatusFilter; label: string }[] = [
-    { id: 'ALL', label: `All (${rows.length})` },
-    { id: 'PENDING', label: `Pending (${counts.PENDING})` },
-    { id: 'APPROVED', label: `Approved (${counts.APPROVED})` },
-    { id: 'REIMBURSED', label: `Reimbursed (${counts.REIMBURSED})` },
-    { id: 'REJECTED', label: `Rejected (${counts.REJECTED})` },
-  ];
-
   return (
     <>
       <PageHeader
         title="Petty cash"
         description="Approve requests, then mark reimbursed with a MinIO receipt (pdf/png/jpeg/webp), URL, or notes. Employees apply via ESS."
         actions={
-          <button
-            type="button"
-            onClick={() => void load()}
-            className={btnSecondary}
-            disabled={loading}
-          >
-            <RefreshCw
-              className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`}
-            />
-            Refresh
-          </button>
+          <div className="flex flex-wrap gap-2">
+            <Link href="/ess/petty-cash" className={btnSecondary}>
+              ESS apply
+            </Link>
+            <Link href="/finance" className={btnSecondary}>
+              Invoices
+            </Link>
+            <button
+              type="button"
+              onClick={() => void load()}
+              className={btnSecondary}
+              disabled={loading}
+            >
+              <RefreshCw
+                className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`}
+              />
+              Refresh
+            </button>
+          </div>
         }
       />
+
+      <div className="mb-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        <StatCard
+          label="Total vouchers"
+          value={counts.ALL}
+          hint="Org-wide imprest requests"
+          accent="blue"
+          icon={<Wallet className="h-5 w-5" />}
+        />
+        <StatCard
+          label="Pending approval"
+          value={counts.PENDING}
+          hint={
+            counts.pendingAmount > 0
+              ? formatMoney(counts.pendingAmount)
+              : 'Creator ≠ approver'
+          }
+          accent="amber"
+          icon={<Clock3 className="h-5 w-5" />}
+        />
+        <StatCard
+          label="Approved"
+          value={counts.APPROVED}
+          hint="Ready to reimburse + receipt"
+          accent="sky"
+          icon={<CheckCircle2 className="h-5 w-5" />}
+        />
+        <StatCard
+          label="Reimbursed"
+          value={formatMoney(counts.reimbursedAmount)}
+          hint={`${counts.REIMBURSED} settled`}
+          accent="emerald"
+          icon={<Wallet className="h-5 w-5" />}
+        />
+      </div>
 
       {error ? (
         <p className="mb-3 rounded border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
@@ -183,173 +260,96 @@ export default function FinancePettyCashPage() {
         </p>
       ) : null}
 
-      <div className="mb-3 flex flex-wrap gap-1">
-        {filterTabs.map((t) => (
-          <button
-            key={t.id}
-            type="button"
-            onClick={() => setFilter(t.id)}
-            className={
-              filter === t.id ? btnPrimary : `${btnSecondary} !text-xs`
-            }
-          >
-            {t.label}
-          </button>
-        ))}
+      <div className="mb-2.5 flex flex-wrap items-end justify-between gap-2">
+        <div>
+          <div className="flex items-center gap-2">
+            <Wallet className="h-4 w-4 text-[#0078d4]" />
+            <h2 className="text-[15px] font-semibold text-[#1b1a19]">
+              Voucher register
+            </h2>
+            <span className="inline-flex min-w-[1.5rem] items-center justify-center rounded-full bg-[#eff6fc] px-2 py-0.5 text-[11px] font-semibold tabular-nums text-[#0067b8] ring-1 ring-[#c7e0f4]">
+              {filtered.length}
+            </span>
+          </div>
+          <p className="mt-0.5 text-[11px] text-[#605e5c]">
+            Approve · attach MinIO receipt · mark reimbursed · ESS requests land
+            here
+          </p>
+        </div>
       </div>
 
-      <GlassCard className="!p-0 overflow-hidden">
-        {filtered.length === 0 && !loading ? (
-          <div className="flex items-center gap-2 p-6 text-sm text-[#605e5c]">
-            <Wallet className="h-4 w-4" />
-            No petty cash vouchers in this view.
-          </div>
-        ) : (
-          <DataTable<PettyCashVoucher>
-            loading={loading}
-            keyField="id"
-            rows={filtered}
-            emptyMessage="No vouchers"
-            columns={[
-              {
-                key: 'voucherNumber',
-                label: 'Voucher #',
-                render: (r) => (
-                  <span className="font-mono text-sm">{r.voucherNumber}</span>
-                ),
-              },
-              {
-                key: 'amount',
-                label: 'Amount',
-                render: (r) => formatMoney(r.amount),
-              },
-              {
-                key: 'category',
-                label: 'Category',
-                render: (r) => <span className="text-xs">{r.category}</span>,
-              },
-              {
-                key: 'purpose',
-                label: 'Purpose',
-                render: (r) => (
-                  <span
-                    className="max-w-[200px] truncate text-xs text-[#605e5c]"
-                    title={r.purpose}
+      <PettyCashRoster
+        rows={filtered}
+        loading={loading}
+        busyId={busyId}
+        onApprove={(r) => void onApprove(r)}
+        onReject={setRejectTarget}
+        onReimburse={setReimburseTarget}
+        onReceipts={setReceiptsTarget}
+        canAct={(r) => {
+          const isOwn =
+            !!sessionUser?.id && r.createdBy === sessionUser.id;
+          if (r.status === 'PENDING' || r.status === 'APPROVED') {
+            if (isOwn) return 'own';
+            return true;
+          }
+          return false;
+        }}
+        toolbar={
+          <div className="flex flex-col gap-2.5 sm:flex-row sm:items-center sm:justify-between">
+            <label className="flex min-w-0 flex-1 items-center gap-2 rounded-lg border border-[#e1dfdd] bg-white px-3 py-2 shadow-sm focus-within:border-[#0078d4] focus-within:ring-1 focus-within:ring-[#0078d4]">
+              <Search className="h-4 w-4 shrink-0 text-[#8a8886]" />
+              <input
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                placeholder="Search voucher #, purpose, category…"
+                className="w-full min-w-0 bg-transparent text-[13px] outline-none placeholder:text-[#a19f9d]"
+              />
+            </label>
+            <div className="flex flex-wrap gap-1">
+              {FILTERS.map((f) => {
+                const active = filter === f.id;
+                return (
+                  <button
+                    key={f.id}
+                    type="button"
+                    onClick={() => setFilter(f.id)}
+                    className={`inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[11px] font-semibold transition ${
+                      active
+                        ? 'bg-[#0078d4] text-white shadow-sm'
+                        : 'bg-white text-[#605e5c] ring-1 ring-[#e1dfdd] hover:bg-[#f3f9fd]'
+                    }`}
                   >
-                    {r.purpose}
-                  </span>
-                ),
-              },
-              {
-                key: 'status',
-                label: 'Status',
-                render: (r) => (
-                  <div className="flex flex-col gap-0.5">
-                    <StatusBadge status={r.status} />
-                    {r.status === 'REIMBURSED' && r.reimbursedAt ? (
-                      <span className="text-[10px] text-[#605e5c]">
-                        {formatDateTime(r.reimbursedAt)}
-                      </span>
-                    ) : null}
-                    {r.receiptUrl ? (
-                      <span
-                        className="max-w-[140px] truncate text-[10px] text-[#0078d4]"
-                        title={r.receiptUrl}
-                      >
-                        {r.receiptUrl.startsWith('document:')
-                          ? 'MinIO receipt'
-                          : 'Receipt ref'}
-                      </span>
-                    ) : null}
-                  </div>
-                ),
-              },
-              {
-                key: 'createdAt',
-                label: 'Submitted',
-                render: (r) => formatDate(r.createdAt),
-              },
-              {
-                key: 'id',
-                label: '',
-                render: (r) => {
-                  if (r.status === 'PENDING') {
-                    const isOwn =
-                      !!sessionUser?.id && r.createdBy === sessionUser.id;
-                    return (
-                      <div className="flex flex-wrap gap-1">
-                        <button
-                          type="button"
-                          className={btnPrimary}
-                          disabled={busyId === r.id || isOwn}
-                          title={
-                            isOwn
-                              ? 'Creator cannot approve own request'
-                              : 'Approve'
-                          }
-                          onClick={() => void onApprove(r)}
-                        >
-                          Approve
-                        </button>
-                        <button
-                          type="button"
-                          className={btnSecondary}
-                          disabled={busyId === r.id || isOwn}
-                          onClick={() => setRejectTarget(r)}
-                        >
-                          Reject
-                        </button>
-                      </div>
-                    );
-                  }
-                  if (r.status === 'APPROVED') {
-                    const isOwn =
-                      !!sessionUser?.id && r.createdBy === sessionUser.id;
-                    return (
-                      <div className="flex flex-wrap gap-1">
-                        <button
-                          type="button"
-                          className={btnSecondary}
-                          onClick={() => setReceiptsTarget(r)}
-                        >
-                          <Paperclip className="h-3.5 w-3.5" />
-                          Receipts
-                        </button>
-                        <button
-                          type="button"
-                          className={btnPrimary}
-                          disabled={busyId === r.id || isOwn}
-                          title={
-                            isOwn
-                              ? 'Creator cannot mark own voucher reimbursed'
-                              : 'Mark reimbursed'
-                          }
-                          onClick={() => setReimburseTarget(r)}
-                        >
-                          Mark reimbursed
-                        </button>
-                      </div>
-                    );
-                  }
-                  if (r.status === 'REIMBURSED') {
-                    return (
-                      <button
-                        type="button"
-                        className={btnSecondary}
-                        onClick={() => setReceiptsTarget(r)}
-                      >
-                        <Paperclip className="h-3.5 w-3.5" />
-                        Receipts
-                      </button>
-                    );
-                  }
-                  return null;
-                },
-              },
-            ]}
+                    {f.label}
+                    <span
+                      className={`tabular-nums ${
+                        active ? 'text-white/80' : 'text-[#a19f9d]'
+                      }`}
+                    >
+                      {counts[f.id]}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        }
+        empty={
+          <PettyCashEmpty
+            title={rows.length === 0 ? 'No vouchers yet' : 'No matches'}
+            description={
+              rows.length === 0
+                ? 'Employees request imprest via ESS. Approve here, attach a MinIO receipt, then mark reimbursed (creator ≠ reimburser).'
+                : 'Try another search or status filter.'
+            }
           />
-        )}
-      </GlassCard>
+        }
+      />
+      {!loading && filtered.length > 0 ? (
+        <p className="mt-2 text-[11px] text-[#605e5c]">
+          Showing {filtered.length} of {rows.length} vouchers
+        </p>
+      ) : null}
 
       {rejectTarget ? (
         <RejectModal

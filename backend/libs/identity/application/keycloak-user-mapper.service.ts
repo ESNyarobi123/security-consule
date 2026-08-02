@@ -104,6 +104,7 @@ export class KeycloakUserMapperService {
       allowedSiteIds: profile.allowedSiteIds,
       customerId: profile.customerId ?? null,
       supplierId: profile.supplierId ?? null,
+      mustChangePassword: profile.mustChangePassword === true,
     };
   }
 

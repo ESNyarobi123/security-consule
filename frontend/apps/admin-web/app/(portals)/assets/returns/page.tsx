@@ -2,21 +2,27 @@
 
 import {
   confirmReturn,
+  listAssetAssigneeOptions,
   listPendingReturns,
+  type AssetAssigneeOptions,
   type PendingReturnAssignment,
   type ReturnCondition,
 } from '@pssms/api-client';
 import { getSessionUser } from '@pssms/auth';
 import {
-  DataTable,
-  GlassCard,
   Modal,
-  StatusBadge,
+  StatCard,
   btnPrimary,
   btnSecondary,
   inputCls,
 } from '@pssms/ui';
-import { PackageCheck, RefreshCw } from 'lucide-react';
+import {
+  Clock3,
+  PackageCheck,
+  RefreshCw,
+  Search,
+  ShieldAlert,
+} from 'lucide-react';
 import {
   FormEvent,
   useCallback,
@@ -24,20 +30,8 @@ import {
   useMemo,
   useState,
 } from 'react';
+import { AssetsEmpty, ReturnsRoster } from '../_components/AssetRoster';
 import { AssetsShell } from '../_components/AssetsShell';
-
-function formatDate(value?: string | null) {
-  if (!value) return '—';
-  const d = new Date(value);
-  if (Number.isNaN(d.getTime())) return String(value).slice(0, 10);
-  return d.toLocaleString('en-GB', {
-    day: '2-digit',
-    month: 'short',
-    year: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-  });
-}
 
 function formatApiError(err: unknown): string {
   const raw = err instanceof Error ? err.message : String(err);
@@ -57,17 +51,30 @@ function formatApiError(err: unknown): string {
 
 export default function AssetReturnsPage() {
   const [rows, setRows] = useState<PendingReturnAssignment[]>([]);
+  const [assignees, setAssignees] = useState<AssetAssigneeOptions>({
+    employees: [],
+    guards: [],
+  });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [confirmTarget, setConfirmTarget] =
     useState<PendingReturnAssignment | null>(null);
+  const [query, setQuery] = useState('');
   const sessionUser = useMemo(() => getSessionUser(), []);
 
   const refresh = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
-      setRows(await listPendingReturns());
+      const [pending, opts] = await Promise.all([
+        listPendingReturns(),
+        listAssetAssigneeOptions().catch(() => ({
+          employees: [],
+          guards: [],
+        })),
+      ]);
+      setRows(pending);
+      setAssignees(opts);
     } catch (err) {
       setError(formatApiError(err));
     } finally {
@@ -78,6 +85,65 @@ export default function AssetReturnsPage() {
   useEffect(() => {
     void refresh();
   }, [refresh]);
+
+  const holderMaps = useMemo(() => {
+    const emp = new Map(
+      assignees.employees.map((e) => [
+        e.id,
+        `${e.fullName} (${e.employeeNumber})`,
+      ]),
+    );
+    const grd = new Map(
+      assignees.guards.map((g) => [
+        g.id,
+        `${g.fullName} (${g.employeeNumber})`,
+      ]),
+    );
+    return { emp, grd };
+  }, [assignees]);
+
+  const holderLabel = useCallback(
+    (r: PendingReturnAssignment): string | null => {
+      const parts: string[] = [];
+      if (r.assignedToEmployeeId) {
+        parts.push(
+          holderMaps.emp.get(r.assignedToEmployeeId) ??
+            `Emp ${r.assignedToEmployeeId.slice(0, 8)}`,
+        );
+      }
+      if (r.assignedToGuardId) {
+        parts.push(
+          holderMaps.grd.get(r.assignedToGuardId) ??
+            `Guard ${r.assignedToGuardId.slice(0, 8)}`,
+        );
+      }
+      return parts.length ? parts.join(' · ') : null;
+    },
+    [holderMaps],
+  );
+
+  const ownCount = useMemo(() => {
+    if (!sessionUser?.id) return 0;
+    return rows.filter(
+      (r) =>
+        !!r.returnRequestedBy && r.returnRequestedBy === sessionUser.id,
+    ).length;
+  }, [rows, sessionUser?.id]);
+
+  const filtered = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (!q) return rows;
+    return rows.filter((r) => {
+      const holder = (holderLabel(r) ?? '').toLowerCase();
+      return (
+        (r.assetTag ?? '').toLowerCase().includes(q) ||
+        (r.assetName ?? '').toLowerCase().includes(q) ||
+        (r.assetCategory ?? '').toLowerCase().includes(q) ||
+        (r.notes ?? '').toLowerCase().includes(q) ||
+        holder.includes(q)
+      );
+    });
+  }, [rows, query, holderLabel]);
 
   return (
     <AssetsShell
@@ -97,98 +163,94 @@ export default function AssetReturnsPage() {
         </button>
       }
     >
+      <div className="mb-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+        <StatCard
+          label="Pending returns"
+          value={rows.length}
+          hint="ESS return queue"
+          accent="amber"
+          icon={<Clock3 className="h-5 w-5" />}
+        />
+        <StatCard
+          label="Ready to confirm"
+          value={Math.max(rows.length - ownCount, 0)}
+          hint="Storekeeper can act"
+          accent="emerald"
+          icon={<PackageCheck className="h-5 w-5" />}
+        />
+        <StatCard
+          label="Your requests"
+          value={ownCount}
+          hint="Creator ≠ confirmer"
+          accent="sky"
+          icon={<ShieldAlert className="h-5 w-5" />}
+        />
+      </div>
+
       {error ? (
         <p className="mb-3 rounded border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
           {error}
         </p>
       ) : null}
 
-      <GlassCard className="!p-0 overflow-hidden">
-        {rows.length === 0 && !loading ? (
-          <div className="flex flex-col items-center gap-2 px-4 py-10 text-center text-sm text-[#605e5c]">
-            <PackageCheck className="h-5 w-5 text-[#a19f9d]" />
-            <p>No pending return requests</p>
+      <div className="mb-2.5 flex flex-wrap items-end justify-between gap-2">
+        <div>
+          <div className="flex items-center gap-2">
+            <PackageCheck className="h-4 w-4 text-[#0078d4]" />
+            <h2 className="text-[15px] font-semibold text-[#1b1a19]">
+              Return queue
+            </h2>
+            <span className="inline-flex min-w-[1.5rem] items-center justify-center rounded-full bg-[#eff6fc] px-2 py-0.5 text-[11px] font-semibold tabular-nums text-[#0067b8] ring-1 ring-[#c7e0f4]">
+              {filtered.length}
+            </span>
           </div>
-        ) : (
-          <DataTable<PendingReturnAssignment>
-            loading={loading}
-            keyField="id"
-            rows={rows}
-            emptyMessage="No pending returns"
-            columns={[
-              {
-                key: 'assetTag',
-                label: 'Tag',
-                render: (r) => (
-                  <span className="font-mono text-sm">
-                    {r.assetTag ?? r.assetId.slice(0, 8)}
-                  </span>
-                ),
-              },
-              {
-                key: 'assetName',
-                label: 'Asset',
-                render: (r) => r.assetName ?? '—',
-              },
-              {
-                key: 'assetCategory',
-                label: 'Category',
-                render: (r) => r.assetCategory ?? '—',
-              },
-              {
-                key: 'assetStatus',
-                label: 'Status',
-                render: (r) => (
-                  <StatusBadge status={r.assetStatus ?? 'RETURN_PENDING'} />
-                ),
-              },
-              {
-                key: 'returnRequestedAt',
-                label: 'Requested',
-                render: (r) => formatDate(r.returnRequestedAt),
-              },
-              {
-                key: 'notes',
-                label: 'Notes',
-                render: (r) => (
-                  <span
-                    className="max-w-[140px] truncate text-xs text-[#605e5c]"
-                    title={r.notes ?? undefined}
-                  >
-                    {r.notes ?? '—'}
-                  </span>
-                ),
-              },
-              {
-                key: 'id',
-                label: '',
-                render: (r) => {
-                  const isOwn =
-                    !!sessionUser?.id &&
-                    !!r.returnRequestedBy &&
-                    r.returnRequestedBy === sessionUser.id;
-                  if (isOwn) {
-                    return (
-                      <span className="text-[11px] text-[#a19f9d]">
-                        Awaiting other confirmer
-                      </span>
-                    );
-                  }
-                  return (
-                    <button
-                      type="button"
-                      className={btnPrimary}
-                      onClick={() => setConfirmTarget(r)}
-                    >
-                      Confirm
-                    </button>
-                  );
-                },
-              },
-            ]}
+          <p className="mt-0.5 text-[11px] text-[#605e5c]">
+            Confirm condition + receipt · register stays under Register
+          </p>
+        </div>
+      </div>
+
+      <ReturnsRoster
+        rows={filtered}
+        loading={loading}
+        holderLabel={holderLabel}
+        onConfirm={setConfirmTarget}
+        canConfirm={(r) => {
+          const isOwn =
+            !!sessionUser?.id &&
+            !!r.returnRequestedBy &&
+            r.returnRequestedBy === sessionUser.id;
+          if (isOwn) return 'own';
+          return true;
+        }}
+        toolbar={
+          <label className="flex min-w-0 items-center gap-2 rounded-lg border border-[#e1dfdd] bg-white px-3 py-2 shadow-sm focus-within:border-[#0078d4] focus-within:ring-1 focus-within:ring-[#0078d4]">
+            <Search className="h-4 w-4 shrink-0 text-[#8a8886]" />
+            <input
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="Search tag, asset, holder, notes…"
+              className="w-full min-w-0 bg-transparent text-[13px] outline-none placeholder:text-[#a19f9d]"
+            />
+          </label>
+        }
+        empty={
+          <AssetsEmpty
+            icon="returns"
+            title={rows.length === 0 ? 'No pending returns' : 'No matches'}
+            description={
+              rows.length === 0
+                ? 'When an employee requests a return via ESS, it appears here for storekeeper confirmation.'
+                : 'Try another search.'
+            }
           />
-        )}
-      </GlassCard>
+        }
+      />
+      {!loading && filtered.length > 0 ? (
+        <p className="mt-2 text-[11px] text-[#605e5c]">
+          Showing {filtered.length} of {rows.length} pending returns
+        </p>
+      ) : null}
 
       {confirmTarget ? (
         <ConfirmReturnModal

@@ -13,16 +13,8 @@ import {
   type LeaveType,
 } from '@pssms/api-client';
 import { getSessionUser } from '@pssms/auth';
-import {
-  DataTable,
-  GlassCard,
-  Modal,
-  StatusBadge,
-  btnPrimary,
-  btnSecondary,
-  inputCls,
-} from '@pssms/ui';
-import { CalendarClock, Plus, RefreshCw } from 'lucide-react';
+import { Modal, btnPrimary, btnSecondary, inputCls } from '@pssms/ui';
+import { CalendarClock, Plus, RefreshCw, Search } from 'lucide-react';
 import {
   FormEvent,
   useCallback,
@@ -30,6 +22,7 @@ import {
   useMemo,
   useState,
 } from 'react';
+import { LeaveRequestRoster } from '../_components/HrRosters';
 import { HrShell } from '../_components/HrShell';
 import { PanelEmpty, formatDate } from '../_components/shared';
 
@@ -45,6 +38,10 @@ export default function HrLeavePage() {
   const [typeOpen, setTypeOpen] = useState(false);
   const [applyOpen, setApplyOpen] = useState(false);
   const [rejectTarget, setRejectTarget] = useState<LeaveRequest | null>(null);
+  const [query, setQuery] = useState('');
+  const [statusFilter, setStatusFilter] = useState<
+    'all' | 'pending' | 'approved' | 'rejected'
+  >('all');
   const sessionUser = useMemo(() => getSessionUser(), []);
 
   const refresh = useCallback(async () => {
@@ -81,6 +78,22 @@ export default function HrLeavePage() {
     for (const t of types) map.set(t.id, t.name);
     return map;
   }, [types]);
+
+  const filteredRequests = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    return requests.filter((r) => {
+      const st = norm(r.status);
+      if (statusFilter !== 'all' && st !== statusFilter) return false;
+      if (!q) return true;
+      const name = (employeeName.get(r.employeeId) ?? '').toLowerCase();
+      const type = (leaveTypeName.get(r.leaveTypeId) ?? '').toLowerCase();
+      return (
+        name.includes(q) ||
+        type.includes(q) ||
+        r.reason.toLowerCase().includes(q)
+      );
+    });
+  }, [requests, query, statusFilter, employeeName, leaveTypeName]);
 
   const onApprove = async (id: string) => {
     setBusyId(id);
@@ -138,9 +151,14 @@ export default function HrLeavePage() {
       ) : null}
 
       <section className="mb-6">
-        <h2 className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-[#605e5c]">
-          Leave types ({types.length})
-        </h2>
+        <div className="mb-2.5 flex items-center gap-2">
+          <h2 className="text-[13px] font-semibold text-[#1b1a19]">
+            Leave types
+          </h2>
+          <span className="inline-flex rounded-full bg-[#eff6fc] px-2 py-0.5 text-[11px] font-semibold tabular-nums text-[#0067b8] ring-1 ring-[#c7e0f4]">
+            {types.length}
+          </span>
+        </div>
         {types.length === 0 && !loading ? (
           <PanelEmpty
             icon={<CalendarClock className="h-4 w-4" />}
@@ -152,11 +170,14 @@ export default function HrLeavePage() {
             {types.map((t) => (
               <div
                 key={t.id}
-                className="rounded-lg border border-[#e1dfdd] bg-white px-3 py-2.5 shadow-sm"
+                className="rounded-xl border border-[#e1dfdd] bg-gradient-to-br from-white to-[#f8fafc] px-3.5 py-3 shadow-sm"
               >
-                <p className="text-sm font-medium text-[#1b1a19]">{t.name}</p>
-                <p className="font-mono text-[11px] text-[#605e5c]">
-                  {t.code} · {t.annualQuotaDays} days / year
+                <p className="text-sm font-semibold text-[#1b1a19]">{t.name}</p>
+                <p className="mt-1 font-mono text-[11px] text-[#605e5c]">
+                  {t.code}
+                </p>
+                <p className="mt-2 inline-flex rounded-md bg-[#eff6fc] px-2 py-0.5 text-[11px] font-semibold text-[#0067b8]">
+                  {t.annualQuotaDays} days / year
                 </p>
               </div>
             ))}
@@ -165,124 +186,79 @@ export default function HrLeavePage() {
       </section>
 
       <section>
-        <h2 className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-[#605e5c]">
-          Requests ({requests.length})
-        </h2>
-        <GlassCard className="!p-0 overflow-hidden">
-          {requests.length === 0 && !loading ? (
-            <div className="p-4">
-              <PanelEmpty
-                icon={<CalendarClock className="h-4 w-4" />}
-                title="No leave requests"
-                description="Apply for leave once types and employees exist."
-              />
+        <div className="mb-2.5 flex items-center gap-2">
+          <h2 className="text-[13px] font-semibold text-[#1b1a19]">Requests</h2>
+          <span className="inline-flex rounded-full bg-[#eff6fc] px-2 py-0.5 text-[11px] font-semibold tabular-nums text-[#0067b8] ring-1 ring-[#c7e0f4]">
+            {requests.length}
+          </span>
+        </div>
+        <LeaveRequestRoster
+          rows={filteredRequests}
+          loading={loading}
+          employeeName={employeeName}
+          leaveTypeName={leaveTypeName}
+          busyId={busyId}
+          onApprove={(id) => void onApprove(id)}
+          onReject={setRejectTarget}
+          canAct={(r) => {
+            if (norm(r.status) !== 'pending') return false;
+            const isOwn =
+              !!sessionUser?.id &&
+              !!r.createdBy &&
+              r.createdBy === sessionUser.id;
+            const isSuperAdmin =
+              sessionUser?.roles?.includes('SUPER_ADMIN') ?? false;
+            if (isOwn && !isSuperAdmin) return 'own';
+            return true;
+          }}
+          toolbar={
+            <div className="flex flex-col gap-2.5 sm:flex-row sm:items-center sm:justify-between">
+              <label className="flex min-w-0 flex-1 items-center gap-2 rounded-lg border border-[#e1dfdd] bg-white px-3 py-2 shadow-sm focus-within:border-[#0078d4] focus-within:ring-1 focus-within:ring-[#0078d4]">
+                <Search className="h-4 w-4 shrink-0 text-[#8a8886]" />
+                <input
+                  value={query}
+                  onChange={(e) => setQuery(e.target.value)}
+                  placeholder="Search employee, type, reason…"
+                  className="w-full min-w-0 bg-transparent text-[13px] outline-none placeholder:text-[#a19f9d]"
+                />
+              </label>
+              <div className="flex flex-wrap gap-1">
+                {(
+                  [
+                    ['all', 'All'],
+                    ['pending', 'Pending'],
+                    ['approved', 'Approved'],
+                    ['rejected', 'Rejected'],
+                  ] as const
+                ).map(([id, label]) => (
+                  <button
+                    key={id}
+                    type="button"
+                    onClick={() => setStatusFilter(id)}
+                    className={`rounded-full px-2.5 py-1 text-[11px] font-semibold ${
+                      statusFilter === id
+                        ? 'bg-[#0078d4] text-white'
+                        : 'bg-white text-[#605e5c] ring-1 ring-[#e1dfdd]'
+                    }`}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
             </div>
-          ) : (
-            <DataTable<LeaveRequest>
-              loading={loading}
-              keyField="id"
-              rows={requests}
-              emptyMessage="No leave requests"
-              columns={[
-                {
-                  key: 'employeeId',
-                  label: 'Employee',
-                  render: (r) =>
-                    employeeName.get(r.employeeId) ?? r.employeeId.slice(0, 8),
-                },
-                {
-                  key: 'leaveTypeId',
-                  label: 'Type',
-                  render: (r) => leaveTypeName.get(r.leaveTypeId) ?? '—',
-                },
-                {
-                  key: 'startDate',
-                  label: 'From',
-                  render: (r) => formatDate(r.startDate),
-                },
-                {
-                  key: 'endDate',
-                  label: 'To',
-                  render: (r) => formatDate(r.endDate),
-                },
-                {
-                  key: 'days',
-                  label: 'Days',
-                  render: (r) => <span className="text-xs">{r.days}</span>,
-                },
-                {
-                  key: 'reason',
-                  label: 'Reason',
-                  render: (r) => (
-                    <span
-                      className="max-w-[180px] truncate text-xs text-[#605e5c]"
-                      title={r.reason}
-                    >
-                      {r.reason}
-                    </span>
-                  ),
-                },
-                {
-                  key: 'status',
-                  label: 'Status',
-                  render: (r) => <StatusBadge status={r.status} />,
-                },
-                {
-                  key: 'id',
-                  label: '',
-                  render: (r) => {
-                    const pending = norm(r.status) === 'pending';
-                    if (!pending) {
-                      return r.rejectedReason ? (
-                        <span
-                          className="max-w-[120px] truncate text-[11px] text-rose-700"
-                          title={r.rejectedReason}
-                        >
-                          {r.rejectedReason}
-                        </span>
-                      ) : (
-                        <span className="text-[11px] text-[#a19f9d]">—</span>
-                      );
-                    }
-                    const isOwn =
-                      !!sessionUser?.id &&
-                      !!r.createdBy &&
-                      r.createdBy === sessionUser.id;
-                    const isSuperAdmin =
-                      sessionUser?.roles?.includes('SUPER_ADMIN') ?? false;
-                    if (isOwn && !isSuperAdmin) {
-                      return (
-                        <span className="text-[11px] text-[#a19f9d]">
-                          Awaiting other approver
-                        </span>
-                      );
-                    }
-                    return (
-                      <div className="flex flex-wrap gap-1">
-                        <button
-                          type="button"
-                          className={btnPrimary}
-                          disabled={busyId === r.id}
-                          onClick={() => void onApprove(r.id)}
-                        >
-                          Approve
-                        </button>
-                        <button
-                          type="button"
-                          className={btnSecondary}
-                          disabled={busyId === r.id}
-                          onClick={() => setRejectTarget(r)}
-                        >
-                          Reject
-                        </button>
-                      </div>
-                    );
-                  },
-                },
-              ]}
+          }
+          empty={
+            <PanelEmpty
+              icon={<CalendarClock className="h-4 w-4" />}
+              title={requests.length === 0 ? 'No leave requests' : 'No matches'}
+              description={
+                requests.length === 0
+                  ? 'Apply for leave once types and employees exist.'
+                  : 'Try another search or status filter.'
+              }
             />
-          )}
-        </GlassCard>
+          }
+        />
       </section>
 
       {typeOpen ? (

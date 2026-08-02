@@ -64,6 +64,11 @@ export class AuthUserProfileDto {
 
   @ApiPropertyOptional({ description: 'Bound supplier for SUPPLIER_PORTAL users' })
   supplierId?: string | null;
+
+  @ApiPropertyOptional({
+    description: 'True when a temporary password must be replaced before normal use',
+  })
+  mustChangePassword?: boolean;
 }
 
 export class LoginResponseDto {
@@ -78,4 +83,16 @@ export class RefreshTokenDto {
   @ApiProperty()
   @IsString()
   refreshToken!: string;
+}
+
+export class ChangePasswordDto {
+  @ApiProperty({ example: 'Hl-tempPass!9A' })
+  @IsString()
+  @MinLength(8)
+  currentPassword!: string;
+
+  @ApiProperty({ example: 'NewSecurePass1!' })
+  @IsString()
+  @MinLength(8)
+  newPassword!: string;
 }

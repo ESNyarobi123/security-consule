@@ -160,4 +160,16 @@ export class AccessEntryResponseDto {
 
   @ApiProperty()
   createdAt!: Date;
+
+  @ApiPropertyOptional()
+  employeeName?: string | null;
+
+  @ApiPropertyOptional()
+  employeeNumber?: string | null;
+
+  @ApiPropertyOptional()
+  siteCode?: string | null;
+
+  @ApiPropertyOptional()
+  siteName?: string | null;
 }

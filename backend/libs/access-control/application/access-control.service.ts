@@ -149,7 +149,33 @@ export class AccessControlService {
       orderBy: { recordedAt: 'desc' },
       take: 100,
     });
-    return rows.map((e) => this.toEntryDto(e));
+    if (rows.length === 0) return [];
+
+    const employeeIds = [...new Set(rows.map((r) => r.employeeId))];
+    const siteIds = [...new Set(rows.map((r) => r.siteId))];
+    const [employees, sites] = await Promise.all([
+      this.prisma.customerEmployee.findMany({
+        where: { id: { in: employeeIds } },
+        select: { id: true, fullName: true, employeeNumber: true },
+      }),
+      this.prisma.site.findMany({
+        where: { id: { in: siteIds } },
+        select: { id: true, code: true, name: true },
+      }),
+    ]);
+    const empById = new Map(employees.map((e) => [e.id, e]));
+    const siteById = new Map(sites.map((s) => [s.id, s]));
+
+    return rows.map((e) => {
+      const emp = empById.get(e.employeeId);
+      const site = siteById.get(e.siteId);
+      return this.toEntryDto(e, {
+        employeeName: emp?.fullName ?? null,
+        employeeNumber: emp?.employeeNumber ?? null,
+        siteCode: site?.code ?? null,
+        siteName: site?.name ?? null,
+      });
+    });
   }
 
   /**
@@ -264,19 +290,27 @@ export class AccessControlService {
     };
   }
 
-  private toEntryDto(e: {
-    id: string;
-    organizationId: string;
-    customerId: string;
-    employeeId: string;
-    siteId: string;
-    gateId: string | null;
-    entryType: AccessEntryType;
-    accessMethod: string;
-    recordedBy: string | null;
-    recordedAt: Date;
-    createdAt: Date;
-  }): AccessEntryResponseDto {
+  private toEntryDto(
+    e: {
+      id: string;
+      organizationId: string;
+      customerId: string;
+      employeeId: string;
+      siteId: string;
+      gateId: string | null;
+      entryType: AccessEntryType;
+      accessMethod: string;
+      recordedBy: string | null;
+      recordedAt: Date;
+      createdAt: Date;
+    },
+    labels?: {
+      employeeName?: string | null;
+      employeeNumber?: string | null;
+      siteCode?: string | null;
+      siteName?: string | null;
+    },
+  ): AccessEntryResponseDto {
     return {
       id: e.id,
       organizationId: e.organizationId,
@@ -289,6 +323,10 @@ export class AccessControlService {
       recordedBy: e.recordedBy,
       recordedAt: e.recordedAt,
       createdAt: e.createdAt,
+      employeeName: labels?.employeeName ?? null,
+      employeeNumber: labels?.employeeNumber ?? null,
+      siteCode: labels?.siteCode ?? null,
+      siteName: labels?.siteName ?? null,
     };
   }
 }

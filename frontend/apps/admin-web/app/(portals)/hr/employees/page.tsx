@@ -11,28 +11,40 @@ import {
   type OrgUser,
 } from '@pssms/api-client';
 import {
-  DataTable,
-  GlassCard,
   Modal,
-  StatusBadge,
   btnPrimary,
   btnSecondary,
   inputCls,
 } from '@pssms/ui';
-import { Plus, RefreshCw, Users } from 'lucide-react';
+import { Plus, RefreshCw, Search, Users } from 'lucide-react';
 import {
   FormEvent,
   useCallback,
   useEffect,
+  useMemo,
   useState,
 } from 'react';
+import { EmployeeRoster } from '../_components/EmployeeRoster';
+import {
+  matchesEmployeeSearch,
+  matchesEmployeeStatus,
+} from '../_components/employee-ui';
 import { HrShell } from '../_components/HrShell';
 import {
   EMPLOYEE_STATUSES,
   EMPLOYMENT_TYPES,
   PanelEmpty,
-  formatDate,
 } from '../_components/shared';
+
+type StatusFilter = 'all' | 'active' | 'leave' | 'suspended' | 'terminated';
+
+const FILTERS: { id: StatusFilter; label: string }[] = [
+  { id: 'all', label: 'All' },
+  { id: 'active', label: 'Active' },
+  { id: 'leave', label: 'On leave' },
+  { id: 'suspended', label: 'Suspended' },
+  { id: 'terminated', label: 'Terminated' },
+];
 
 export default function HrEmployeesPage() {
   const [rows, setRows] = useState<Employee[]>([]);
@@ -40,6 +52,8 @@ export default function HrEmployeesPage() {
   const [error, setError] = useState<string | null>(null);
   const [createOpen, setCreateOpen] = useState(false);
   const [editRow, setEditRow] = useState<Employee | null>(null);
+  const [query, setQuery] = useState('');
+  const [filter, setFilter] = useState<StatusFilter>('all');
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -56,6 +70,33 @@ export default function HrEmployeesPage() {
   useEffect(() => {
     void refresh();
   }, [refresh]);
+
+  const filtered = useMemo(
+    () =>
+      rows.filter(
+        (e) =>
+          matchesEmployeeStatus(e, filter) && matchesEmployeeSearch(e, query),
+      ),
+    [rows, filter, query],
+  );
+
+  const counts = useMemo(() => {
+    const c = {
+      all: rows.length,
+      active: 0,
+      leave: 0,
+      suspended: 0,
+      terminated: 0,
+    };
+    for (const e of rows) {
+      const s = e.status.trim().toUpperCase().replace(/[\s-]+/g, '_');
+      if (s === 'ACTIVE') c.active += 1;
+      else if (s.includes('LEAVE')) c.leave += 1;
+      else if (s === 'SUSPENDED') c.suspended += 1;
+      else if (s === 'TERMINATED') c.terminated += 1;
+    }
+    return c;
+  }, [rows]);
 
   return (
     <HrShell
@@ -91,105 +132,67 @@ export default function HrEmployeesPage() {
         </p>
       ) : null}
 
-      <GlassCard className="!p-0 overflow-hidden">
-        {rows.length === 0 && !loading ? (
-          <div className="p-4">
-            <PanelEmpty
-              icon={<Users className="h-4 w-4" />}
-              title="No employees"
-              description="Create an employee record to start leave and salary workflows."
-            />
-          </div>
-        ) : (
-          <DataTable<Employee>
-            loading={loading}
-            keyField="id"
-            rows={rows}
-            emptyMessage="No employees"
-            columns={[
-              {
-                key: 'employeeNumber',
-                label: 'Emp #',
-                render: (r) => (
-                  <span className="font-mono text-sm">{r.employeeNumber}</span>
-                ),
-              },
-              {
-                key: 'fullName',
-                label: 'Name',
-                render: (r) => (
+      <EmployeeRoster
+        rows={filtered}
+        loading={loading}
+        onEdit={setEditRow}
+        toolbar={
+          <div className="flex flex-col gap-2.5 sm:flex-row sm:items-center sm:justify-between">
+            <label className="flex min-w-0 flex-1 items-center gap-2 rounded-lg border border-[#e1dfdd] bg-white px-3 py-2 shadow-sm focus-within:border-[#0078d4] focus-within:ring-1 focus-within:ring-[#0078d4]">
+              <Search className="h-4 w-4 shrink-0 text-[#8a8886]" />
+              <input
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                placeholder="Search name, emp #, dept, email…"
+                className="w-full min-w-0 bg-transparent text-[13px] text-[#323130] outline-none placeholder:text-[#a19f9d]"
+              />
+            </label>
+            <div className="flex flex-wrap gap-1">
+              {FILTERS.map((f) => {
+                const n = counts[f.id];
+                const active = filter === f.id;
+                return (
                   <button
+                    key={f.id}
                     type="button"
-                    className="text-left font-medium text-[#0078d4] hover:underline"
-                    onClick={() => setEditRow(r)}
+                    onClick={() => setFilter(f.id)}
+                    className={`inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[11px] font-semibold transition ${
+                      active
+                        ? 'bg-[#0078d4] text-white shadow-sm'
+                        : 'bg-white text-[#605e5c] ring-1 ring-[#e1dfdd] hover:bg-[#f3f9fd]'
+                    }`}
                   >
-                    {r.fullName}
-                  </button>
-                ),
-              },
-              {
-                key: 'email',
-                label: 'Email',
-                render: (r) => r.email ?? '—',
-              },
-              {
-                key: 'phone',
-                label: 'Phone',
-                render: (r) => r.phone ?? '—',
-              },
-              {
-                key: 'department',
-                label: 'Department',
-                render: (r) => r.department ?? '—',
-              },
-              {
-                key: 'employmentType',
-                label: 'Type',
-                render: (r) => (
-                  <span className="text-xs text-[#605e5c]">
-                    {r.employmentType}
-                  </span>
-                ),
-              },
-              {
-                key: 'userId',
-                label: 'ESS',
-                render: (r) =>
-                  r.userId ? (
-                    <span className="text-[11px] font-medium text-emerald-700">
-                      Linked
+                    {f.label}
+                    <span
+                      className={`tabular-nums ${
+                        active ? 'text-white/80' : 'text-[#a19f9d]'
+                      }`}
+                    >
+                      {n}
                     </span>
-                  ) : (
-                    <span className="text-[11px] text-[#a19f9d]">Unlinked</span>
-                  ),
-                },
-                {
-                  key: 'status',
-                label: 'Status',
-                render: (r) => <StatusBadge status={r.status} />,
-              },
-              {
-                key: 'hireDate',
-                label: 'Hired',
-                render: (r) => formatDate(r.hireDate),
-              },
-              {
-                key: 'id',
-                label: '',
-                render: (r) => (
-                  <button
-                    type="button"
-                    className={btnSecondary}
-                    onClick={() => setEditRow(r)}
-                  >
-                    Edit
                   </button>
-                ),
-              },
-            ]}
+                );
+              })}
+            </div>
+          </div>
+        }
+        empty={
+          <PanelEmpty
+            icon={<Users className="h-4 w-4" />}
+            title={rows.length === 0 ? 'No employees' : 'No matches'}
+            description={
+              rows.length === 0
+                ? 'Create an employee record to start leave and salary workflows.'
+                : 'Try another search or status filter.'
+            }
           />
-        )}
-      </GlassCard>
+        }
+      />
+      {!loading && filtered.length > 0 ? (
+        <p className="mt-2 text-[11px] text-[#605e5c]">
+          Showing {filtered.length} of {rows.length} employees
+        </p>
+      ) : null}
 
       {createOpen ? (
         <CreateEmployeeModal

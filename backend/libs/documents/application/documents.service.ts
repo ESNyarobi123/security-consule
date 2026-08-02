@@ -27,11 +27,154 @@ const PRESIGN_TTL_SECONDS = 300;
 const PARENT_PERMISSION_BY_RESOURCE: Record<string, string> = {
   OccurrenceEntry: 'operations.manage',
   PettyCashVoucher: 'finance.manage',
+  Customer: 'customers.manage',
+  Contract: 'contracts.manage',
 };
 
 const SUPPORTED_RESOURCE_TYPES = new Set(
   Object.keys(PARENT_PERMISSION_BY_RESOURCE),
 );
+
+type AccessMode = 'read' | 'write';
+
+function assertParentPermission(resourceType: string, user: AuthUser): void {
+  const required = PARENT_PERMISSION_BY_RESOURCE[resourceType];
+  if (!required) {
+    throw new BadRequestException(
+      `Unsupported resourceType (allowed: ${[...SUPPORTED_RESOURCE_TYPES].join(', ')})`,
+    );
+  }
+  if (user.roles.includes('SUPER_ADMIN')) return;
+  if (!user.permissions.includes(required)) {
+    throw new ForbiddenException(
+      `Missing permission ${required} for ${resourceType} attachments`,
+    );
+  }
+}
+
+async function assertResourceOwned(
+  prisma: PrismaService,
+  resourceType: string,
+  resourceId: string,
+  organizationId: string,
+): Promise<void> {
+  if (resourceType === 'OccurrenceEntry') {
+    const entry = await prisma.occurrenceEntry.findFirst({
+      where: { id: resourceId, organizationId },
+      select: { id: true },
+    });
+    if (!entry) {
+      throw new BadRequestException(
+        'OccurrenceEntry not found in your organization',
+      );
+    }
+    return;
+  }
+  if (resourceType === 'PettyCashVoucher') {
+    const voucher = await prisma.pettyCashVoucher.findFirst({
+      where: { id: resourceId, organizationId },
+      select: { id: true },
+    });
+    if (!voucher) {
+      throw new BadRequestException(
+        'PettyCashVoucher not found in your organization',
+      );
+    }
+    return;
+  }
+  if (resourceType === 'Customer') {
+    const customer = await prisma.customer.findFirst({
+      where: { id: resourceId, organizationId },
+      select: { id: true },
+    });
+    if (!customer) {
+      throw new BadRequestException('Customer not found in your organization');
+    }
+    return;
+  }
+  if (resourceType === 'Contract') {
+    const contract = await prisma.contract.findFirst({
+      where: { id: resourceId, organizationId },
+      select: { id: true },
+    });
+    if (!contract) {
+      throw new BadRequestException('Contract not found in your organization');
+    }
+  }
+}
+
+/**
+ * Org ownership of the parent resource + authz:
+ * - CUSTOMER_PORTAL (JWT customerId): read-only on own Customer + own Contract attachments
+ * - Staff: documents.manage + parent domain permission (+ SUPER_ADMIN bypass)
+ */
+async function assertDocumentAccess(
+  prisma: PrismaService,
+  resourceType: string,
+  resourceId: string,
+  user: AuthUser,
+  mode: AccessMode,
+): Promise<void> {
+  if (user.customerId) {
+    if (mode === 'write') {
+      throw new ForbiddenException({
+        error: 'CUSTOMER_PORTAL_READ_ONLY',
+        message: 'Customer portal users cannot upload documents',
+      });
+    }
+    if (resourceType === 'Customer') {
+      if (resourceId !== user.customerId) {
+        throw new ForbiddenException({
+          error: 'FORBIDDEN',
+          message: 'Customer portal can only access their own documents',
+        });
+      }
+    } else if (resourceType === 'Contract') {
+      const contract = await prisma.contract.findFirst({
+        where: {
+          id: resourceId,
+          organizationId: user.organizationId,
+          customerId: user.customerId,
+        },
+        select: { id: true },
+      });
+      if (!contract) {
+        throw new ForbiddenException({
+          error: 'FORBIDDEN',
+          message: 'Customer portal can only access own contract documents',
+        });
+      }
+      return;
+    } else {
+      throw new ForbiddenException({
+        error: 'FORBIDDEN',
+        message: 'Customer portal can only access their own documents',
+      });
+    }
+    await assertResourceOwned(
+      prisma,
+      resourceType,
+      resourceId,
+      user.organizationId,
+    );
+    return;
+  }
+
+  if (
+    !user.roles.includes('SUPER_ADMIN') &&
+    !user.permissions.includes('documents.manage')
+  ) {
+    throw new ForbiddenException('Missing permission documents.manage');
+  }
+
+  assertParentPermission(resourceType, user);
+  await assertResourceOwned(
+    prisma,
+    resourceType,
+    resourceId,
+    user.organizationId,
+  );
+}
 
 @Injectable()
 export class DocumentsService {
@@ -60,7 +203,10 @@ export class DocumentsService {
       throw new BadRequestException('resourceId is required');
     }
 
-    const contentType = (params.contentType || '').split(';')[0].trim().toLowerCase();
+    const contentType = (params.contentType || '')
+      .split(';')[0]
+      .trim()
+      .toLowerCase();
     if (!ALLOWED_TYPES.has(contentType)) {
       throw new BadRequestException(
         'Unsupported content type (allowed: pdf, png, jpeg, webp)',
@@ -84,7 +230,13 @@ export class DocumentsService {
       );
     }
 
-    await this.assertResourceAccess(resourceType, resourceId, params.user);
+    await assertDocumentAccess(
+      this.prisma,
+      resourceType,
+      resourceId,
+      params.user,
+      'write',
+    );
 
     const checksum = createHash('sha256').update(params.buffer).digest('hex');
     const objectKey = [
@@ -152,7 +304,7 @@ export class DocumentsService {
       );
     }
 
-    await this.assertResourceAccess(type, id, user);
+    await assertDocumentAccess(this.prisma, type, id, user, 'read');
 
     const rows = await this.prisma.documentObject.findMany({
       where: {
@@ -175,77 +327,24 @@ export class DocumentsService {
     });
     if (!row) throw new NotFoundException('Document not found');
 
-    await this.assertResourceAccess(row.resourceType, row.resourceId, user);
+    await assertDocumentAccess(
+      this.prisma,
+      row.resourceType,
+      row.resourceId,
+      user,
+      'read',
+    );
 
-    const url = await this.storage.presignGet(row.objectKey, PRESIGN_TTL_SECONDS);
+    const url = await this.storage.presignGet(
+      row.objectKey,
+      PRESIGN_TTL_SECONDS,
+    );
     return {
       url,
       expiresInSeconds: PRESIGN_TTL_SECONDS,
       fileName: row.fileName,
       contentType: row.contentType,
     };
-  }
-
-  /**
-   * Org ownership of the parent resource + parent domain permission
-   * (in addition to controller-level documents.manage).
-   */
-  private async assertResourceAccess(
-    resourceType: string,
-    resourceId: string,
-    user: AuthUser,
-  ): Promise<void> {
-    this.assertParentPermission(resourceType, user);
-    await this.assertResourceOwned(
-      resourceType,
-      resourceId,
-      user.organizationId,
-    );
-  }
-
-  private assertParentPermission(resourceType: string, user: AuthUser): void {
-    const required = PARENT_PERMISSION_BY_RESOURCE[resourceType];
-    if (!required) {
-      throw new BadRequestException(
-        `Unsupported resourceType (allowed: ${[...SUPPORTED_RESOURCE_TYPES].join(', ')})`,
-      );
-    }
-    if (user.roles.includes('SUPER_ADMIN')) return;
-    if (!user.permissions.includes(required)) {
-      throw new ForbiddenException(
-        `Missing permission ${required} for ${resourceType} attachments`,
-      );
-    }
-  }
-
-  private async assertResourceOwned(
-    resourceType: string,
-    resourceId: string,
-    organizationId: string,
-  ): Promise<void> {
-    if (resourceType === 'OccurrenceEntry') {
-      const entry = await this.prisma.occurrenceEntry.findFirst({
-        where: { id: resourceId, organizationId },
-        select: { id: true },
-      });
-      if (!entry) {
-        throw new BadRequestException(
-          'OccurrenceEntry not found in your organization',
-        );
-      }
-      return;
-    }
-    if (resourceType === 'PettyCashVoucher') {
-      const voucher = await this.prisma.pettyCashVoucher.findFirst({
-        where: { id: resourceId, organizationId },
-        select: { id: true },
-      });
-      if (!voucher) {
-        throw new BadRequestException(
-          'PettyCashVoucher not found in your organization',
-        );
-      }
-    }
   }
 
   private sanitizeFileName(name: string): string {

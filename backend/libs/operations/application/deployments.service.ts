@@ -4,7 +4,12 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { DeploymentStatus, GuardStatus, Prisma } from '@prisma/client';
+import {
+  ContractStatus,
+  DeploymentStatus,
+  GuardStatus,
+  Prisma,
+} from '@prisma/client';
 import { PrismaService, AuthUser } from '@pssms/shared';
 import { AuditService } from '@pssms/audit';
 import {
@@ -17,7 +22,30 @@ const DEPLOYABLE_STATUSES: GuardStatus[] = [
   GuardStatus.AVAILABLE,
 ];
 
+/** Same billable set as invoices (finance). */
+const BILLABLE_CONTRACT_STATUSES: ContractStatus[] = [
+  ContractStatus.APPROVED,
+  ContractStatus.ACTIVE,
+  ContractStatus.EXPIRING,
+];
+
 type DbClient = Prisma.TransactionClient | PrismaService;
+
+type DeploymentRow = {
+  id: string;
+  organizationId: string;
+  guardId: string;
+  siteId: string;
+  contractId?: string | null;
+  status: string;
+  startDate: Date;
+  endDate?: Date | null;
+};
+
+type ContractEnrichment = {
+  contractNumber: string;
+  customerId: string;
+};
 
 @Injectable()
 export class DeploymentsService {
@@ -48,6 +76,56 @@ export class DeploymentsService {
     });
     if (!site) throw new NotFoundException('Site not found in organization');
 
+    if (!dto.contractId?.trim()) {
+      throw new BadRequestException('contractId is required');
+    }
+
+    const contract = await this.prisma.contract.findFirst({
+      where: {
+        id: dto.contractId,
+        organizationId: user.organizationId,
+      },
+      select: {
+        id: true,
+        customerId: true,
+        contractNumber: true,
+        status: true,
+      },
+    });
+    if (!contract) {
+      throw new NotFoundException('Contract not found in organization');
+    }
+    if (!BILLABLE_CONTRACT_STATUSES.includes(contract.status)) {
+      throw new BadRequestException(
+        `Contract ${contract.contractNumber} must be APPROVED, ACTIVE, or EXPIRING to deploy (now ${contract.status})`,
+      );
+    }
+
+    const boundSiteCount = await this.prisma.contractSite.count({
+      where: {
+        organizationId: user.organizationId,
+        contractId: contract.id,
+      },
+    });
+    if (boundSiteCount === 0) {
+      throw new BadRequestException(
+        'Contract has no sites; bind sites first',
+      );
+    }
+
+    const siteLink = await this.prisma.contractSite.findFirst({
+      where: {
+        organizationId: user.organizationId,
+        contractId: contract.id,
+        siteId: dto.siteId,
+      },
+    });
+    if (!siteLink) {
+      throw new BadRequestException(
+        `Site is not covered by contract ${contract.contractNumber}; bind the site on the contract first`,
+      );
+    }
+
     const overlapping = await this.prisma.guardDeployment.findFirst({
       where: {
         organizationId: user.organizationId,
@@ -66,7 +144,7 @@ export class DeploymentsService {
         organizationId: user.organizationId,
         guardId: dto.guardId,
         siteId: dto.siteId,
-        contractId: dto.contractId,
+        contractId: contract.id,
         startDate: new Date(dto.startDate),
         endDate: dto.endDate ? new Date(dto.endDate) : undefined,
         status: DeploymentStatus.ACTIVE,
@@ -85,10 +163,17 @@ export class DeploymentsService {
       action: 'deployment.created',
       resourceType: 'GuardDeployment',
       resourceId: deployment.id,
-      after: deployment,
+      after: {
+        ...deployment,
+        contractNumber: contract.contractNumber,
+        customerId: contract.customerId,
+      },
     });
 
-    return this.toDto(deployment);
+    return this.toDto(deployment, {
+      contractNumber: contract.contractNumber,
+      customerId: contract.customerId,
+    });
   }
 
   async end(
@@ -130,21 +215,13 @@ export class DeploymentsService {
   }
 
   private async endRow(
-    deployment: {
-      id: string;
-      organizationId: string;
-      guardId: string;
-      siteId: string;
-      status: string;
-      startDate: Date;
-      endDate?: Date | null;
-    },
+    deployment: DeploymentRow,
     user: AuthUser,
     meta?: { reason?: string; sourceMovementId?: string },
     db: DbClient = this.prisma,
   ): Promise<DeploymentResponseDto> {
     if (deployment.status === DeploymentStatus.ENDED) {
-      return this.toDto(deployment);
+      return this.enrichOne(deployment);
     }
 
     const today = new Date();
@@ -174,7 +251,7 @@ export class DeploymentsService {
       },
     });
 
-    return this.toDto(updated);
+    return this.enrichOne(updated);
   }
 
   async list(organizationId: string): Promise<DeploymentResponseDto[]> {
@@ -183,21 +260,56 @@ export class DeploymentsService {
       orderBy: { startDate: 'desc' },
       take: 100,
     });
-    return rows.map((d) => this.toDto(d));
+    return this.enrichMany(rows);
   }
 
-  private toDto(d: {
-    id: string;
-    guardId: string;
-    siteId: string;
-    status: string;
-    startDate: Date;
-    endDate?: Date | null;
-  }): DeploymentResponseDto {
+  private async enrichOne(d: DeploymentRow): Promise<DeploymentResponseDto> {
+    const [enriched] = await this.enrichMany([d]);
+    return enriched!;
+  }
+
+  private async enrichMany(
+    rows: DeploymentRow[],
+  ): Promise<DeploymentResponseDto[]> {
+    const contractIds = [
+      ...new Set(
+        rows
+          .map((r) => r.contractId)
+          .filter((id): id is string => Boolean(id)),
+      ),
+    ];
+    const enrichById = new Map<string, ContractEnrichment>();
+    if (contractIds.length > 0) {
+      const contracts = await this.prisma.contract.findMany({
+        where: { id: { in: contractIds } },
+        select: { id: true, contractNumber: true, customerId: true },
+      });
+      for (const c of contracts) {
+        enrichById.set(c.id, {
+          contractNumber: c.contractNumber,
+          customerId: c.customerId,
+        });
+      }
+    }
+    return rows.map((d) =>
+      this.toDto(
+        d,
+        d.contractId ? enrichById.get(d.contractId) : undefined,
+      ),
+    );
+  }
+
+  private toDto(
+    d: DeploymentRow,
+    enrich?: ContractEnrichment,
+  ): DeploymentResponseDto {
     return {
       id: d.id,
       guardId: d.guardId,
       siteId: d.siteId,
+      contractId: d.contractId ?? null,
+      contractNumber: enrich?.contractNumber ?? null,
+      customerId: enrich?.customerId ?? null,
       status: d.status,
       startDate: d.startDate,
       endDate: d.endDate ?? null,

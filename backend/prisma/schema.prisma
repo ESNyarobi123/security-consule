@@ -28,6 +28,7 @@ model User {
   mfaVerifiedAt   DateTime?          @map("mfa_verified_at")
   suspendedAt     DateTime?          @map("suspended_at")
   suspendedReason String?            @map("suspended_reason")
+  mustChangePassword Boolean         @default(false) @map("must_change_password")
   loginHistory    LoginHistory[]
   branchAccess    UserBranchAccess[]
   roles           UserRole[]
@@ -223,51 +224,141 @@ model Gate {
 }
 
 model Customer {
-  id             String       @id @default(uuid())
-  organizationId String       @map("organization_id")
-  code           String
-  name           String
-  tin            String?
-  email          String?
-  phone          String?
-  address        String?
-  contactPerson  String?      @map("contact_person")
-  isActive       Boolean      @default(true) @map("is_active")
-  createdAt      DateTime     @default(now()) @map("created_at")
-  updatedAt      DateTime     @updatedAt @map("updated_at")
-  createdBy      String?      @map("created_by")
-  version        Int          @default(1)
-  contracts      Contract[]
-  organization   Organization @relation(fields: [organizationId], references: [id])
+  id                   String                   @id @default(uuid())
+  organizationId       String                   @map("organization_id")
+  code                 String
+  name                 String
+  tradingName          String?                  @map("trading_name")
+  tin                  String?
+  vrn                  String?
+  businessLicense      String?                  @map("business_license")
+  email                String?
+  phone                String?
+  altPhone             String?                  @map("alt_phone")
+  address              String?
+  postalAddress        String?                  @map("postal_address")
+  city                 String?
+  region               String?
+  country              String?                  @default("Tanzania")
+  contactPerson        String?                  @map("contact_person")
+  contactDesignation   String?                  @map("contact_designation")
+  billingEmail         String?                  @map("billing_email")
+  opsEmail             String?                  @map("ops_email")
+  website              String?
+  category             String?
+  industry             String?
+  ranking              String?                  @default("NORMAL")
+  status               CustomerLifecycleStatus  @default(PROSPECT)
+  serviceTypes         String[]                 @default([]) @map("service_types")
+  preferredStartDate   DateTime?                @map("preferred_start_date") @db.Date
+  estimatedGuards      Int?                     @map("estimated_guards")
+  specialRequirements  String?                  @map("special_requirements")
+  slaLevel             String?                  @map("sla_level")
+  paymentTerms         String?                  @map("payment_terms")
+  paymentMethod        String?                  @map("payment_method")
+  bankName             String?                  @map("bank_name")
+  accountNumber        String?                  @map("account_number")
+  creditLimit          Decimal?                 @map("credit_limit") @db.Decimal(18, 2)
+  currency             String?                  @default("TZS")
+  invoiceFrequency     String?                  @map("invoice_frequency")
+  taxExempt            Boolean                  @default(false) @map("tax_exempt")
+  accountManagerName   String?                  @map("account_manager_name")
+  branchId             String?                  @map("branch_id")
+  isActive             Boolean                  @default(true) @map("is_active")
+  createdAt            DateTime                 @default(now()) @map("created_at")
+  updatedAt            DateTime                 @updatedAt @map("updated_at")
+  createdBy            String?                  @map("created_by")
+  version              Int                      @default(1)
+  contracts            Contract[]
+  serviceRequests      CustomerServiceRequest[]
+  organization         Organization             @relation(fields: [organizationId], references: [id])
 
   @@unique([organizationId, code])
+  @@index([organizationId, tin])
   @@map("customers")
   @@schema("customers")
 }
 
+/** Customer portal service tickets (thin call-centre handoff). */
+model CustomerServiceRequest {
+  id               String                 @id @default(uuid())
+  organizationId   String                 @map("organization_id")
+  customerId       String                 @map("customer_id")
+  referenceNumber  String                 @map("reference_number")
+  category         ServiceRequestCategory
+  urgency          ServiceRequestUrgency  @default(THIS_WEEK)
+  status           ServiceRequestStatus   @default(OPEN)
+  title            String
+  description      String
+  siteId           String?                @map("site_id")
+  callbackPhone    String?                @map("callback_phone")
+  createdBy        String                 @map("created_by")
+  acknowledgedBy   String?                @map("acknowledged_by")
+  acknowledgedAt   DateTime?              @map("acknowledged_at")
+  resolvedBy       String?                @map("resolved_by")
+  resolvedAt       DateTime?              @map("resolved_at")
+  closedBy         String?                @map("closed_by")
+  closedAt         DateTime?              @map("closed_at")
+  resolutionNotes  String?                @map("resolution_notes")
+  createdAt        DateTime               @default(now()) @map("created_at")
+  updatedAt        DateTime               @updatedAt @map("updated_at")
+  customer         Customer               @relation(fields: [customerId], references: [id])
+
+  @@unique([organizationId, referenceNumber])
+  @@index([organizationId, customerId, status])
+  @@index([organizationId, status, createdAt])
+  @@map("service_requests")
+  @@schema("customers")
+}
+
 model Contract {
-  id             String         @id @default(uuid())
-  organizationId String         @map("organization_id")
-  customerId     String         @map("customer_id")
-  contractNumber String         @map("contract_number")
-  title          String
-  serviceType    String         @map("service_type")
-  status         ContractStatus @default(DRAFT)
-  startDate      DateTime       @map("start_date")
-  endDate        DateTime       @map("end_date")
-  monthlyFee     Decimal        @map("monthly_fee") @db.Decimal(18, 2)
-  currency       String         @default("TZS")
-  guardCount     Int?           @map("guard_count")
-  slaTerms       String?        @map("sla_terms")
-  createdAt      DateTime       @default(now()) @map("created_at")
-  updatedAt      DateTime       @updatedAt @map("updated_at")
-  createdBy      String?        @map("created_by")
-  version        Int            @default(1)
-  customer       Customer       @relation(fields: [customerId], references: [id])
-  organization   Organization   @relation(fields: [organizationId], references: [id])
+  id                  String         @id @default(uuid())
+  organizationId      String         @map("organization_id")
+  customerId          String         @map("customer_id")
+  contractNumber      String         @map("contract_number")
+  title               String
+  serviceType         String         @map("service_type")
+  serviceTypes        String[]       @default([]) @map("service_types")
+  status              ContractStatus @default(DRAFT)
+  startDate           DateTime       @map("start_date")
+  endDate             DateTime       @map("end_date")
+  monthlyFee          Decimal        @map("monthly_fee") @db.Decimal(18, 2)
+  currency            String         @default("TZS")
+  paymentTerms        String?        @map("payment_terms")
+  contractKind        String         @default("NEW") @map("contract_kind")
+  renewalDate         DateTime?      @map("renewal_date") @db.Date
+  noticePeriodDays    Int            @default(30) @map("notice_period_days")
+  invoiceFrequency    String?        @default("MONTHLY") @map("invoice_frequency")
+  vatApplicable       Boolean        @default(true) @map("vat_applicable")
+  slaLevel            String?        @default("STANDARD") @map("sla_level")
+  guardCount          Int?           @map("guard_count")
+  slaTerms            String?        @map("sla_terms")
+  approvalInstanceId  String?        @map("approval_instance_id")
+  createdAt           DateTime       @default(now()) @map("created_at")
+  updatedAt           DateTime       @updatedAt @map("updated_at")
+  createdBy           String?        @map("created_by")
+  version             Int            @default(1)
+  customer            Customer       @relation(fields: [customerId], references: [id])
+  organization        Organization   @relation(fields: [organizationId], references: [id])
+  sites               ContractSite[]
 
   @@unique([organizationId, contractNumber])
   @@map("contracts")
+  @@schema("contracts")
+}
+
+/// Sites covered by a commercial contract (enterprise.sites.id — no cross-schema FK).
+model ContractSite {
+  id             String   @id @default(uuid())
+  organizationId String   @map("organization_id")
+  contractId     String   @map("contract_id")
+  siteId         String   @map("site_id")
+  createdAt      DateTime @default(now()) @map("created_at")
+  contract       Contract @relation(fields: [contractId], references: [id], onDelete: Cascade)
+
+  @@unique([contractId, siteId])
+  @@index([organizationId, siteId])
+  @@map("contract_sites")
   @@schema("contracts")
 }
 
@@ -374,6 +465,11 @@ model GuardProfile {
   employeeNumber     String            @map("employee_number")
   status             GuardStatus       @default(ACTIVE)
   deploymentEligible Boolean           @default(false) @map("deployment_eligible")
+  /// Thin G3 readiness checklist (not full §8 training matrix)
+  trainingCompleted  Boolean           @default(false) @map("training_completed")
+  firearmAuthorized  Boolean           @default(false) @map("firearm_authorized")
+  firearmExpiry      DateTime?         @map("firearm_expiry") @db.Date
+  clearanceVerified  Boolean           @default(false) @map("clearance_verified")
   photoUrl           String?           @map("photo_url")
   phone              String?
   createdAt          DateTime          @default(now()) @map("created_at")
@@ -460,13 +556,15 @@ model Checkpoint {
 }
 
 model PatrolRoute {
-  id             String   @id @default(uuid())
-  organizationId String   @map("organization_id")
-  siteId         String   @map("site_id")
-  name           String
-  checkpointIds  String[] @map("checkpoint_ids")
-  isActive       Boolean  @default(true) @map("is_active")
-  createdAt      DateTime @default(now()) @map("created_at")
+  id                     String   @id @default(uuid())
+  organizationId         String   @map("organization_id")
+  siteId                 String   @map("site_id")
+  name                   String
+  checkpointIds          String[] @map("checkpoint_ids")
+  /// Minutes from local midnight when today’s route should be COMPLETED (default 23:00).
+  dueMinutesFromMidnight Int      @default(1380) @map("due_minutes_from_midnight")
+  isActive               Boolean  @default(true) @map("is_active")
+  createdAt              DateTime @default(now()) @map("created_at")
 
   @@map("patrol_routes")
   @@schema("operations")
@@ -559,9 +657,12 @@ model FieldAlert {
   alertType      String   @map("alert_type")
   severity       String   @default("MEDIUM")
   message        String
-  acknowledged   Boolean  @default(false)
-  acknowledgedBy String?  @map("acknowledged_by")
-  createdAt      DateTime @default(now()) @map("created_at")
+  acknowledged     Boolean   @default(false)
+  acknowledgedBy   String?   @map("acknowledged_by")
+  escalationStage  String    @default("SUPERVISOR") @map("escalation_stage")
+  escalatedAt      DateTime? @map("escalated_at")
+  escalatedBy      String?   @map("escalated_by")
+  createdAt        DateTime  @default(now()) @map("created_at")
 
   @@index([organizationId, createdAt])
   @@map("field_alerts")
@@ -1828,6 +1929,45 @@ enum GateType {
   MIXED
 
   @@schema("enterprise")
+}
+
+enum CustomerLifecycleStatus {
+  PROSPECT
+  ACTIVE
+  SUSPENDED
+  TERMINATED
+
+  @@schema("customers")
+}
+
+enum ServiceRequestCategory {
+  EXTRA_GUARDS
+  COVERAGE
+  ACCESS
+  VISITOR
+  BILLING
+  OTHER
+
+  @@schema("customers")
+}
+
+enum ServiceRequestUrgency {
+  SAME_DAY
+  THIS_WEEK
+  PLANNING
+
+  @@schema("customers")
+}
+
+enum ServiceRequestStatus {
+  OPEN
+  ACKNOWLEDGED
+  IN_PROGRESS
+  RESOLVED
+  CLOSED
+  CANCELLED
+
+  @@schema("customers")
 }
 
 enum ContractStatus {

@@ -1,41 +1,48 @@
 'use client';
 
 import {
+  listDisciplineCases,
+  listEmployeeMovements,
   listEmployees,
   listLeaveRequests,
   listLeaveTypes,
   listSalaryAssignments,
+  listTrainingRecords,
+  type DisciplineCase,
   type Employee,
+  type EmployeeMovement,
   type LeaveRequest,
   type LeaveType,
   type SalaryAssignment,
+  type TrainingRecord,
 } from '@pssms/api-client';
+import { StatCard, btnSecondary } from '@pssms/ui';
 import {
-  DataTable,
-  GlassCard,
-  StatCard,
-  StatusBadge,
-  btnSecondary,
-} from '@pssms/ui';
-import {
+  ArrowRight,
   Banknote,
   CalendarClock,
   Clock,
+  GraduationCap,
   RefreshCw,
+  Scale,
   UserCheck,
   Users,
 } from 'lucide-react';
+import Link from 'next/link';
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { HrShell } from './_components/HrShell';
+import { EmployeeRoster } from './_components/EmployeeRoster';
 import {
-  PanelEmpty,
-  QuickLink,
-  SectionLabel,
-  formatDate,
-  formatMoney,
-} from './_components/shared';
+  DisciplineRoster,
+  LeaveRequestRoster,
+  MovementRoster,
+  SalaryRoster,
+  TrainingRoster,
+} from './_components/HrRosters';
+import { HrShell } from './_components/HrShell';
+import { HrSectionHeader } from './_components/hr-list';
+import { PanelEmpty, QuickLink } from './_components/shared';
 
-const PREVIEW = 12;
+const PREVIEW = 8;
 
 const norm = (s: string) => s.trim().toLowerCase().replace(/[\s-]+/g, '_');
 
@@ -44,6 +51,9 @@ export default function HrOverviewPage() {
   const [leave, setLeave] = useState<LeaveRequest[]>([]);
   const [types, setTypes] = useState<LeaveType[]>([]);
   const [salary, setSalary] = useState<SalaryAssignment[]>([]);
+  const [training, setTraining] = useState<TrainingRecord[]>([]);
+  const [discipline, setDiscipline] = useState<DisciplineCase[]>([]);
+  const [movements, setMovements] = useState<EmployeeMovement[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -51,16 +61,23 @@ export default function HrOverviewPage() {
     setLoading(true);
     setError(null);
     try {
-      const [emps, reqs, leaveTypes, assignments] = await Promise.all([
-        listEmployees(),
-        listLeaveRequests(),
-        listLeaveTypes(),
-        listSalaryAssignments(),
-      ]);
+      const [emps, reqs, leaveTypes, assignments, train, cases, moves] =
+        await Promise.all([
+          listEmployees(),
+          listLeaveRequests(),
+          listLeaveTypes(),
+          listSalaryAssignments(),
+          listTrainingRecords().catch(() => [] as TrainingRecord[]),
+          listDisciplineCases().catch(() => [] as DisciplineCase[]),
+          listEmployeeMovements().catch(() => [] as EmployeeMovement[]),
+        ]);
       setEmployees(emps);
       setLeave(reqs);
       setTypes(leaveTypes);
       setSalary(assignments);
+      setTraining(train);
+      setDiscipline(cases);
+      setMovements(moves);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -95,14 +112,10 @@ export default function HrOverviewPage() {
     return { total, active, onLeave, pending, activeSalary };
   }, [employees, leave, salary]);
 
-  const empPreview = employees.slice(0, PREVIEW);
-  const leavePreview = leave.slice(0, PREVIEW);
-  const salaryPreview = salary.slice(0, PREVIEW);
-
   return (
     <HrShell
       title="HR overview"
-      description="Phase A–C — employees, leave, salary, training, discipline, and transfer/exit. ESS and employee documents come later. Use tabs for a focused page."
+      description="Phase A–C — employees, leave, salary, training, discipline, and transfer/exit. Use tabs for focused work."
       actions={
         <button
           type="button"
@@ -153,200 +166,154 @@ export default function HrOverviewPage() {
       </div>
 
       <section className="mt-6">
-        <SectionLabel
+        <HrSectionHeader
           title="Employees"
-          href="/hr/employees"
           count={employees.length}
+          subtitle="Company workforce registry — identity, role, department & status"
+          href="/hr/employees"
+          actionLabel="Manage roster"
         />
-        <GlassCard className="!p-0 overflow-hidden">
-          {empPreview.length === 0 && !loading ? (
-            <div className="p-4">
-              <PanelEmpty
-                icon={<Users className="h-4 w-4" />}
-                title="No employees"
-                description="Register company employees on the Employees tab."
-              />
-            </div>
-          ) : (
-            <DataTable<Employee>
-              loading={loading}
-              keyField="id"
-              rows={empPreview}
-              emptyMessage="No employees"
-              columns={[
-                {
-                  key: 'employeeNumber',
-                  label: 'Emp #',
-                  render: (r) => (
-                    <span className="font-mono text-sm">{r.employeeNumber}</span>
-                  ),
-                },
-                { key: 'fullName', label: 'Name' },
-                {
-                  key: 'department',
-                  label: 'Department',
-                  render: (r) => r.department ?? '—',
-                },
-                {
-                  key: 'employmentType',
-                  label: 'Type',
-                  render: (r) => (
-                    <span className="text-xs text-[#605e5c]">
-                      {r.employmentType}
-                    </span>
-                  ),
-                },
-                {
-                  key: 'status',
-                  label: 'Status',
-                  render: (r) => <StatusBadge status={r.status} />,
-                },
-              ]}
+        <EmployeeRoster
+          rows={employees.slice(0, PREVIEW)}
+          loading={loading}
+          compact
+          empty={
+            <PanelEmpty
+              icon={<Users className="h-4 w-4" />}
+              title="No employees"
+              description="Register company employees on the Employees tab."
             />
-          )}
-        </GlassCard>
+          }
+        />
         {employees.length > PREVIEW ? (
-          <p className="mt-2 text-[11px] text-[#605e5c]">
-            Showing {PREVIEW} of {employees.length}.
-          </p>
+          <div className="mt-2 flex items-center justify-between gap-2">
+            <p className="text-[11px] text-[#605e5c]">
+              Showing {PREVIEW} of {employees.length}
+            </p>
+            <Link
+              href="/hr/employees"
+              className="inline-flex items-center gap-1 text-[11px] font-medium text-[#0067b8] hover:underline"
+            >
+              View all <ArrowRight className="h-3 w-3" />
+            </Link>
+          </div>
         ) : null}
       </section>
 
       <section className="mt-6">
-        <SectionLabel
+        <HrSectionHeader
           title="Leave requests"
-          href="/hr/leave"
           count={leave.length}
+          subtitle="Pending and recent leave applications"
+          href="/hr/leave"
+          actionLabel="Manage leave"
         />
-        <GlassCard className="!p-0 overflow-hidden">
-          {leavePreview.length === 0 && !loading ? (
-            <div className="p-4">
-              <PanelEmpty
-                icon={<CalendarClock className="h-4 w-4" />}
-                title="No leave requests"
-                description="Apply for leave and manage types on the Leave tab."
-              />
-            </div>
-          ) : (
-            <DataTable<LeaveRequest>
-              loading={loading}
-              keyField="id"
-              rows={leavePreview}
-              emptyMessage="No leave requests"
-              columns={[
-                {
-                  key: 'employeeId',
-                  label: 'Employee',
-                  render: (r) =>
-                    employeeName.get(r.employeeId) ?? r.employeeId.slice(0, 8),
-                },
-                {
-                  key: 'leaveTypeId',
-                  label: 'Type',
-                  render: (r) =>
-                    leaveTypeName.get(r.leaveTypeId) ?? '—',
-                },
-                {
-                  key: 'startDate',
-                  label: 'From',
-                  render: (r) => formatDate(r.startDate),
-                },
-                {
-                  key: 'endDate',
-                  label: 'To',
-                  render: (r) => formatDate(r.endDate),
-                },
-                {
-                  key: 'days',
-                  label: 'Days',
-                  render: (r) => <span className="text-xs">{r.days}</span>,
-                },
-                {
-                  key: 'status',
-                  label: 'Status',
-                  render: (r) => <StatusBadge status={r.status} />,
-                },
-              ]}
+        <LeaveRequestRoster
+          rows={leave.slice(0, PREVIEW)}
+          loading={loading}
+          employeeName={employeeName}
+          leaveTypeName={leaveTypeName}
+          compact
+          empty={
+            <PanelEmpty
+              icon={<CalendarClock className="h-4 w-4" />}
+              title="No leave requests"
+              description="Apply for leave and manage types on the Leave tab."
             />
-          )}
-        </GlassCard>
+          }
+        />
       </section>
 
       <section className="mt-6">
-        <SectionLabel
+        <HrSectionHeader
           title="Salary assignments"
-          href="/hr/salary"
           count={salary.length}
+          subtitle="Basic pay used by payroll cycles"
+          href="/hr/salary"
+          actionLabel="Manage salary"
         />
-        <GlassCard className="!p-0 overflow-hidden">
-          {salaryPreview.length === 0 && !loading ? (
-            <div className="p-4">
-              <PanelEmpty
-                icon={<Banknote className="h-4 w-4" />}
-                title="No salary assignments"
-                description="Assign basic salary on the Salary tab before payroll runs."
-              />
-            </div>
-          ) : (
-            <DataTable<SalaryAssignment>
-              loading={loading}
-              keyField="id"
-              rows={salaryPreview}
-              emptyMessage="No salary assignments"
-              columns={[
-                {
-                  key: 'employeeId',
-                  label: 'Employee',
-                  render: (r) =>
-                    employeeName.get(r.employeeId) ?? r.employeeId.slice(0, 8),
-                },
-                {
-                  key: 'basicSalary',
-                  label: 'Basic',
-                  render: (r) => formatMoney(r.basicSalary, r.currency),
-                },
-                {
-                  key: 'effectiveFrom',
-                  label: 'From',
-                  render: (r) => formatDate(r.effectiveFrom),
-                },
-                {
-                  key: 'isActive',
-                  label: 'Active',
-                  render: (r) => (
-                    <StatusBadge status={r.isActive ? 'ACTIVE' : 'INACTIVE'} />
-                  ),
-                },
-              ]}
+        <SalaryRoster
+          rows={salary.slice(0, PREVIEW)}
+          loading={loading}
+          employeeName={employeeName}
+          compact
+          empty={
+            <PanelEmpty
+              icon={<Banknote className="h-4 w-4" />}
+              title="No salary assignments"
+              description="Assign basic salary on the Salary tab before payroll runs."
             />
-          )}
-        </GlassCard>
+          }
+        />
       </section>
 
       <section className="mt-6">
-        <h2 className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-[#605e5c]">
-          Workforce lifecycle
-        </h2>
-        <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
-          <QuickLink
-            href="/hr/training"
-            label="Training"
-            hint="Courses, complete or cancel"
-            glyph="calendar"
-          />
-          <QuickLink
-            href="/hr/discipline"
-            label="Discipline"
-            hint="Open cases and close with outcome"
-            glyph="shield"
-          />
-          <QuickLink
-            href="/hr/movements"
-            label="Movements"
-            hint="Transfer / exit approvals"
-            glyph="building"
-          />
-        </div>
+        <HrSectionHeader
+          title="Training"
+          count={training.length}
+          subtitle="Planned and completed courses"
+          href="/hr/training"
+          actionLabel="Manage training"
+        />
+        <TrainingRoster
+          rows={training.slice(0, PREVIEW)}
+          loading={loading}
+          employeeName={employeeName}
+          compact
+          empty={
+            <PanelEmpty
+              icon={<GraduationCap className="h-4 w-4" />}
+              title="No training records"
+              description="Log courses on the Training tab."
+            />
+          }
+        />
+      </section>
+
+      <section className="mt-6">
+        <HrSectionHeader
+          title="Discipline"
+          count={discipline.length}
+          subtitle="Open and closed misconduct cases"
+          href="/hr/discipline"
+          actionLabel="Manage cases"
+        />
+        <DisciplineRoster
+          rows={discipline.slice(0, PREVIEW)}
+          loading={loading}
+          employeeName={employeeName}
+          compact
+          empty={
+            <PanelEmpty
+              icon={<Scale className="h-4 w-4" />}
+              title="No discipline cases"
+              description="Open cases on the Discipline tab."
+            />
+          }
+        />
+      </section>
+
+      <section className="mt-6">
+        <HrSectionHeader
+          title="Movements"
+          count={movements.length}
+          subtitle="Transfer and exit approvals"
+          href="/hr/movements"
+          actionLabel="Manage movements"
+        />
+        <MovementRoster
+          rows={movements.slice(0, PREVIEW)}
+          loading={loading}
+          employeeName={employeeName}
+          compact
+          empty={
+            <PanelEmpty
+              icon={<Users className="h-4 w-4" />}
+              title="No movements"
+              description="Request transfer or exit on the Movements tab."
+            />
+          }
+        />
       </section>
 
       <section className="mt-6">
@@ -369,7 +336,7 @@ export default function HrOverviewPage() {
           <QuickLink
             href="/finance"
             label="Finance"
-            hint="Invoices & petty cash (loans UI later)"
+            hint="Invoices & petty cash"
             glyph="coins"
           />
           <QuickLink
@@ -378,12 +345,13 @@ export default function HrOverviewPage() {
             hint="Leave and other workflows"
             glyph="calendar"
           />
+          <QuickLink
+            href="/ess"
+            label="Employee self-service"
+            hint="Linked staff ESS portal"
+            glyph="users"
+          />
         </div>
-        <p className="mt-3 text-[11px] text-[#605e5c]">
-          Employee loans API exists but there is no dedicated loans page in
-          admin-web yet. Recruitment applications live on the public recruitment
-          portal (separate app), not under /hr.
-        </p>
       </section>
     </HrShell>
   );

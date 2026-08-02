@@ -41,6 +41,27 @@ export class ClockInDto {
   clientEventId?: string;
 }
 
+export class SupervisorClockInDto {
+  @ApiProperty() @IsString() guardId!: string;
+  @ApiProperty() @IsString() siteId!: string;
+  @ApiPropertyOptional() @IsOptional() @IsString() shiftId?: string;
+  @ApiPropertyOptional({
+    description: 'Supervisor note (e.g. mobile punch failure reason)',
+  })
+  @IsOptional()
+  @IsString()
+  remarks?: string;
+
+  @ApiPropertyOptional({
+    type: GpsDto,
+    description: 'Optional GPS; when omitted site coordinates or 0,0 are used',
+  })
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => GpsDto)
+  gps?: GpsDto;
+}
+
 export class ClockOutDto {
   @ApiProperty() @IsString() attendanceId!: string;
   @ApiProperty({ enum: AttendanceMethod })
@@ -64,6 +85,11 @@ export class AttendanceResponseDto {
   @ApiPropertyOptional() clockOutAt?: Date | null;
   @ApiProperty() syncStatus!: string;
   @ApiPropertyOptional() geofenceVerified?: boolean;
+  @ApiPropertyOptional({
+    description:
+      'Alertness checks auto-created after this clock-in (interval/random policy)',
+  })
+  alertnessChecksScheduled?: number;
 }
 
 export class AttendanceListItemDto {
@@ -73,6 +99,24 @@ export class AttendanceListItemDto {
   @ApiPropertyOptional() shiftId?: string | null;
   @ApiProperty() clockInAt!: Date;
   @ApiPropertyOptional() clockOutAt?: Date | null;
+  @ApiProperty() clockInMethod!: string;
+  @ApiPropertyOptional() clockOutMethod?: string | null;
+  @ApiProperty({
+    description: 'True when remarks contains GEOFENCE_WARNING',
+  })
+  geofenceWarning!: boolean;
+  @ApiProperty({
+    description: 'Computed vs linked shift start; false when no shift',
+  })
+  isLate!: boolean;
+  @ApiProperty({ description: 'Minutes after shift start; 0 when not late' })
+  lateMinutes!: number;
+  @ApiProperty({
+    description: 'Computed vs linked shift end; false when no clock-out or shift',
+  })
+  isOvertime!: boolean;
+  @ApiProperty({ description: 'Minutes after shift end; 0 when none' })
+  overtimeMinutes!: number;
   @ApiProperty() supervisorApproved!: boolean;
   @ApiPropertyOptional() remarks?: string | null;
   @ApiProperty() syncStatus!: string;
@@ -88,6 +132,13 @@ export class FieldAlertResponseDto {
   @ApiProperty() message!: string;
   @ApiProperty() acknowledged!: boolean;
   @ApiPropertyOptional() acknowledgedBy?: string | null;
+  @ApiProperty({
+    description: 'AL1 escalation stage (SUPERVISOR→FIELD→BOM→CONTROL)',
+    default: 'SUPERVISOR',
+  })
+  escalationStage!: string;
+  @ApiPropertyOptional() escalatedAt?: Date | null;
+  @ApiPropertyOptional() escalatedBy?: string | null;
   @ApiProperty() createdAt!: Date;
 }
 

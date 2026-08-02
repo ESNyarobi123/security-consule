@@ -19,6 +19,7 @@ import {
   AttendanceResponseDto,
   ClockInDto,
   ClockOutDto,
+  SupervisorClockInDto,
 } from './dto/attendance.dto';
 
 @ApiTags('Attendance')
@@ -44,6 +45,21 @@ export class AttendanceController {
   @ApiOkResponse({ type: AttendanceResponseDto })
   clockOut(@Body() dto: ClockOutDto, @CurrentUser() user: AuthUser) {
     return this.service.clockOut(dto, user);
+  }
+
+  @Post('supervisor-clock-in')
+  @RequireAnyPermissions('operations.manage', 'attendance.manage')
+  @ApiOperation({
+    summary: 'Supervisor manual clock-in for a guard',
+    description:
+      'Records SUPERVISOR method when mobile punch fails. Rejects open attendance duplicate (409). Auto-schedules alertness like guard clock-in.',
+  })
+  @ApiCreatedResponse({ type: AttendanceResponseDto })
+  supervisorClockIn(
+    @Body() dto: SupervisorClockInDto,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.service.supervisorClockIn(dto, user);
   }
 
   @Post(':id/approve')
