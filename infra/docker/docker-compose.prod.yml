@@ -1,18 +1,23 @@
 name: pssms-prod
 
-# HIGHLINK PSSMS — Production (lean) stack for a small VPS.
-# Public entrypoints (via Caddy, automatic HTTPS):
-#   https://web.hisgc.co.tz  -> admin-web  (Next.js)
-#   https://api.hisgc.co.tz  -> core-api   (NestJS)
+# HIGHLINK PSSMS — Production stack (Caddy TLS).
+# Public entrypoints:
+#   https://web.hisgc.co.tz         -> admin-web
+#   https://api.hisgc.co.tz         -> core-api
+#   https://customer.hisgc.co.tz    -> customer-web
+#   https://executive.hisgc.co.tz   -> executive-web
+#   https://supplier.hisgc.co.tz    -> supplier-web
+#   https://recruitment.hisgc.co.tz -> recruitment-web
+#   https://visitor.hisgc.co.tz     -> visitor-web
+#   https://parking.hisgc.co.tz     -> parking-web
+#   https://files.hisgc.co.tz       -> MinIO
 #
 # Bring up:
 #   docker compose -f docker-compose.prod.yml --env-file .env.prod up -d --build
 #
-# NOTE: This intentionally omits Keycloak, RabbitMQ, MQTT, the extra portals
-# and the Python AI services so the whole thing fits a 2 GB box. MinIO is
-# included (lean) for documents / petty-cash receipts. core-api runs in
-# AUTH_MODE=local (break-glass POST /auth/login). Scale up on a larger host
-# with the full compose.
+# NOTE: Omits Keycloak, RabbitMQ, MQTT, Python AI so it fits a small VPS.
+# core-api runs AUTH_MODE=local (break-glass POST /auth/login).
+# Point each subdomain DNS (A/AAAA or Cloudflare) at this host before first TLS.
 
 x-backend-env: &backend-env
   NODE_ENV: production
@@ -39,6 +44,10 @@ x-backend-env: &backend-env
   MINIO_ROOT_USER: ${MINIO_ROOT_USER:-pssms}
   MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-pssms_minio_password}
   MINIO_BUCKET_DOCUMENTS: ${MINIO_BUCKET_DOCUMENTS:-pssms-documents}
+
+x-frontend-env: &frontend-env
+  HOSTNAME: "0.0.0.0"
+  NODE_ENV: production
 
 services:
   postgres:
@@ -145,8 +154,124 @@ services:
     container_name: pssms-admin-web
     restart: unless-stopped
     environment:
+      <<: *frontend-env
       PORT: "3000"
-      HOSTNAME: "0.0.0.0"
+    depends_on:
+      core-api:
+        condition: service_started
+
+  customer-web:
+    build:
+      context: ../../frontend
+      dockerfile: Dockerfile
+      args:
+        APP_NAME: customer-web
+        APP_PORT: "3002"
+        NEXT_PUBLIC_CORE_API_URL: https://api.hisgc.co.tz
+        NEXT_PUBLIC_REPORTING_API_URL: https://api.hisgc.co.tz
+    image: pssms-customer-web:prod
+    container_name: pssms-customer-web
+    restart: unless-stopped
+    mem_limit: 256m
+    environment:
+      <<: *frontend-env
+      PORT: "3002"
+    depends_on:
+      core-api:
+        condition: service_started
+
+  executive-web:
+    build:
+      context: ../../frontend
+      dockerfile: Dockerfile
+      args:
+        APP_NAME: executive-web
+        APP_PORT: "3001"
+        NEXT_PUBLIC_CORE_API_URL: https://api.hisgc.co.tz
+        NEXT_PUBLIC_REPORTING_API_URL: https://api.hisgc.co.tz
+    image: pssms-executive-web:prod
+    container_name: pssms-executive-web
+    restart: unless-stopped
+    mem_limit: 256m
+    environment:
+      <<: *frontend-env
+      PORT: "3001"
+    depends_on:
+      core-api:
+        condition: service_started
+
+  supplier-web:
+    build:
+      context: ../../frontend
+      dockerfile: Dockerfile
+      args:
+        APP_NAME: supplier-web
+        APP_PORT: "3003"
+        NEXT_PUBLIC_CORE_API_URL: https://api.hisgc.co.tz
+    image: pssms-supplier-web:prod
+    container_name: pssms-supplier-web
+    restart: unless-stopped
+    mem_limit: 256m
+    environment:
+      <<: *frontend-env
+      PORT: "3003"
+    depends_on:
+      core-api:
+        condition: service_started
+
+  recruitment-web:
+    build:
+      context: ../../frontend
+      dockerfile: Dockerfile
+      args:
+        APP_NAME: recruitment-web
+        APP_PORT: "3004"
+        NEXT_PUBLIC_CORE_API_URL: https://api.hisgc.co.tz
+    image: pssms-recruitment-web:prod
+    container_name: pssms-recruitment-web
+    restart: unless-stopped
+    mem_limit: 256m
+    environment:
+      <<: *frontend-env
+      PORT: "3004"
+    depends_on:
+      core-api:
+        condition: service_started
+
+  visitor-web:
+    build:
+      context: ../../frontend
+      dockerfile: Dockerfile
+      args:
+        APP_NAME: visitor-web
+        APP_PORT: "3005"
+        NEXT_PUBLIC_CORE_API_URL: https://api.hisgc.co.tz
+    image: pssms-visitor-web:prod
+    container_name: pssms-visitor-web
+    restart: unless-stopped
+    mem_limit: 256m
+    environment:
+      <<: *frontend-env
+      PORT: "3005"
+    depends_on:
+      core-api:
+        condition: service_started
+
+  parking-web:
+    build:
+      context: ../../frontend
+      dockerfile: Dockerfile
+      args:
+        APP_NAME: parking-web
+        APP_PORT: "3006"
+        NEXT_PUBLIC_CORE_API_URL: https://api.hisgc.co.tz
+    image: pssms-parking-web:prod
+    container_name: pssms-parking-web
+    restart: unless-stopped
+    mem_limit: 256m
+    environment:
+      <<: *frontend-env
+      PORT: "3006"
     depends_on:
       core-api:
         condition: service_started
@@ -165,6 +290,12 @@ services:
     depends_on:
       - core-api
       - admin-web
+      - customer-web
+      - executive-web
+      - supplier-web
+      - recruitment-web
+      - visitor-web
+      - parking-web
       - minio
 
 volumes:
