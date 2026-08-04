@@ -164,6 +164,278 @@
       ]
     },
     {
+      "username": "field1@highlink.co.tz",
+      "email": "field1@highlink.co.tz",
+      "firstName": "Faraji",
+      "lastName": "Field",
+      "enabled": true,
+      "emailVerified": true,
+      "requiredActions": [],
+      "credentials": [
+        {
+          "type": "password",
+          "value": "ChangeMe123!",
+          "temporary": false
+        }
+      ]
+    },
+    {
+      "username": "bom1@highlink.co.tz",
+      "email": "bom1@highlink.co.tz",
+      "firstName": "Bella",
+      "lastName": "Branch",
+      "enabled": true,
+      "emailVerified": true,
+      "requiredActions": [],
+      "credentials": [
+        {
+          "type": "password",
+          "value": "ChangeMe123!",
+          "temporary": false
+        }
+      ]
+    },
+    {
+      "username": "ops1@highlink.co.tz",
+      "email": "ops1@highlink.co.tz",
+      "firstName": "Omar",
+      "lastName": "Operations",
+      "enabled": true,
+      "emailVerified": true,
+      "requiredActions": [],
+      "credentials": [
+        {
+          "type": "password",
+          "value": "ChangeMe123!",
+          "temporary": false
+        }
+      ]
+    },
+    {
+      "username": "hr1@highlink.co.tz",
+      "email": "hr1@highlink.co.tz",
+      "firstName": "Hannah",
+      "lastName": "HR",
+      "enabled": true,
+      "emailVerified": true,
+      "requiredActions": [],
+      "credentials": [
+        {
+          "type": "password",
+          "value": "ChangeMe123!",
+          "temporary": false
+        }
+      ]
+    },
+    {
+      "username": "accounts1@highlink.co.tz",
+      "email": "accounts1@highlink.co.tz",
+      "firstName": "Amina",
+      "lastName": "Accounts",
+      "enabled": true,
+      "emailVerified": true,
+      "requiredActions": [],
+      "credentials": [
+        {
+          "type": "password",
+          "value": "ChangeMe123!",
+          "temporary": false
+        }
+      ]
+    },
+    {
+      "username": "payroll1@highlink.co.tz",
+      "email": "payroll1@highlink.co.tz",
+      "firstName": "Peter",
+      "lastName": "Payroll",
+      "enabled": true,
+      "emailVerified": true,
+      "requiredActions": [],
+      "credentials": [
+        {
+          "type": "password",
+          "value": "ChangeMe123!",
+          "temporary": false
+        }
+      ]
+    },
+    {
+      "username": "procurement1@highlink.co.tz",
+      "email": "procurement1@highlink.co.tz",
+      "firstName": "Pendo",
+      "lastName": "Procurement",
+      "enabled": true,
+      "emailVerified": true,
+      "requiredActions": [],
+      "credentials": [
+        {
+          "type": "password",
+          "value": "ChangeMe123!",
+          "temporary": false
+        }
+      ]
+    },
+    {
+      "username": "store1@highlink.co.tz",
+      "email": "store1@highlink.co.tz",
+      "firstName": "Salma",
+      "lastName": "Storekeeper",
+      "enabled": true,
+      "emailVerified": true,
+      "requiredActions": [],
+      "credentials": [
+        {
+          "type": "password",
+          "value": "ChangeMe123!",
+          "temporary": false
+        }
+      ]
+    },
+    {
+      "username": "cctv1@highlink.co.tz",
+      "email": "cctv1@highlink.co.tz",
+      "firstName": "Chris",
+      "lastName": "CCTV",
+      "enabled": true,
+      "emailVerified": true,
+      "requiredActions": [],
+      "credentials": [
+        {
+          "type": "password",
+          "value": "ChangeMe123!",
+          "temporary": false
+        }
+      ]
+    },
+    {
+      "username": "control1@highlink.co.tz",
+      "email": "control1@highlink.co.tz",
+      "firstName": "Carol",
+      "lastName": "Control",
+      "enabled": true,
+      "emailVerified": true,
+      "requiredActions": [],
+      "credentials": [
+        {
+          "type": "password",
+          "value": "ChangeMe123!",
+          "temporary": false
+        }
+      ]
+    },
+    {
+      "username": "depthead1@highlink.co.tz",
+      "email": "depthead1@highlink.co.tz",
+      "firstName": "Diana",
+      "lastName": "DeptHead",
+      "enabled": true,
+      "emailVerified": true,
+      "requiredActions": [],
+      "credentials": [
+        {
+          "type": "password",
+          "value": "ChangeMe123!",
+          "temporary": false
+        }
+      ]
+    },
+    {
+      "username": "ciso1@highlink.co.tz",
+      "email": "ciso1@highlink.co.tz",
+      "firstName": "Ivan",
+      "lastName": "CISO",
+      "enabled": true,
+      "emailVerified": true,
+      "requiredActions": [],
+      "credentials": [
+        {
+          "type": "password",
+          "value": "ChangeMe123!",
+          "temporary": false
+        }
+      ]
+    },
+    {
+      "username": "dpo1@highlink.co.tz",
+      "email": "dpo1@highlink.co.tz",
+      "firstName": "Diana",
+      "lastName": "DPO",
+      "enabled": true,
+      "emailVerified": true,
+      "requiredActions": [],
+      "credentials": [
+        {
+          "type": "password",
+          "value": "ChangeMe123!",
+          "temporary": false
+        }
+      ]
+    },
+    {
+      "username": "auditor1@highlink.co.tz",
+      "email": "auditor1@highlink.co.tz",
+      "firstName": "Audrey",
+      "lastName": "Auditor",
+      "enabled": true,
+      "emailVerified": true,
+      "requiredActions": [],
+      "credentials": [
+        {
+          "type": "password",
+          "value": "ChangeMe123!",
+          "temporary": false
+        }
+      ]
+    },
+    {
+      "username": "callcentre1@highlink.co.tz",
+      "email": "callcentre1@highlink.co.tz",
+      "firstName": "Cathy",
+      "lastName": "CallCentre",
+      "enabled": true,
+      "emailVerified": true,
+      "requiredActions": [],
+      "credentials": [
+        {
+          "type": "password",
+          "value": "ChangeMe123!",
+          "temporary": false
+        }
+      ]
+    },
+    {
+      "username": "it1@highlink.co.tz",
+      "email": "it1@highlink.co.tz",
+      "firstName": "Isaac",
+      "lastName": "IT",
+      "enabled": true,
+      "emailVerified": true,
+      "requiredActions": [],
+      "credentials": [
+        {
+          "type": "password",
+          "value": "ChangeMe123!",
+          "temporary": false
+        }
+      ]
+    },
+    {
+      "username": "dev1@highlink.co.tz",
+      "email": "dev1@highlink.co.tz",
+      "firstName": "Devon",
+      "lastName": "Developer",
+      "enabled": true,
+      "emailVerified": true,
+      "requiredActions": [],
+      "credentials": [
+        {
+          "type": "password",
+          "value": "ChangeMe123!",
+          "temporary": false
+        }
+      ]
+    },
+    {
       "username": "portal@demo-mfg.co.tz",
       "email": "portal@demo-mfg.co.tz",
       "firstName": "Customer",

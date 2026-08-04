@@ -98,7 +98,7 @@ export class AuthService {
       }
     }
 
-    const profile = this.toProfile(user!);
+    const profile = await this.toProfile(user!);
     const tokens = await this.issueTokens(profile);
 
     await this.prisma.$transaction([
@@ -213,13 +213,38 @@ export class AuthService {
     return this.toProfile(user);
   }
 
-  private toProfile(user: {
+  /**
+   * §4 Harden A7 — union direct UserSiteAccess with all sites under
+   * UserBranchAccess branches (org-scoped). Default-deny unchanged when both empty.
+   */
+  private async resolveAllowedSiteIds(user: {
+    organizationId: string;
+    branchAccess: Array<{ branchId: string }>;
+    siteAccess: Array<{ siteId: string }>;
+  }): Promise<string[]> {
+    const direct = user.siteAccess.map((s) => s.siteId);
+    const branchIds = user.branchAccess.map((b) => b.branchId);
+    if (branchIds.length === 0) {
+      return [...new Set(direct)];
+    }
+    const branchSites = await this.prisma.site.findMany({
+      where: {
+        organizationId: user.organizationId,
+        branchId: { in: branchIds },
+      },
+      select: { id: true },
+    });
+    return [...new Set([...direct, ...branchSites.map((s) => s.id)])];
+  }
+
+  private async toProfile(user: {
     id: string;
     email: string;
     fullName: string;
     organizationId: string;
     customerId?: string | null;
     supplierId?: string | null;
+    b2bPartnerId?: string | null;
     mustChangePassword?: boolean;
     roles: Array<{
       role: {
@@ -229,7 +254,7 @@ export class AuthService {
     }>;
     branchAccess: Array<{ branchId: string }>;
     siteAccess: Array<{ siteId: string }>;
-  }): AuthUserProfileDto {
+  }): Promise<AuthUserProfileDto> {
     const roles = user.roles.map((r) => r.role.code);
     const permissions = [
       ...new Set(
@@ -238,6 +263,7 @@ export class AuthService {
         ),
       ),
     ];
+    const allowedSiteIds = await this.resolveAllowedSiteIds(user);
     return {
       id: user.id,
       email: user.email,
@@ -245,11 +271,12 @@ export class AuthService {
       organizationId: user.organizationId,
       customerId: user.customerId ?? null,
       supplierId: user.supplierId ?? null,
+      b2bPartnerId: user.b2bPartnerId ?? null,
       mustChangePassword: user.mustChangePassword === true,
       roles,
       permissions,
       allowedBranchIds: user.branchAccess.map((b) => b.branchId),
-      allowedSiteIds: user.siteAccess.map((s) => s.siteId),
+      allowedSiteIds,
     };
   }
 
@@ -266,6 +293,7 @@ export class AuthService {
       allowedSiteIds: user.allowedSiteIds,
       customerId: user.customerId ?? null,
       supplierId: user.supplierId ?? null,
+      b2bPartnerId: user.b2bPartnerId ?? null,
       mustChangePassword: user.mustChangePassword === true,
     };
 

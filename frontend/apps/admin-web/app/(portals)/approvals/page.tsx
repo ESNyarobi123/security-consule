@@ -2,7 +2,9 @@
 
 import {
   actOnApproval,
+  approveLeaveRequest,
   listApprovalInstances,
+  rejectLeaveRequest,
   type ApprovalInstance,
 } from '@pssms/api-client';
 import { getSessionUser } from '@pssms/auth';
@@ -89,21 +91,48 @@ export default function ApprovalsPage() {
     return rows.filter((r) => r.status === filter);
   }, [rows, filter]);
 
+  function canActOn(r: ApprovalInstance): boolean {
+    if (r.status !== 'PENDING') return false;
+    if (user && r.createdBy === user.id) return false;
+    const required = r.requiredRole;
+    if (
+      required &&
+      required !== '*' &&
+      !(user?.roles?.includes('SUPER_ADMIN') ?? false) &&
+      !(user?.roles ?? []).includes(required)
+    ) {
+      return false;
+    }
+    return true;
+  }
+
   async function act(
-    id: string,
+    row: ApprovalInstance,
     decision: 'APPROVE' | 'REJECT',
     note?: string,
   ) {
     setError(null);
     setActing(true);
     try {
-      await actOnApproval(id, {
-        decision,
-        remarks:
-          decision === 'REJECT'
-            ? note?.trim() || 'Rejected from admin queue'
-            : undefined,
-      });
+      // Leave must use domain routes so LeaveRequest status syncs on final step.
+      if (row.resourceType === 'LeaveRequest') {
+        if (decision === 'APPROVE') {
+          await approveLeaveRequest(row.resourceId);
+        } else {
+          await rejectLeaveRequest(
+            row.resourceId,
+            note?.trim() || 'Rejected from admin queue',
+          );
+        }
+      } else {
+        await actOnApproval(row.id, {
+          decision,
+          remarks:
+            decision === 'REJECT'
+              ? note?.trim() || 'Rejected from admin queue'
+              : undefined,
+        });
+      }
       setRejectTarget(null);
       setRemarks('');
       await load();
@@ -221,7 +250,11 @@ export default function ApprovalsPage() {
               key: 'currentStepOrder',
               label: 'Step',
               render: (r) => (
-                <span className="text-[#605e5c]">#{r.currentStepOrder}</span>
+                <span className="text-[#605e5c]">
+                  #{r.currentStepOrder}
+                  {r.currentStepName ? ` · ${r.currentStepName}` : ''}
+                  {r.requiredRole ? ` (${r.requiredRole})` : ''}
+                </span>
               ),
             },
             {
@@ -263,12 +296,19 @@ export default function ApprovalsPage() {
                     </span>
                   );
                 }
+                if (!canActOn(r)) {
+                  return (
+                    <span className="text-xs text-[#a19f9d]">
+                      Awaiting {r.requiredRole ?? 'other role'}
+                    </span>
+                  );
+                }
                 return (
                   <div className="flex items-center gap-3">
                     <button
                       type="button"
                       className="text-xs font-medium text-[#107c10] hover:underline disabled:opacity-50"
-                      onClick={() => void act(r.id, 'APPROVE')}
+                      onClick={() => void act(r, 'APPROVE')}
                       disabled={acting}
                     >
                       Approve
@@ -332,7 +372,7 @@ export default function ApprovalsPage() {
             <button
               type="button"
               className={btnPrimary}
-              onClick={() => void act(rejectTarget.id, 'REJECT', remarks)}
+              onClick={() => void act(rejectTarget, 'REJECT', remarks)}
               disabled={acting}
             >
               {acting ? 'Rejecting…' : 'Confirm reject'}

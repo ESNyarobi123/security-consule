@@ -3,7 +3,12 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { PrismaService, AuthUser } from '@pssms/shared';
+import {
+  PrismaService,
+  AuthUser,
+  assertSiteAccess,
+  siteScopeWhere,
+} from '@pssms/shared';
 import { AuditService } from '@pssms/audit';
 import { OutboxWriterService } from '@pssms/notifications';
 import {
@@ -37,6 +42,7 @@ export class PatrolRoutesService {
       select: { id: true, code: true, name: true },
     });
     if (!site) throw new BadRequestException('Site not found in organization');
+    assertSiteAccess(user, dto.siteId);
 
     const name = dto.name.trim();
     if (!name) throw new BadRequestException('Route name is required');
@@ -105,6 +111,7 @@ export class PatrolRoutesService {
 
   async list(
     organizationId: string,
+    user: AuthUser,
     siteId?: string,
   ): Promise<PatrolRouteResponseDto[]> {
     if (siteId) {
@@ -113,13 +120,14 @@ export class PatrolRoutesService {
         select: { id: true },
       });
       if (!site) throw new BadRequestException('Site not found in organization');
+      assertSiteAccess(user, siteId);
     }
 
     const rows = await this.prisma.patrolRoute.findMany({
       where: {
         organizationId,
         isActive: true,
-        ...(siteId ? { siteId } : {}),
+        ...siteScopeWhere(user, siteId),
       },
       orderBy: [{ siteId: 'asc' }, { name: 'asc' }],
       take: 100,
@@ -242,6 +250,7 @@ export class PatrolRoutesService {
       },
     });
     if (!route) throw new NotFoundException('Patrol route not found');
+    assertSiteAccess(user, route.siteId);
 
     const dayStart = this.dayStart();
     const dayEnd = new Date(dayStart);
@@ -319,7 +328,7 @@ export class PatrolRoutesService {
       });
     }
 
-    const listed = await this.list(user.organizationId, route.siteId);
+    const listed = await this.list(user.organizationId, user, route.siteId);
     const found = listed.find((r) => r.id === route.id);
     if (!found) throw new NotFoundException('Patrol route not found after miss');
     return { ...found, newlyMarked };

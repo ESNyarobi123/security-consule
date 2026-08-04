@@ -303,11 +303,40 @@ export class ComplianceService {
 
   // ── Data breaches (DPO register — not ops SECURITY_BREACH) ─
 
-  async listBreaches(
-    organizationId: string,
-  ): Promise<DataBreachCaseResponseDto[]> {
+  /**
+   * PII-sensitive: not every audit.read holder (e.g. IT_SUPPORT).
+   * Allowed: dpo.manage / compliance.manage / CISO / GM / Super Admin /
+   * Internal Auditor (audit.read + role).
+   */
+  private assertCanReadBreachRegister(user: AuthUser): void {
+    if (
+      user.permissions.includes('dpo.manage') ||
+      user.permissions.includes('compliance.manage')
+    ) {
+      return;
+    }
+    if (
+      user.roles.includes('INTERNAL_AUDITOR') &&
+      user.permissions.includes('audit.read')
+    ) {
+      return;
+    }
+    if (
+      user.roles.includes('SUPER_ADMIN') ||
+      user.roles.includes('GENERAL_MANAGER')
+    ) {
+      return;
+    }
+    throw new ForbiddenException({
+      error: 'BREACH_REGISTER_DENIED',
+      message: 'Not authorized to view the DPO data-breach register',
+    });
+  }
+
+  async listBreaches(user: AuthUser): Promise<DataBreachCaseResponseDto[]> {
+    this.assertCanReadBreachRegister(user);
     const rows = await this.prisma.dataBreachCase.findMany({
-      where: { organizationId },
+      where: { organizationId: user.organizationId },
       orderBy: { reportedAt: 'desc' },
     });
     return rows.map((r) => this.toBreachDto(r));
@@ -315,9 +344,12 @@ export class ComplianceService {
 
   async getBreach(
     id: string,
-    organizationId: string,
+    user: AuthUser,
   ): Promise<DataBreachCaseResponseDto> {
-    return this.toBreachDto(await this.findBreachOrThrow(id, organizationId));
+    this.assertCanReadBreachRegister(user);
+    return this.toBreachDto(
+      await this.findBreachOrThrow(id, user.organizationId),
+    );
   }
 
   async createBreach(

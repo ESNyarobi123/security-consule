@@ -106,12 +106,23 @@ services:
         npx prisma db execute --file prisma/migrations/0000_schemas/migration.sql --schema prisma/schema.prisma &&
         npx prisma db push --schema prisma/schema.prisma &&
         npx prisma db execute --file prisma/migrations/0001_reporting_rls/migration.sql --schema prisma/schema.prisma &&
-        npm run prisma:seed &&
         npx prisma db execute --file prisma/migrations/0003_rls_core/migration.sql --schema prisma/schema.prisma &&
         npx prisma db execute --file prisma/migrations/0004_devices/migration.sql --schema prisma/schema.prisma &&
         npx prisma db execute --file prisma/migrations/0005_asset_return_confirm/migration.sql --schema prisma/schema.prisma &&
         npx prisma db execute --file prisma/migrations/0006_compliance/migration.sql --schema prisma/schema.prisma &&
-        npx prisma db execute --file prisma/migrations/0007_documents/migration.sql --schema prisma/schema.prisma
+        npx prisma db execute --file prisma/migrations/0007_documents/migration.sql --schema prisma/schema.prisma &&
+        npx prisma db execute --file prisma/migrations/0008_must_change_password/migration.sql --schema prisma/schema.prisma &&
+        npx prisma db execute --file prisma/migrations/0009_customer_service_requests/migration.sql --schema prisma/schema.prisma &&
+        npx prisma db execute --file prisma/migrations/0010_contract_approval/migration.sql --schema prisma/schema.prisma &&
+        npx prisma db execute --file prisma/migrations/0011_contract_commercial_b1/migration.sql --schema prisma/schema.prisma &&
+        npx prisma db execute --file prisma/migrations/0012_contract_sites/migration.sql --schema prisma/schema.prisma &&
+        npx prisma db execute --file prisma/migrations/0013_guard_readiness/migration.sql --schema prisma/schema.prisma &&
+        npx prisma db execute --file prisma/migrations/0014_contract_commercial_c1/migration.sql --schema prisma/schema.prisma &&
+        npx prisma db execute --file prisma/migrations/0015_field_alert_escalation/migration.sql --schema prisma/schema.prisma &&
+        npx prisma db execute --file prisma/migrations/0016_patrol_route_sla/migration.sql --schema prisma/schema.prisma &&
+        npx prisma db execute --file prisma/migrations/0017_customer_employee_user_id/migration.sql --schema prisma/schema.prisma &&
+        npx prisma db execute --file prisma/migrations/0018_b2b_guard_supply/migration.sql --schema prisma/schema.prisma &&
+        npm run prisma:seed
       "
     depends_on:
       postgres:

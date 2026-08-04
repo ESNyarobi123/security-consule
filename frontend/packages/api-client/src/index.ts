@@ -15,6 +15,7 @@ export type LoginResult = {
     permissions: string[];
     customerId?: string | null;
     supplierId?: string | null;
+    b2bPartnerId?: string | null;
     mustChangePassword?: boolean;
   };
 };
@@ -247,6 +248,7 @@ export * from './customer';
 export * from './supplier';
 export * from './visitor';
 export * from './recruitment';
+export * from './recruitment-b2b';
 export * from './parking-ops';
 export * from './developer';
 export * from './compliance';

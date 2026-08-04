@@ -6,7 +6,13 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { IncidentSeverity, IncidentStatus, Prisma } from '@prisma/client';
-import { PrismaService, AuthUser } from '@pssms/shared';
+import {
+  PrismaService,
+  AuthUser,
+  assertSiteAccess,
+  isGuardSelfScoped,
+  siteScopeWhere,
+} from '@pssms/shared';
 import { AuditService } from '@pssms/audit';
 import {
   CreateIncidentDto,
@@ -29,6 +35,10 @@ const INCIDENT_STATUS_STAFF_ROLES = new Set([
   'SUPER_ADMIN',
   'GENERAL_MANAGER',
   'SUPERVISOR',
+  'FIELD_OFFICER',
+  'BRANCH_MANAGER',
+  'OPERATIONS_MANAGER',
+  'CONTROL_ROOM',
   'CEO',
   'CMD',
   'DEVELOPER',
@@ -38,10 +48,12 @@ const INCIDENT_STATUS_STAFF_ROLES = new Set([
   'COMPLIANCE_OFFICER',
 ]);
 
-/** Can close non-CRITICAL (BOM/GM thin — no separate BOM role seeded). */
+/** Can close non-CRITICAL (BOM / Ops Mgr / GM+). */
 const INCIDENT_CLOSE_ROLES = new Set([
   'SUPER_ADMIN',
   'GENERAL_MANAGER',
+  'BRANCH_MANAGER',
+  'OPERATIONS_MANAGER',
   'CEO',
   'CMD',
   'DEVELOPER',
@@ -86,6 +98,7 @@ export class IncidentsService {
       select: { id: true, code: true, name: true },
     });
     if (!site) throw new BadRequestException('Site not found in organization');
+    assertSiteAccess(user, dto.siteId);
 
     if (dto.clientEventId) {
       const dup = await this.prisma.incident.findUnique({
@@ -167,6 +180,7 @@ export class IncidentsService {
       where: { id, organizationId: user.organizationId },
     });
     if (!existing) throw new NotFoundException('Incident not found');
+    assertSiteAccess(user, existing.siteId);
 
     const allowed = ALLOWED_TRANSITIONS[existing.status] ?? [];
     if (!allowed.includes(status)) {
@@ -226,7 +240,12 @@ export class IncidentsService {
     siteId?: string,
   ): Promise<IncidentResponseDto[]> {
     const rows = await this.prisma.incident.findMany({
-      where: { organizationId, ...(siteId ? { siteId } : {}) },
+      where: {
+        organizationId,
+        ...(isGuardSelfScoped(user)
+          ? { reporterId: user.id }
+          : siteScopeWhere(user, siteId)),
+      },
       orderBy: { createdAt: 'desc' },
       take: 100,
     });
@@ -292,15 +311,17 @@ export class IncidentsService {
     }
 
     if (to === IncidentStatus.RESOLVED) {
-      // Thin Field: SUPERVISOR or elevated (not Guard-only)
+      // Supervisor / Field / BOM / Ops Mgr / elevated (not Guard-only)
       const can =
         user.roles.includes('SUPERVISOR') ||
+        user.roles.includes('FIELD_OFFICER') ||
+        user.roles.includes('CONTROL_ROOM') ||
         user.roles.some((r) => INCIDENT_CLOSE_ROLES.has(r));
       if (!can) {
         return {
           ok: false,
-          reason: 'Resolve requires Supervisor, Field/BOM, or GM',
-          requiredRoleHint: 'SUPERVISOR',
+          reason: 'Resolve requires Supervisor, Field/BOM, Control Room, or GM',
+          requiredRoleHint: 'SUPERVISOR, FIELD_OFFICER, or CONTROL_ROOM',
         };
       }
       return { ok: true, reason: '' };
@@ -325,7 +346,7 @@ export class IncidentsService {
         return {
           ok: false,
           reason: 'Close requires Branch Ops Manager / GM (or above)',
-          requiredRoleHint: 'GENERAL_MANAGER',
+          requiredRoleHint: 'BRANCH_MANAGER or GENERAL_MANAGER',
         };
       }
       return { ok: true, reason: '' };

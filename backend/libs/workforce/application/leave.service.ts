@@ -17,6 +17,13 @@ import {
   RejectLeaveRequestDto,
 } from '../presentation/dto/leave.dto';
 
+type ApprovalEnrichment = {
+  status: string;
+  currentStepOrder: number;
+  currentStepName: string | null;
+  requiredRole: string | null;
+};
+
 @Injectable()
 export class LeaveService {
   constructor(
@@ -122,7 +129,9 @@ export class LeaveService {
       after: updated,
     });
 
-    return this.toRequestDto(updated);
+    return this.toRequestDtoList([updated], user.organizationId).then(
+      (rows) => rows[0]!,
+    );
   }
 
   async approveLeave(id: string, user: AuthUser): Promise<LeaveRequestResponseDto> {
@@ -152,7 +161,8 @@ export class LeaveService {
           currentStepOrder: approval.currentStepOrder,
         },
       });
-      return this.toRequestDto(request);
+      const [dto] = await this.toRequestDtoList([request], user.organizationId);
+      return dto!;
     }
 
     const updated = await this.prisma.leaveRequest.update({
@@ -173,7 +183,8 @@ export class LeaveService {
       after: updated,
     });
 
-    return this.toRequestDto(updated);
+    const [dto] = await this.toRequestDtoList([updated], user.organizationId);
+    return dto!;
   }
 
   async rejectLeave(
@@ -209,7 +220,8 @@ export class LeaveService {
       after: updated,
     });
 
-    return this.toRequestDto(updated);
+    const [out] = await this.toRequestDtoList([updated], user.organizationId);
+    return out!;
   }
 
   async listLeaveRequests(
@@ -224,7 +236,7 @@ export class LeaveService {
       orderBy: { createdAt: 'desc' },
       take: 100,
     });
-    return rows.map((r) => this.toRequestDto(r));
+    return this.toRequestDtoList(rows, organizationId);
   }
 
   private async findPendingOrThrow(id: string, organizationId: string) {
@@ -251,6 +263,74 @@ export class LeaveService {
     }
   }
 
+  private async loadApprovalsById(
+    organizationId: string,
+    instanceIds: string[],
+  ): Promise<Map<string, ApprovalEnrichment>> {
+    const unique = [...new Set(instanceIds)];
+    if (unique.length === 0) return new Map();
+
+    const instances = await this.prisma.approvalInstance.findMany({
+      where: { organizationId, id: { in: unique } },
+      include: {
+        version: { include: { steps: { orderBy: { stepOrder: 'asc' } } } },
+      },
+    });
+
+    const map = new Map<string, ApprovalEnrichment>();
+    for (const inst of instances) {
+      const step =
+        inst.status === 'PENDING'
+          ? inst.version.steps.find(
+              (s) => s.stepOrder === inst.currentStepOrder,
+            )
+          : undefined;
+      map.set(inst.id, {
+        status: inst.status,
+        currentStepOrder: inst.currentStepOrder,
+        currentStepName: step?.name ?? null,
+        requiredRole: step?.requiredRole ?? null,
+      });
+    }
+    return map;
+  }
+
+  private async toRequestDtoList(
+    rows: Array<{
+      id: string;
+      organizationId: string;
+      employeeId: string;
+      leaveTypeId: string;
+      startDate: Date;
+      endDate: Date;
+      days: number;
+      reason: string;
+      status: LeaveRequestStatus;
+      approvalInstanceId: string | null;
+      createdBy: string | null;
+      approvedBy: string | null;
+      approvedAt: Date | null;
+      rejectedReason: string | null;
+      createdAt: Date;
+    }>,
+    organizationId: string,
+  ): Promise<LeaveRequestResponseDto[]> {
+    const approvalById = await this.loadApprovalsById(
+      organizationId,
+      rows
+        .map((r) => r.approvalInstanceId)
+        .filter((id): id is string => !!id),
+    );
+    return rows.map((r) =>
+      this.toRequestDto(
+        r,
+        r.approvalInstanceId
+          ? approvalById.get(r.approvalInstanceId)
+          : undefined,
+      ),
+    );
+  }
+
   private toTypeDto(t: {
     id: string;
     organizationId: string;
@@ -269,23 +349,26 @@ export class LeaveService {
     };
   }
 
-  private toRequestDto(r: {
-    id: string;
-    organizationId: string;
-    employeeId: string;
-    leaveTypeId: string;
-    startDate: Date;
-    endDate: Date;
-    days: number;
-    reason: string;
-    status: LeaveRequestStatus;
-    approvalInstanceId: string | null;
-    createdBy: string | null;
-    approvedBy: string | null;
-    approvedAt: Date | null;
-    rejectedReason: string | null;
-    createdAt: Date;
-  }): LeaveRequestResponseDto {
+  private toRequestDto(
+    r: {
+      id: string;
+      organizationId: string;
+      employeeId: string;
+      leaveTypeId: string;
+      startDate: Date;
+      endDate: Date;
+      days: number;
+      reason: string;
+      status: LeaveRequestStatus;
+      approvalInstanceId: string | null;
+      createdBy: string | null;
+      approvedBy: string | null;
+      approvedAt: Date | null;
+      rejectedReason: string | null;
+      createdAt: Date;
+    },
+    approval?: ApprovalEnrichment,
+  ): LeaveRequestResponseDto {
     return {
       id: r.id,
       organizationId: r.organizationId,
@@ -297,6 +380,10 @@ export class LeaveService {
       reason: r.reason,
       status: r.status,
       approvalInstanceId: r.approvalInstanceId,
+      approvalStatus: approval?.status,
+      approvalCurrentStepOrder: approval?.currentStepOrder,
+      approvalCurrentStepName: approval?.currentStepName ?? null,
+      approvalRequiredRole: approval?.requiredRole ?? null,
       createdBy: r.createdBy,
       approvedBy: r.approvedBy,
       approvedAt: r.approvedAt,

@@ -3,7 +3,11 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { AuthUser, PrismaService } from '@pssms/shared';
+import {
+  AuthUser,
+  PrismaService,
+  assertActorMayGrantPermissions,
+} from '@pssms/shared';
 import { AuditService } from '@pssms/audit';
 import {
   CreateRoleDto,
@@ -57,6 +61,7 @@ export class RolesService {
       });
     }
 
+    assertActorMayGrantPermissions(actor, dto.permissionCodes ?? []);
     const permissionIds = await this.resolvePermissionIds(dto.permissionCodes);
 
     const role = await this.prisma.role.create({
@@ -106,6 +111,7 @@ export class RolesService {
       });
     }
 
+    assertActorMayGrantPermissions(actor, permissionCodes);
     const permissionIds = await this.resolvePermissionIds(permissionCodes);
     const before = role.permissions.map((p) => p.permission.code);
 

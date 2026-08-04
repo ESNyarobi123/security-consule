@@ -11,6 +11,7 @@ import {
   type PolicyDocument,
 } from '@pssms/api-client';
 import { getSessionUser } from '@pssms/auth';
+import { can } from '@pssms/permissions';
 import {
   DataTable,
   GlassCard,
@@ -33,6 +34,7 @@ export default function CompliancePoliciesPage() {
   const [createOpen, setCreateOpen] = useState(false);
   const [rejectTarget, setRejectTarget] = useState<PolicyDocument | null>(null);
   const sessionUser = useMemo(() => getSessionUser(), []);
+  const canMutatePolicy = can(sessionUser, 'compliance.manage');
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -80,14 +82,16 @@ export default function CompliancePoliciesPage() {
             />
             Refresh
           </button>
-          <button
-            type="button"
-            onClick={() => setCreateOpen(true)}
-            className={btnPrimary}
-          >
-            <Plus className="h-3.5 w-3.5" />
-            New draft
-          </button>
+          {canMutatePolicy ? (
+            <button
+              type="button"
+              onClick={() => setCreateOpen(true)}
+              className={btnPrimary}
+            >
+              <Plus className="h-3.5 w-3.5" />
+              New draft
+            </button>
+          ) : null}
         </>
       }
     >
@@ -154,6 +158,12 @@ export default function CompliancePoliciesPage() {
                     r.createdBy === sessionUser.id;
                   const isSuperAdmin =
                     sessionUser?.roles?.includes('SUPER_ADMIN') ?? false;
+
+                  if (!canMutatePolicy) {
+                    return (
+                      <span className="text-[11px] text-[#a19f9d]">View only</span>
+                    );
+                  }
 
                   if (status === 'draft' || status === 'rejected') {
                     return (

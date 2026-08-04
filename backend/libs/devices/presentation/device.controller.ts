@@ -20,6 +20,7 @@ import {
   AuthUser,
   CurrentUser,
   PermissionsGuard,
+  RequireAnyPermissions,
   RequirePermissions,
 } from '@pssms/shared';
 import { DeviceRegistryService } from '../application/device-registry.service';
@@ -36,7 +37,6 @@ import {
 @ApiTags('Devices')
 @ApiBearerAuth()
 @UseGuards(PermissionsGuard)
-@RequirePermissions('operations.manage')
 @Controller('devices')
 export class DeviceController {
   constructor(
@@ -44,8 +44,9 @@ export class DeviceController {
     private readonly commands: DeviceCommandService,
   ) {}
 
-  // ── Edge gateways (declared before /:id to avoid route capture) ──
+  // ── Edge gateways (ops only — declared before /:id) ──
   @Post('gateways')
+  @RequirePermissions('operations.manage')
   @ApiOperation({ summary: 'Register a site edge gateway (returns API key once)' })
   @ApiCreatedResponse({ description: 'Gateway registered; apiKey returned once' })
   registerGateway(
@@ -56,6 +57,7 @@ export class DeviceController {
   }
 
   @Get('gateways')
+  @RequirePermissions('operations.manage')
   @ApiOperation({ summary: 'List edge gateways (ops-enriched site labels)' })
   @ApiOkResponse({ type: [EdgeGatewayResponseDto] })
   listGateways(@CurrentUser() user: AuthUser) {
@@ -64,10 +66,11 @@ export class DeviceController {
 
   // ── Events (before /:id) ─────────────────────────────────────
   @Get('events')
+  @RequireAnyPermissions('operations.manage', 'cctv.manage')
   @ApiOperation({
     summary: 'List recent device events (org-scoped, take 50)',
     description:
-      'AI/control-room alert inbox. Filter by type (e.g. CCTV_EVENT) and deviceId. Metadata only — no video.',
+      'AI/control-room alert inbox. Filter by type (e.g. CCTV_EVENT) and deviceId. Metadata only — no video. CCTV-scoped operators are forced to CCTV_EVENT.',
   })
   @ApiQuery({ name: 'type', required: false, example: 'CCTV_EVENT' })
   @ApiQuery({ name: 'deviceId', required: false })
@@ -82,7 +85,12 @@ export class DeviceController {
 
   // ── Devices ──────────────────────────────────────────────────
   @Post()
-  @ApiOperation({ summary: 'Register a device (apiKey returned once if directPush)' })
+  @RequireAnyPermissions('operations.manage', 'cctv.manage')
+  @ApiOperation({
+    summary: 'Register a device (apiKey returned once if directPush)',
+    description:
+      'CCTV-scoped operators may only register type CCTV_CAMERA.',
+  })
   @ApiCreatedResponse({ description: 'Device registered' })
   registerDevice(
     @Body() dto: RegisterDeviceDto,
@@ -92,7 +100,12 @@ export class DeviceController {
   }
 
   @Get()
-  @ApiOperation({ summary: 'List devices (ops-enriched site labels)' })
+  @RequireAnyPermissions('operations.manage', 'cctv.manage')
+  @ApiOperation({
+    summary: 'List devices (ops-enriched site labels)',
+    description:
+      'CCTV-scoped operators only see CCTV_CAMERA rows.',
+  })
   @ApiQuery({ name: 'type', required: false })
   @ApiQuery({ name: 'siteId', required: false })
   @ApiQuery({ name: 'status', required: false })
@@ -107,12 +120,14 @@ export class DeviceController {
   }
 
   @Get(':id')
+  @RequireAnyPermissions('operations.manage', 'cctv.manage')
   @ApiOperation({ summary: 'Device detail + counts' })
   getDevice(@Param('id') id: string, @CurrentUser() user: AuthUser) {
     return this.registry.getDevice(id, user);
   }
 
   @Patch(':id')
+  @RequireAnyPermissions('operations.manage', 'cctv.manage')
   @ApiOperation({ summary: 'Update device (status/config/site/gate)' })
   updateDevice(
     @Param('id') id: string,
@@ -122,8 +137,9 @@ export class DeviceController {
     return this.registry.updateDevice(id, dto, user);
   }
 
-  // ── Commands ─────────────────────────────────────────────────
+  // ── Commands (full ops only) ─────────────────────────────────
   @Post(':id/commands')
+  @RequirePermissions('operations.manage')
   @ApiOperation({ summary: 'Issue a command to a device (enroll/print/open-gate/sync)' })
   @ApiCreatedResponse({ description: 'Command queued' })
   issueCommand(
@@ -135,6 +151,7 @@ export class DeviceController {
   }
 
   @Get(':id/commands')
+  @RequirePermissions('operations.manage')
   @ApiOperation({ summary: 'List recent commands for a device' })
   listCommands(@Param('id') id: string, @CurrentUser() user: AuthUser) {
     return this.commands.listForDevice(id, user);

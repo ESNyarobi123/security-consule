@@ -3,7 +3,12 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { PrismaService, AuthUser } from '@pssms/shared';
+import {
+  PrismaService,
+  AuthUser,
+  assertBranchAccess,
+  resolveSiteIdFilter,
+} from '@pssms/shared';
 import { AuditService } from '@pssms/audit';
 import { CreateSiteDto, SiteResponseDto } from '../presentation/dto/enterprise.dto';
 
@@ -19,6 +24,7 @@ export class SitesService {
       where: { id: dto.branchId, organizationId: user.organizationId },
     });
     if (!branch) throw new NotFoundException('Branch not found');
+    assertBranchAccess(user, dto.branchId);
 
     if (dto.customerId) {
       const customer = await this.prisma.customer.findFirst({
@@ -67,9 +73,16 @@ export class SitesService {
     };
   }
 
-  async list(organizationId: string): Promise<SiteResponseDto[]> {
+  async list(
+    organizationId: string,
+    user?: AuthUser,
+  ): Promise<SiteResponseDto[]> {
+    const siteFilter = user ? resolveSiteIdFilter(user) : null;
     const rows = await this.prisma.site.findMany({
-      where: { organizationId },
+      where: {
+        organizationId,
+        ...(siteFilter !== null ? { id: { in: siteFilter } } : {}),
+      },
       orderBy: { name: 'asc' },
     });
     return rows.map((s) => ({

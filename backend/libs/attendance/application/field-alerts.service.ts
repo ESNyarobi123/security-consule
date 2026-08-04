@@ -4,10 +4,18 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { PrismaService, AuthUser } from '@pssms/shared';
+import {
+  PrismaService,
+  AuthUser,
+  assertSiteAccess,
+  isGuardSelfScoped,
+  siteScopeWhere,
+} from '@pssms/shared';
 import { AuditService } from '@pssms/audit';
+import { GuardsService } from '@pssms/workforce';
 import { FieldAlertResponseDto } from '../presentation/dto/attendance.dto';
 import {
+  canEscalateFieldAlertStage,
   nextFieldAlertEscalationStage,
   type FieldAlertEscalationStage,
 } from '../domain/field-alert.constants';
@@ -24,6 +32,10 @@ const FIELD_ALERT_SUPERVISE_ROLES = new Set([
   'GENERAL_MANAGER',
   'HR_OFFICER',
   'SUPERVISOR',
+  'FIELD_OFFICER',
+  'BRANCH_MANAGER',
+  'OPERATIONS_MANAGER',
+  'CONTROL_ROOM',
   'DEVELOPER',
   'CEO',
   'CMD',
@@ -36,34 +48,47 @@ export class FieldAlertsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
+    private readonly guards: GuardsService,
   ) {}
 
   /**
-   * Seeded GUARD also has operations.manage / attendance.manage for mobile.
-   * Escalate + acknowledge stay staff-only (same pattern as attendance supervise).
+   * Escalate + acknowledge require a positive supervise role allowlist
+   * (not merely operations.manage — CCTV_OPERATOR must not ack AL1).
    */
   private assertCanSuperviseFieldAlert(user: AuthUser): void {
-    if (
-      user.roles.includes('GUARD') &&
-      !user.roles.some((r) => FIELD_ALERT_SUPERVISE_ROLES.has(r))
-    ) {
+    if (!user.roles.some((r) => FIELD_ALERT_SUPERVISE_ROLES.has(r))) {
       throw new ForbiddenException({
         error: 'FORBIDDEN',
-        message: 'Guards cannot escalate or acknowledge field alerts',
+        message: 'Role cannot escalate or acknowledge field alerts',
       });
     }
   }
 
   async list(
     organizationId: string,
+    user: AuthUser,
     siteId?: string,
     acknowledged?: boolean,
     escalationStage?: FieldAlertEscalationStage,
   ): Promise<FieldAlertResponseDto[]> {
+    let selfGuardId: string | undefined;
+    if (isGuardSelfScoped(user)) {
+      const self = await this.guards.getByUserId(user.id, organizationId);
+      if (!self) {
+        throw new ForbiddenException({
+          error: 'GUARD_SCOPE_DENIED',
+          message: 'No guard profile linked to this user',
+        });
+      }
+      selfGuardId = self.id;
+    }
+
     const rows = await this.prisma.fieldAlert.findMany({
       where: {
         organizationId,
-        ...(siteId ? { siteId } : {}),
+        ...(selfGuardId
+          ? { guardId: selfGuardId }
+          : siteScopeWhere(user, siteId)),
         ...(typeof acknowledged === 'boolean' ? { acknowledged } : {}),
         ...(escalationStage ? { escalationStage } : {}),
       },
@@ -91,6 +116,7 @@ export class FieldAlertsService {
       where: { id, organizationId: user.organizationId },
     });
     if (!alert) throw new NotFoundException('Field alert not found');
+    assertSiteAccess(user, alert.siteId);
 
     if (alert.acknowledged) {
       throw new BadRequestException('Cannot escalate acknowledged alert');
@@ -100,6 +126,13 @@ export class FieldAlertsService {
       throw new BadRequestException(
         'Alert already at final escalation stage (CONTROL)',
       );
+    }
+
+    if (!canEscalateFieldAlertStage(alert.escalationStage, user.roles)) {
+      throw new ForbiddenException({
+        error: 'FORBIDDEN',
+        message: `Role cannot escalate from stage ${alert.escalationStage}`,
+      });
     }
 
     const next = nextFieldAlertEscalationStage(alert.escalationStage);
@@ -143,6 +176,7 @@ export class FieldAlertsService {
       where: { id, organizationId: user.organizationId },
     });
     if (!alert) throw new NotFoundException('Field alert not found');
+    assertSiteAccess(user, alert.siteId);
 
     if (alert.acknowledged) {
       return this.toDto(alert);

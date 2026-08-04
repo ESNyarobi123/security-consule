@@ -6,7 +6,14 @@ import {
 } from '@nestjs/common';
 import { AlertnessStatus } from '@prisma/client';
 import { randomUUID } from 'crypto';
-import { PrismaService, AuthUser } from '@pssms/shared';
+import {
+  PrismaService,
+  AuthUser,
+  assertNotGuardSelfScoped,
+  assertSiteAccess,
+  isGuardSelfScoped,
+  siteScopeWhere,
+} from '@pssms/shared';
 import { AuditService } from '@pssms/audit';
 import { GuardsService } from '@pssms/workforce';
 import { OutboxWriterService } from '@pssms/notifications';
@@ -17,6 +24,7 @@ import {
 import { FIELD_ALERT_ESCALATION_INITIAL } from '../domain/field-alert.constants';
 
 function canManageAlertness(user: AuthUser): boolean {
+  if (isGuardSelfScoped(user)) return false;
   if (user.roles.includes('SUPER_ADMIN')) return true;
   return (
     user.permissions.includes('operations.manage') ||
@@ -39,6 +47,7 @@ export class AlertnessService {
   ) {}
 
   async schedule(dto: ScheduleAlertnessDto, user: AuthUser) {
+    assertNotGuardSelfScoped(user, 'schedule alertness for others');
     const guard = await this.prisma.guardProfile.findFirst({
       where: { id: dto.guardId, organizationId: user.organizationId },
       select: { id: true },
@@ -50,6 +59,7 @@ export class AlertnessService {
       select: { id: true },
     });
     if (!site) throw new NotFoundException('Site not found');
+    assertSiteAccess(user, dto.siteId);
 
     if (dto.shiftId) {
       const shift = await this.prisma.shift.findFirst({
@@ -296,10 +306,12 @@ export class AlertnessService {
    * Idempotent if already MISSED.
    */
   async markMissed(checkId: string, user: AuthUser) {
+    assertNotGuardSelfScoped(user, 'mark alertness missed');
     const check = await this.prisma.alertnessCheck.findFirst({
       where: { id: checkId, organizationId: user.organizationId },
     });
     if (!check) throw new NotFoundException('Alertness check not found');
+    assertSiteAccess(user, check.siteId);
 
     if (check.status === AlertnessStatus.MISSED) {
       return check;
@@ -362,6 +374,7 @@ export class AlertnessService {
     actor: AuthUser,
     graceMinutes = 0,
   ): Promise<AlertnessScanMissedResult> {
+    assertNotGuardSelfScoped(actor, 'scan missed alertness');
     const grace = Number.isFinite(graceMinutes) && graceMinutes > 0
       ? graceMinutes
       : 0;
@@ -372,6 +385,7 @@ export class AlertnessService {
         organizationId,
         status: AlertnessStatus.SCHEDULED,
         scheduledAt: { lt: cutoff },
+        ...siteScopeWhere(actor),
       },
       select: { id: true, referenceNumber: true },
       orderBy: { scheduledAt: 'asc' },
@@ -422,6 +436,7 @@ export class AlertnessService {
         organizationId: user.organizationId,
         status: AlertnessStatus.SCHEDULED,
         ...(resolvedGuardId ? { guardId: resolvedGuardId } : {}),
+        ...(manage ? siteScopeWhere(user) : {}),
       },
       orderBy: { scheduledAt: 'asc' },
       take: 50,

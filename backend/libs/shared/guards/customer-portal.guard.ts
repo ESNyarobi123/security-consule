@@ -5,18 +5,18 @@ import {
   Injectable,
 } from '@nestjs/common';
 import { AuthUser } from '../types/auth-user';
+import {
+  assertCustomerEmployeeHasCustomerId,
+  isCustomerEmployeeSelfScoped,
+} from '../utils/customer-employee-scope.util';
 
 /**
- * CUSTOMER_PORTAL users (JWT customerId set) are limited to an allowlisted
- * API surface. Prevents org-wide mutate/list leaks until finer ABAC lands.
+ * CUSTOMER_PORTAL / CUSTOMER_EMPLOYEE users (JWT customerId set) are limited
+ * to an allowlisted API surface. Prevents org-wide mutate/list leaks.
  *
- * Prefer `/customers/me` (and subpaths) over broad `/customers` so future
- * admin-only customer routes are not accidentally opened to portal JWTs.
- *
- * Mutations are deny-by-default; only explicit host actions (visitor
- * approve/reject) and change-password are allowed — still scoped in service.
+ * Portal 35.9 employees get a narrower allowlist than 35.8 admins.
  */
-const ALLOWED_GET_PREFIXES = [
+const PORTAL_ALLOWED_GET_PREFIXES = [
   '/api/v1/customers/me',
   '/api/v1/finance/invoices',
   '/api/v1/visitors/appointments',
@@ -28,16 +28,28 @@ const ALLOWED_GET_PREFIXES = [
   '/api/v1/auth/me',
 ];
 
+/** Exact paths only — do not open /customers/me/* ops slices to staff logins. */
+const EMPLOYEE_ALLOWED_GET_EXACT = [
+  '/api/v1/access/me',
+  '/api/v1/access/entries',
+  '/api/v1/customers/me',
+  '/api/v1/auth/me',
+];
+
 /** Exact GET paths (no staff-only subroutes like /contracts/commercial-alerts). */
-const ALLOWED_GET_EXACT = ['/api/v1/contracts'];
+const PORTAL_ALLOWED_GET_EXACT = ['/api/v1/contracts'];
 
 /** Exact POST paths (regex) allowed for portal hosts. */
-const ALLOWED_POST_PATHS = [
+const PORTAL_ALLOWED_POST_PATHS = [
   /^\/api\/v1\/visitors\/appointments\/[^/]+\/approve$/,
   /^\/api\/v1\/visitors\/appointments\/[^/]+\/reject$/,
   /^\/api\/v1\/auth\/change-password$/,
   /^\/api\/v1\/customers\/me\/service-requests$/,
   /^\/api\/v1\/customers\/me\/service-requests\/[^/]+\/cancel$/,
+];
+
+const EMPLOYEE_ALLOWED_POST_PATHS = [
+  /^\/api\/v1\/auth\/change-password$/,
 ];
 
 @Injectable()
@@ -49,7 +61,13 @@ export class CustomerPortalGuard implements CanActivate {
       user?: AuthUser;
     }>();
     const user = req.user;
-    if (!user?.customerId) return true;
+    if (!user) return true;
+
+    // Misconfigured CUSTOMER_EMPLOYEE without customerId must not fall through
+    // to the staff (unguarded) API surface.
+    assertCustomerEmployeeHasCustomerId(user);
+
+    if (!user.customerId) return true;
 
     const method = (req.method ?? 'GET').toUpperCase();
     const path = (req.url ?? '').split('?')[0];
@@ -70,13 +88,26 @@ export class CustomerPortalGuard implements CanActivate {
       return true;
     }
 
+    const employeeSelf = isCustomerEmployeeSelfScoped(user);
+    const postPaths = employeeSelf
+      ? EMPLOYEE_ALLOWED_POST_PATHS
+      : PORTAL_ALLOWED_POST_PATHS;
+
     if (method === 'GET') {
-      const allowed =
-        ALLOWED_GET_EXACT.includes(path) ||
-        ALLOWED_GET_PREFIXES.some(
-          (prefix) => path === prefix || path.startsWith(`${prefix}/`),
-        );
-      if (!allowed) {
+      if (employeeSelf) {
+        if (!EMPLOYEE_ALLOWED_GET_EXACT.includes(path)) {
+          throw new ForbiddenException({
+            error: 'CUSTOMER_EMPLOYEE_PATH_DENIED',
+            message: 'Path not allowed for customer employee access',
+          });
+        }
+        return true;
+      }
+      const allowedExact = PORTAL_ALLOWED_GET_EXACT.includes(path);
+      const allowedPrefix = PORTAL_ALLOWED_GET_PREFIXES.some(
+        (prefix) => path === prefix || path.startsWith(`${prefix}/`),
+      );
+      if (!allowedExact && !allowedPrefix) {
         throw new ForbiddenException({
           error: 'CUSTOMER_PORTAL_PATH_DENIED',
           message: 'Path not allowed for customer portal',
@@ -86,7 +117,7 @@ export class CustomerPortalGuard implements CanActivate {
     }
 
     if (method === 'POST') {
-      const allowed = ALLOWED_POST_PATHS.some((re) => re.test(path));
+      const allowed = postPaths.some((re) => re.test(path));
       if (!allowed) {
         throw new ForbiddenException({
           error: 'CUSTOMER_PORTAL_READ_ONLY',

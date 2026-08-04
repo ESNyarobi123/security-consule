@@ -11,6 +11,8 @@ export interface AuthUser {
   customerId?: string | null;
   /** Set for SUPPLIER_PORTAL users — force-scopes data access */
   supplierId?: string | null;
+  /** Set for OTHER_SECURITY_COMPANY users — force-scopes B2B requests */
+  b2bPartnerId?: string | null;
   /** True until the user replaces a temporary/invite password */
   mustChangePassword?: boolean;
 }

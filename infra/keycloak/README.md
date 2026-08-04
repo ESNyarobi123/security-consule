@@ -33,6 +33,23 @@ All passwords: `ChangeMe123!` (username = email).
 - `gate1@highlink.co.tz`
 - `parking1@highlink.co.tz`
 - `supervisor1@highlink.co.tz`
+- `field1@highlink.co.tz` (Field Officer)
+- `bom1@highlink.co.tz` (Branch / BOM)
+- `ops1@highlink.co.tz` (Operations Manager)
+- `hr1@highlink.co.tz` (HR Officer)
+- `accounts1@highlink.co.tz` (Accounts Officer)
+- `payroll1@highlink.co.tz` (Payroll Officer)
+- `procurement1@highlink.co.tz` (Procurement Officer)
+- `store1@highlink.co.tz` (Storekeeper)
+- `cctv1@highlink.co.tz` (CCTV Operator)
+- `control1@highlink.co.tz` (Control Room Officer)
+- `depthead1@highlink.co.tz` (Department Head)
+- `ciso1@highlink.co.tz` (CISO)
+- `dpo1@highlink.co.tz` (Data Protection Officer)
+- `auditor1@highlink.co.tz` (Internal Auditor)
+- `callcentre1@highlink.co.tz` (Call Centre)
+- `it1@highlink.co.tz` (IT Support)
+- `dev1@highlink.co.tz` (Developer / Integrator)
 - `portal@demo-mfg.co.tz`
 - `portal@uniforms.co.tz`
 

@@ -2,6 +2,7 @@
 
 import { customerLogin } from '@pssms/api-client';
 import { setCustomerSession } from '@pssms/auth';
+import { customerDefaultPath } from '@pssms/permissions';
 import { Shield } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { FormEvent, useEffect, useState } from 'react';
@@ -37,7 +38,7 @@ export default function LoginPage() {
       if (result.user.mustChangePassword) {
         router.push('/change-password');
       } else {
-        router.push('/dashboard');
+        router.push(customerDefaultPath(result.user));
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Login failed');
@@ -61,20 +62,20 @@ export default function LoginPage() {
         <div className="max-w-lg text-white">
           <div className="inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/10 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.16em] text-teal-100 backdrop-blur">
             <Shield className="h-3.5 w-3.5" />
-            Portal 35.8
+            Portal 35.8 · 35.9
           </div>
           <h1 className="mt-4 text-4xl font-bold tracking-tight sm:text-5xl">
             HIGHLINK
-            <span className="block text-teal-200">Customer Portal</span>
+            <span className="block text-teal-200">Customer Access</span>
           </h1>
           <p className="mt-4 text-base text-slate-200/90">
-            View your contracts, site operations, visitors, parking and billing —
-            secured and scoped to your organisation only.
+            Customer admins see contracts and site ops; staff use My access for
+            their own entry profile — scoped to your organisation only.
           </p>
           <ul className="mt-6 space-y-2 text-sm text-slate-300">
-            <li>• Access issued by HIGHLINK Super Admin — no self-signup</li>
+            <li>• Access issued by HIGHLINK — no self-signup</li>
             <li>• Customer A never sees Customer B data</li>
-            <li>• Live operational visibility for your sites</li>
+            <li>• Staff access is separate from HIGHLINK guards</li>
           </ul>
         </div>
 
@@ -128,11 +129,14 @@ export default function LoginPage() {
             {loading ? 'Signing in…' : 'Enter portal'}
           </button>
 
-          <div className="mt-5 rounded-xl bg-[#f3f9fd] px-3 py-2.5 text-[11px] text-[#004578]">
+          <div className="mt-5 space-y-2 rounded-xl bg-[#f3f9fd] px-3 py-2.5 text-[11px] text-[#004578]">
             <p className="font-semibold">Demo access</p>
             <p className="mt-0.5 font-mono">portal@demo-mfg.co.tz</p>
-            <p className="font-mono">ChangeMe123!</p>
-            <p className="mt-1 text-[#605e5c]">→ Demo Manufacturing Ltd (CUST-DEMO)</p>
+            <p className="text-[#605e5c]">Admin · Portal 35.8</p>
+            <p className="mt-1.5 font-mono">jane.doe@demo-mfg.co.tz</p>
+            <p className="text-[#605e5c]">Staff · Portal 35.9 My access</p>
+            <p className="mt-1 font-mono">ChangeMe123!</p>
+            <p className="text-[#605e5c]">→ Demo Manufacturing Ltd (CUST-DEMO)</p>
           </div>
         </form>
       </div>

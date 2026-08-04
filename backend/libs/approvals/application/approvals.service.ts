@@ -4,7 +4,11 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { ApprovalStatus, ContractStatus } from '@prisma/client';
+import {
+  ApprovalStatus,
+  ContractStatus,
+  LeaveRequestStatus,
+} from '@prisma/client';
 import { PrismaService, AuthUser } from '@pssms/shared';
 import { AuditService } from '@pssms/audit';
 import {
@@ -15,6 +19,7 @@ import {
 
 /** Resource types whose domain status is synced when the instance reaches a terminal state via raw Approvals API. */
 const CONTRACT_RESOURCE = 'Contract';
+const LEAVE_RESOURCE = 'LeaveRequest';
 
 type StepLike = {
   stepOrder: number;
@@ -186,18 +191,28 @@ export class ApprovalsService {
       data: { status, currentStepOrder },
     });
 
-    // Keep Contract in sync when raw POST /approvals/instances/:id/actions finishes the matrix
-    // (domain route /contracts/:id/approve also updates — idempotent).
+    // Keep domain rows in sync when raw POST /approvals/instances/:id/actions
+    // finishes the matrix (domain approve routes also update — idempotent).
     if (
-      instance.resourceType === CONTRACT_RESOURCE &&
-      (status === ApprovalStatus.APPROVED || status === ApprovalStatus.REJECTED)
+      status === ApprovalStatus.APPROVED ||
+      status === ApprovalStatus.REJECTED
     ) {
-      await this.syncContractOnTerminal(
-        instance.organizationId,
-        instance.resourceId,
-        status,
-        user.id,
-      );
+      if (instance.resourceType === CONTRACT_RESOURCE) {
+        await this.syncContractOnTerminal(
+          instance.organizationId,
+          instance.resourceId,
+          status,
+          user.id,
+        );
+      } else if (instance.resourceType === LEAVE_RESOURCE) {
+        await this.syncLeaveOnTerminal(
+          instance.organizationId,
+          instance.resourceId,
+          status,
+          user.id,
+          dto.remarks,
+        );
+      }
     }
 
     await this.audit.record({
@@ -211,6 +226,71 @@ export class ApprovalsService {
     });
 
     return this.toDto(updated, instance.version.steps);
+  }
+
+  /**
+   * Thin sync so LeaveRequest does not stay PENDING after the approval
+   * instance is already APPROVED/REJECTED via the generic Approvals API.
+   */
+  private async syncLeaveOnTerminal(
+    organizationId: string,
+    leaveRequestId: string,
+    approvalStatus: ApprovalStatus,
+    actorId: string,
+    remarks?: string,
+  ): Promise<void> {
+    if (approvalStatus === ApprovalStatus.APPROVED) {
+      const result = await this.prisma.leaveRequest.updateMany({
+        where: {
+          id: leaveRequestId,
+          organizationId,
+          status: LeaveRequestStatus.PENDING,
+        },
+        data: {
+          status: LeaveRequestStatus.APPROVED,
+          approvedBy: actorId,
+          approvedAt: new Date(),
+        },
+      });
+      if (result.count > 0) {
+        await this.audit.record({
+          organizationId,
+          actorId,
+          action: 'leave.approved',
+          resourceType: LEAVE_RESOURCE,
+          resourceId: leaveRequestId,
+          after: { status: LeaveRequestStatus.APPROVED, via: 'approvals.act' },
+        });
+      }
+      return;
+    }
+
+    if (approvalStatus === ApprovalStatus.REJECTED) {
+      const result = await this.prisma.leaveRequest.updateMany({
+        where: {
+          id: leaveRequestId,
+          organizationId,
+          status: LeaveRequestStatus.PENDING,
+        },
+        data: {
+          status: LeaveRequestStatus.REJECTED,
+          rejectedReason: remarks?.trim() || 'Rejected via approvals queue',
+        },
+      });
+      if (result.count > 0) {
+        await this.audit.record({
+          organizationId,
+          actorId,
+          action: 'leave.rejected',
+          resourceType: LEAVE_RESOURCE,
+          resourceId: leaveRequestId,
+          after: {
+            status: LeaveRequestStatus.REJECTED,
+            via: 'approvals.act',
+          },
+        });
+      }
+    }
   }
 
   /**

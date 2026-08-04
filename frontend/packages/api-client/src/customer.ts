@@ -140,12 +140,14 @@ export type AccessEmployee = {
   id: string;
   organizationId: string;
   customerId: string;
+  userId?: string | null;
   employeeNumber?: string | null;
   fullName: string;
   email?: string | null;
   phone?: string | null;
   department?: string | null;
   accessCardRef?: string | null;
+  biometricRef?: string | null;
   isActive: boolean;
   createdAt: string;
 };
@@ -322,9 +324,13 @@ export const rejectCustomerVisitor = (
 export const listCustomerAccessEmployees = (token?: string) =>
   customerFetch<AccessEmployee[]>('/api/v1/access/employees', { token });
 
-/** GET /access/entries (customer-scoped) */
+/** GET /access/entries (customer-scoped; employee self = own only) */
 export const listCustomerAccessEntries = (token?: string) =>
   customerFetch<AccessEntry[]>('/api/v1/access/entries', { token });
+
+/** GET /access/me — Portal 35.9 linked CustomerEmployee */
+export const getMyCustomerAccess = (token?: string) =>
+  customerFetch<AccessEmployee>('/api/v1/access/me', { token });
 
 /** GET /parking/vehicles */
 export const listCustomerParkingVehicles = (token?: string) =>

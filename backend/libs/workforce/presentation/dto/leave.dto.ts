@@ -81,6 +81,10 @@ export class LeaveRequestResponseDto {
   @ApiProperty() reason!: string;
   @ApiProperty({ enum: LeaveRequestStatus }) status!: LeaveRequestStatus;
   @ApiPropertyOptional() approvalInstanceId?: string | null;
+  @ApiPropertyOptional() approvalStatus?: string;
+  @ApiPropertyOptional() approvalCurrentStepOrder?: number;
+  @ApiPropertyOptional() approvalCurrentStepName?: string | null;
+  @ApiPropertyOptional() approvalRequiredRole?: string | null;
   @ApiPropertyOptional() createdBy?: string | null;
   @ApiPropertyOptional() approvedBy?: string | null;
   @ApiPropertyOptional() approvedAt?: Date | null;

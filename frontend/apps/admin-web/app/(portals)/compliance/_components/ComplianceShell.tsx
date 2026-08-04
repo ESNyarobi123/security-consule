@@ -12,17 +12,18 @@ export const COMPLIANCE_TABS = [
     href: '/compliance',
     label: 'Overview',
     exact: true,
-    permission: 'audit.read',
+    permissions: ['audit.read'] as const,
   },
   {
     href: '/compliance/policies',
     label: 'Policies',
-    permission: 'compliance.manage',
+    /** CO mutates; DPO/auditor may view via audit.read */
+    permissions: ['compliance.manage', 'audit.read'] as const,
   },
   {
     href: '/compliance/breaches',
     label: 'Breaches',
-    permission: 'compliance.manage',
+    permissions: ['dpo.manage', 'compliance.manage', 'audit.read'] as const,
   },
 ] as const;
 
@@ -40,7 +41,7 @@ export function ComplianceShell({
   const pathname = usePathname();
   const sessionUser = useMemo(() => getSessionUser(), []);
   const tabs = COMPLIANCE_TABS.filter((tab) =>
-    can(sessionUser, tab.permission),
+    tab.permissions.some((p) => can(sessionUser, p)),
   );
 
   return (
@@ -52,7 +53,7 @@ export function ComplianceShell({
           </span>
           <div className="min-w-0">
             <p className="text-[11px] font-medium uppercase tracking-[0.14em] text-[#605e5c]">
-              Compliance / DPO
+              Compliance · DPO
             </p>
             <h1 className="text-lg font-semibold leading-tight text-[#1b1a19]">
               {title}

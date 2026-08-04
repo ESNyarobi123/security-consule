@@ -741,6 +741,8 @@ export type ApprovalInstance = {
   currentStepOrder: number;
   createdBy: string;
   createdAt: string;
+  currentStepName?: string | null;
+  requiredRole?: string | null;
 };
 
 export const listApprovalInstances = (token?: string) =>

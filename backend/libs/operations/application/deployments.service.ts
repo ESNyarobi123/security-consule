@@ -10,7 +10,12 @@ import {
   GuardStatus,
   Prisma,
 } from '@prisma/client';
-import { PrismaService, AuthUser } from '@pssms/shared';
+import {
+  PrismaService,
+  AuthUser,
+  assertSiteAccess,
+  siteScopeWhere,
+} from '@pssms/shared';
 import { AuditService } from '@pssms/audit';
 import {
   CreateDeploymentDto,
@@ -75,6 +80,7 @@ export class DeploymentsService {
       where: { id: dto.siteId, organizationId: user.organizationId },
     });
     if (!site) throw new NotFoundException('Site not found in organization');
+    assertSiteAccess(user, dto.siteId);
 
     if (!dto.contractId?.trim()) {
       throw new BadRequestException('contractId is required');
@@ -184,6 +190,7 @@ export class DeploymentsService {
       where: { id, organizationId: user.organizationId },
     });
     if (!deployment) throw new NotFoundException('Deployment not found');
+    assertSiteAccess(user, deployment.siteId);
     return this.endRow(deployment, user);
   }
 
@@ -254,9 +261,12 @@ export class DeploymentsService {
     return this.enrichOne(updated);
   }
 
-  async list(organizationId: string): Promise<DeploymentResponseDto[]> {
+  async list(
+    organizationId: string,
+    user: AuthUser,
+  ): Promise<DeploymentResponseDto[]> {
     const rows = await this.prisma.guardDeployment.findMany({
-      where: { organizationId },
+      where: { organizationId, ...siteScopeWhere(user) },
       orderBy: { startDate: 'desc' },
       take: 100,
     });

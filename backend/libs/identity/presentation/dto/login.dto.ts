@@ -66,6 +66,11 @@ export class AuthUserProfileDto {
   supplierId?: string | null;
 
   @ApiPropertyOptional({
+    description: 'Bound B2B partner for OTHER_SECURITY_COMPANY users',
+  })
+  b2bPartnerId?: string | null;
+
+  @ApiPropertyOptional({
     description: 'True when a temporary password must be replaced before normal use',
   })
   mustChangePassword?: boolean;

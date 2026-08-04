@@ -1,6 +1,8 @@
 'use client';
 
 import { listGuards, updateGuardStatus, type Guard } from '@pssms/api-client';
+import { getSessionUser } from '@pssms/auth';
+import { can } from '@pssms/permissions';
 import {
   btnPrimary,
   btnSecondary,
@@ -29,6 +31,8 @@ type ReadinessBar = {
 };
 
 export default function OperationsConsolePage() {
+  const sessionUser = useMemo(() => getSessionUser(), []);
+  const canManageGuards = can(sessionUser, 'guards.manage');
   const [guards, setGuards] = useState<Guard[]>([]);
   const [loading, setLoading] = useState(true);
   const [target, setTarget] = useState<Guard | null>(null);
@@ -112,9 +116,11 @@ export default function OperationsConsolePage() {
               <RotateCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
               Refresh
             </button>
-            <a href="/operations/guards" className={btnPrimary}>
-              Manage guards
-            </a>
+            {canManageGuards ? (
+              <a href="/operations/guards" className={btnPrimary}>
+                Manage guards
+              </a>
+            ) : null}
           </>
         }
       />
@@ -190,7 +196,13 @@ export default function OperationsConsolePage() {
       </div>
 
       <div className="mt-8">
-        <SectionTitle action={{ label: 'Open guard roster', href: '/operations/guards' }}>
+        <SectionTitle
+          action={
+            canManageGuards
+              ? { label: 'Open guard roster', href: '/operations/guards' }
+              : undefined
+          }
+        >
           Deployment roster
         </SectionTitle>
         <DataTable<Guard>
@@ -215,19 +227,23 @@ export default function OperationsConsolePage() {
                   <span className="text-[#605e5c]">No</span>
                 ),
             },
-            {
-              key: 'id',
-              label: 'Actions',
-              render: (r) => (
-                <button
-                  type="button"
-                  onClick={() => setTarget(r)}
-                  className="text-[#0067b8] hover:underline text-xs font-medium"
-                >
-                  {r.status === 'ACTIVE' ? 'Suspend' : 'Reactivate'}
-                </button>
-              ),
-            },
+            ...(canManageGuards
+              ? [
+                  {
+                    key: 'id' as const,
+                    label: 'Actions',
+                    render: (r: Guard) => (
+                      <button
+                        type="button"
+                        onClick={() => setTarget(r)}
+                        className="text-[#0067b8] hover:underline text-xs font-medium"
+                      >
+                        {r.status === 'ACTIVE' ? 'Suspend' : 'Reactivate'}
+                      </button>
+                    ),
+                  },
+                ]
+              : []),
           ]}
         />
       </div>

@@ -19,6 +19,7 @@ import {
   AuthUser,
   CurrentUser,
   PermissionsGuard,
+  RequireAnyPermissions,
   RequirePermissions,
 } from '@pssms/shared';
 import { OccurrenceService } from '../application/occurrence.service';
@@ -32,12 +33,12 @@ import {
 @ApiTags('Occurrence Book')
 @ApiBearerAuth()
 @UseGuards(PermissionsGuard)
-@RequirePermissions('operations.manage')
 @Controller('occurrence-book')
 export class OccurrenceController {
   constructor(private readonly service: OccurrenceService) {}
 
   @Post()
+  @RequireAnyPermissions('operations.manage', 'attendance.manage')
   @ApiOperation({
     summary: 'Create occurrence book entry (append-only)',
     description: 'Original entries are never edited — use correct endpoint.',
@@ -48,6 +49,7 @@ export class OccurrenceController {
   }
 
   @Post(':id/correct')
+  @RequireAnyPermissions('operations.manage', 'attendance.manage')
   @ApiOperation({
     summary: 'Create corrected version (reason required; append-only)',
   })
@@ -61,6 +63,7 @@ export class OccurrenceController {
   }
 
   @Post(':id/approve')
+  @RequirePermissions('operations.manage')
   @ApiOperation({
     summary: 'Second-person approve current entry (recorder ≠ approver)',
     description:
@@ -72,14 +75,18 @@ export class OccurrenceController {
   }
 
   @Get()
-  @ApiOperation({ summary: 'List current occurrence entries (org-scoped)' })
+  @RequireAnyPermissions('operations.manage', 'attendance.manage')
+  @ApiOperation({
+    summary: 'List current occurrence entries (site- or self-scoped)',
+  })
   @ApiQuery({ name: 'siteId', required: false })
   @ApiOkResponse({ type: [OccurrenceResponseDto] })
   list(@CurrentUser() user: AuthUser, @Query('siteId') siteId?: string) {
-    return this.service.list(user.organizationId, siteId);
+    return this.service.list(user.organizationId, user, siteId);
   }
 
   @Get(':id/history')
+  @RequireAnyPermissions('operations.manage', 'attendance.manage')
   @ApiOperation({
     summary: 'Version lineage for an occurrence entry',
     description:
@@ -87,6 +94,6 @@ export class OccurrenceController {
   })
   @ApiOkResponse({ type: [OccurrenceHistoryVersionDto] })
   history(@Param('id') id: string, @CurrentUser() user: AuthUser) {
-    return this.service.history(id, user.organizationId);
+    return this.service.history(id, user);
   }
 }

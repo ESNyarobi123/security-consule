@@ -398,7 +398,8 @@ export default function BranchAttendancePage() {
         clock-in method, geofence/NO_GPS warnings, and compute-only late/OT vs
         linked shift (no payroll yet). Alertness (§10): clock-in auto-schedules
         checks; Scan / Mark missed → HIGH FieldAlert. AL1 escalation ladder:
-        SUPERVISOR → FIELD → BOM → CONTROL (Escalate on open alerts). Bio
+        SUPERVISOR → FIELD → BOM → CONTROL (stage-gated Escalate: Supervisor /
+        Field / BOM+). Bio
         face/QR deferred.
       </p>
 

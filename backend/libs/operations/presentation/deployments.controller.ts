@@ -37,7 +37,7 @@ export class DeploymentsController {
   @ApiOperation({ summary: 'List guard deployments' })
   @ApiOkResponse({ type: [DeploymentResponseDto] })
   list(@CurrentUser() user: AuthUser) {
-    return this.service.list(user.organizationId);
+    return this.service.list(user.organizationId, user);
   }
 
   @Post(':id/end')

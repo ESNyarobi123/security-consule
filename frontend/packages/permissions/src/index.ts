@@ -19,8 +19,8 @@ export const ADMIN_PORTALS: NavItem[] = [
   { href: '/assets', label: 'Assets', permission: 'assets.manage', group: 'Money' },
   { href: '/assets/returns', label: 'Equipment returns', permission: 'assets.manage', group: 'Money' },
   { href: '/operations', label: 'Ops Console', permission: 'operations.manage', group: 'Field' },
-  { href: '/operations/guards', label: 'Guards', permission: 'operations.manage', group: 'Field' },
-  { href: '/cctv', label: 'CCTV', permission: 'operations.manage', group: 'Field' },
+  { href: '/operations/guards', label: 'Guards', permission: 'guards.manage', group: 'Field' },
+  { href: '/cctv', label: 'CCTV', permission: 'cctv.manage', group: 'Field' },
   { href: '/devices', label: 'Devices', permission: 'operations.manage', group: 'Field' },
   { href: '/branch', label: 'Branch Ops', permission: 'operations.manage', group: 'Field' },
   { href: '/branch/sites', label: 'Sites', permission: 'operations.manage', group: 'Field' },
@@ -61,13 +61,14 @@ export const ADMIN_PORTALS: NavItem[] = [
   {
     href: '/compliance/policies',
     label: 'Policies',
-    permission: 'compliance.manage',
+    permission: 'audit.read',
     group: 'Governance',
   },
   {
     href: '/compliance/breaches',
     label: 'Breach register',
-    permission: 'compliance.manage',
+    /** DPO mutates via dpo.manage; CO/auditor read via audit.read / compliance.manage */
+    permission: 'audit.read',
     group: 'Governance',
   },
   { href: '/approvals', label: 'Approvals', permission: 'approvals.act', group: 'Governance' },
@@ -94,6 +95,12 @@ export const CUSTOMER_NAV: NavItem[] = [
     group: 'Services',
   },
   { href: '/access', label: 'Staff access', permission: 'access.manage', group: 'Site ops' },
+  {
+    href: '/my-access',
+    label: 'My access',
+    permission: 'access.self',
+    group: 'Site ops',
+  },
   { href: '/visitors', label: 'Visitors', permission: 'visitors.manage', group: 'Site ops' },
   { href: '/parking', label: 'Parking', permission: 'parking.manage', group: 'Site ops' },
   {
@@ -167,8 +174,21 @@ export const PARKING_NAV: NavItem[] = [
   },
 ];
 
-export function customerNav(): NavItem[] {
-  return CUSTOMER_NAV;
+export function customerNav(user?: SessionUser | null): NavItem[] {
+  if (!user) return CUSTOMER_NAV;
+  return CUSTOMER_NAV.filter((item) => can(user, item.permission));
+}
+
+/** Portal 35.9 employee (not customer admin). */
+export function isCustomerEmployeeOnly(user: SessionUser | null): boolean {
+  if (!user) return false;
+  if (user.roles.includes('CUSTOMER_PORTAL')) return false;
+  return user.roles.includes('CUSTOMER_EMPLOYEE');
+}
+
+export function customerDefaultPath(user: SessionUser | null): string {
+  if (isCustomerEmployeeOnly(user)) return '/my-access';
+  return '/dashboard';
 }
 
 export function supplierNav(): NavItem[] {

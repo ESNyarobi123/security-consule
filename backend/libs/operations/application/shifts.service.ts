@@ -3,7 +3,12 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { PrismaService, AuthUser } from '@pssms/shared';
+import {
+  PrismaService,
+  AuthUser,
+  assertSiteAccess,
+  siteScopeWhere,
+} from '@pssms/shared';
 import { AuditService } from '@pssms/audit';
 import {
   CreateShiftDto,
@@ -22,6 +27,7 @@ export class ShiftsService {
       where: { id: dto.siteId, organizationId: user.organizationId },
     });
     if (!site) throw new NotFoundException('Site not found');
+    assertSiteAccess(user, dto.siteId);
 
     const uniqueGuardIds = [...new Set(dto.guardIds)];
     if (uniqueGuardIds.length === 0) {
@@ -91,11 +97,15 @@ export class ShiftsService {
     };
   }
 
-  async list(organizationId: string, siteId?: string): Promise<ShiftResponseDto[]> {
+  async list(
+    organizationId: string,
+    user: AuthUser,
+    siteId?: string,
+  ): Promise<ShiftResponseDto[]> {
     const rows = await this.prisma.shift.findMany({
       where: {
         organizationId,
-        ...(siteId ? { siteId } : {}),
+        ...siteScopeWhere(user, siteId),
       },
       orderBy: { startAt: 'desc' },
       take: 100,

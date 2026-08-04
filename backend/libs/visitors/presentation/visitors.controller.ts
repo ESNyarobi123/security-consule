@@ -1,4 +1,12 @@
-import { Body, Controller, Get, Param, Post, Query } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  Param,
+  Post,
+  Query,
+  UseGuards,
+} from '@nestjs/common';
 import {
   ApiBearerAuth,
   ApiCreatedResponse,
@@ -11,7 +19,9 @@ import { AppointmentStatus } from '@prisma/client';
 import {
   AuthUser,
   CurrentUser,
+  PermissionsGuard,
   Public,
+  RequirePermissions,
   resolveCustomerScope,
 } from '@pssms/shared';
 import { VisitorsService } from '../application/visitors.service';
@@ -42,7 +52,9 @@ export class VisitorsController {
 
   @Public()
   @Post('appointments')
-  @ApiOperation({ summary: 'Pre-register visitor appointment (public or authenticated)' })
+  @ApiOperation({
+    summary: 'Pre-register visitor appointment (public or authenticated)',
+  })
   @ApiCreatedResponse({ type: VisitorAppointmentResponseDto })
   createAppointment(
     @Body() dto: CreateVisitorAppointmentDto,
@@ -53,6 +65,8 @@ export class VisitorsController {
 
   @Get('appointments')
   @ApiBearerAuth()
+  @UseGuards(PermissionsGuard)
+  @RequirePermissions('visitors.manage')
   @ApiOperation({ summary: 'List visitor appointments' })
   @ApiQuery({ name: 'customerId', required: false })
   @ApiQuery({ name: 'siteId', required: false })
@@ -70,7 +84,11 @@ export class VisitorsController {
 
   @Post('appointments/:id/approve')
   @ApiBearerAuth()
-  @ApiOperation({ summary: 'Host approves appointment and issues verification code' })
+  @UseGuards(PermissionsGuard)
+  @RequirePermissions('visitors.manage')
+  @ApiOperation({
+    summary: 'Host approves appointment and issues verification code',
+  })
   @ApiOkResponse({ type: IssueCodeResponseDto })
   approve(@Param('id') id: string, @CurrentUser() user: AuthUser) {
     return this.service.approveAppointment(id, user);
@@ -78,6 +96,8 @@ export class VisitorsController {
 
   @Post('appointments/:id/reject')
   @ApiBearerAuth()
+  @UseGuards(PermissionsGuard)
+  @RequirePermissions('visitors.manage')
   @ApiOperation({ summary: 'Host rejects visitor appointment' })
   @ApiOkResponse({ type: VisitorAppointmentResponseDto })
   reject(
@@ -90,6 +110,8 @@ export class VisitorsController {
 
   @Post('gate/verify')
   @ApiBearerAuth()
+  @UseGuards(PermissionsGuard)
+  @RequirePermissions('visitors.manage')
   @ApiOperation({ summary: 'Gate officer verifies visitor code' })
   @ApiOkResponse({ type: GateVerifyResponseDto })
   gateVerify(@Body() dto: GateVerifyDto, @CurrentUser() user: AuthUser) {
@@ -98,6 +120,8 @@ export class VisitorsController {
 
   @Get('entries')
   @ApiBearerAuth()
+  @UseGuards(PermissionsGuard)
+  @RequirePermissions('visitors.manage')
   @ApiOperation({ summary: 'List visitor gate entries' })
   @ApiQuery({ name: 'siteId', required: false })
   @ApiOkResponse({ type: [VisitorEntryResponseDto] })

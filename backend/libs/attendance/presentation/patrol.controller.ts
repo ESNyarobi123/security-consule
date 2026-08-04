@@ -46,6 +46,6 @@ export class PatrolController {
   @ApiQuery({ name: 'siteId', required: false })
   @ApiOkResponse({ description: 'Recent patrol scans (max 100)' })
   list(@CurrentUser() user: AuthUser, @Query('siteId') siteId?: string) {
-    return this.service.list(user.organizationId, siteId);
+    return this.service.list(user.organizationId, user, siteId);
   }
 }

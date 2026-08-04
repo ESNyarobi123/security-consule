@@ -5,9 +5,9 @@ import {
   clearCustomerSession,
   getCustomerSessionUser,
 } from '@pssms/auth';
-import { customerNav } from '@pssms/permissions';
+import { customerNav, isCustomerEmployeeOnly } from '@pssms/permissions';
 import { usePathname, useRouter } from 'next/navigation';
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { CustomerPortalShell } from '../_components/CustomerPortalShell';
 
 export default function PortalLayout({
@@ -17,6 +17,7 @@ export default function PortalLayout({
 }) {
   const router = useRouter();
   const pathname = usePathname();
+  const sessionUser = useMemo(() => getCustomerSessionUser(), []);
   const [userName, setUserName] = useState('');
   const [customerName, setCustomerName] = useState<string | undefined>();
   const [customerCode, setCustomerCode] = useState<string | undefined>();
@@ -51,6 +52,11 @@ export default function PortalLayout({
         setBootError(null);
       })
       .catch((err) => {
+        // Employee shell can still open; org label is optional.
+        if (isCustomerEmployeeOnly(user)) {
+          setBootError(null);
+          return;
+        }
         setBootError(
           err instanceof Error
             ? err.message
@@ -58,6 +64,22 @@ export default function PortalLayout({
         );
       });
   }, [router]);
+
+  useEffect(() => {
+    if (!ready || !sessionUser || !pathname) return;
+    const nav = customerNav(sessionUser);
+    const allowed =
+      nav.some(
+        (item) =>
+          pathname === item.href || pathname.startsWith(`${item.href}/`),
+      ) || pathname === '/change-password';
+    if (!allowed) {
+      const fallback = isCustomerEmployeeOnly(sessionUser)
+        ? '/my-access'
+        : '/dashboard';
+      if (pathname !== fallback) router.replace(fallback);
+    }
+  }, [ready, sessionUser, pathname, router]);
 
   function logout() {
     clearCustomerSession();
@@ -80,7 +102,7 @@ export default function PortalLayout({
       userName={userName}
       customerName={customerName}
       customerCode={customerCode}
-      nav={customerNav()}
+      nav={customerNav(sessionUser)}
       pathname={pathname}
       onLogout={logout}
     >

@@ -1,9 +1,16 @@
 import {
   BadRequestException,
+  ForbiddenException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { PrismaService, AuthUser } from '@pssms/shared';
+import {
+  PrismaService,
+  AuthUser,
+  assertSiteAccess,
+  isGuardSelfScoped,
+  siteScopeWhere,
+} from '@pssms/shared';
 import { AuditService } from '@pssms/audit';
 import {
   CorrectOccurrenceDto,
@@ -43,6 +50,7 @@ export class OccurrenceService {
       select: { id: true, code: true, name: true },
     });
     if (!site) throw new NotFoundException('Site not found');
+    assertSiteAccess(user, dto.siteId);
 
     const entry = await this.prisma.occurrenceEntry.create({
       data: {
@@ -84,6 +92,16 @@ export class OccurrenceService {
       },
     });
     if (!original) throw new NotFoundException('Occurrence entry not found');
+    if (isGuardSelfScoped(user)) {
+      if (original.officerId !== user.id) {
+        throw new ForbiddenException({
+          error: 'GUARD_SCOPE_DENIED',
+          message: 'Guards may only correct their own occurrence entries',
+        });
+      }
+    } else {
+      assertSiteAccess(user, original.siteId);
+    }
 
     const reason = dto.reason.trim();
     const description = dto.description.trim();
@@ -142,6 +160,7 @@ export class OccurrenceService {
       where: { id: entryId, organizationId: user.organizationId },
     });
     if (!entry) throw new NotFoundException('Occurrence entry not found');
+    assertSiteAccess(user, entry.siteId);
     if (!entry.isCurrent) {
       throw new BadRequestException(
         'Only the current occurrence version can be approved',
@@ -184,13 +203,16 @@ export class OccurrenceService {
 
   async list(
     organizationId: string,
+    user: AuthUser,
     siteId?: string,
   ): Promise<OccurrenceResponseDto[]> {
     const rows = await this.prisma.occurrenceEntry.findMany({
       where: {
         organizationId,
         isCurrent: true,
-        ...(siteId ? { siteId } : {}),
+        ...(isGuardSelfScoped(user)
+          ? { officerId: user.id }
+          : siteScopeWhere(user, siteId)),
       },
       orderBy: { recordedAt: 'desc' },
       take: 100,
@@ -215,12 +237,23 @@ export class OccurrenceService {
    */
   async history(
     entryId: string,
-    organizationId: string,
+    user: AuthUser,
   ): Promise<OccurrenceHistoryVersionDto[]> {
+    const organizationId = user.organizationId;
     const start = await this.prisma.occurrenceEntry.findFirst({
       where: { id: entryId, organizationId },
     });
     if (!start) throw new NotFoundException('Occurrence entry not found');
+    if (isGuardSelfScoped(user)) {
+      if (start.officerId !== user.id) {
+        throw new ForbiddenException({
+          error: 'GUARD_SCOPE_DENIED',
+          message: 'Guards may only view their own occurrence entries',
+        });
+      }
+    } else {
+      assertSiteAccess(user, start.siteId);
+    }
 
     // Walk to root via parentEntryId
     let root = start;

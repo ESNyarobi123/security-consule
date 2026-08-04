@@ -113,6 +113,7 @@ export class AttendanceController {
           : undefined;
     return this.service.list(
       user.organizationId,
+      user,
       siteId,
       approved,
       from ? new Date(from) : undefined,

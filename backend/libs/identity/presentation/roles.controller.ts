@@ -1,4 +1,12 @@
-import { Body, Controller, Get, Param, Post, Put } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  Param,
+  Post,
+  Put,
+  UseGuards,
+} from '@nestjs/common';
 import {
   ApiBearerAuth,
   ApiCreatedResponse,
@@ -6,7 +14,12 @@ import {
   ApiOperation,
   ApiTags,
 } from '@nestjs/swagger';
-import { AuthUser, CurrentUser } from '@pssms/shared';
+import {
+  AuthUser,
+  CurrentUser,
+  PermissionsGuard,
+  RequirePermissions,
+} from '@pssms/shared';
 import { RolesService } from '../application/roles.service';
 import {
   CreateRoleDto,
@@ -17,6 +30,8 @@ import {
 
 @ApiTags('Roles & Permissions')
 @ApiBearerAuth()
+@UseGuards(PermissionsGuard)
+@RequirePermissions('users.manage')
 @Controller('roles')
 export class RolesController {
   constructor(private readonly rolesService: RolesService) {}
@@ -45,7 +60,8 @@ export class RolesController {
   @Put(':id/permissions')
   @ApiOperation({
     summary: 'Replace a role\u2019s permission set',
-    description: 'Sets the exact list of permissions for the role. Audited. System roles are locked.',
+    description:
+      'Sets the exact list of permissions for the role. Audited. System roles are locked. §4 A6: non-GM/SuperAdmin cannot grant users.manage.',
   })
   @ApiOkResponse({ type: RoleResponseDto })
   setRolePermissions(

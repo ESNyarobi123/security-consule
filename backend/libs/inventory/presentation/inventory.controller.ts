@@ -1,4 +1,11 @@
-import { Body, Controller, Get, Param, Post, Query } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  Post,
+  Query,
+  UseGuards,
+} from '@nestjs/common';
 import {
   ApiBearerAuth,
   ApiCreatedResponse,
@@ -7,7 +14,12 @@ import {
   ApiQuery,
   ApiTags,
 } from '@nestjs/swagger';
-import { AuthUser, CurrentUser } from '@pssms/shared';
+import {
+  AuthUser,
+  CurrentUser,
+  PermissionsGuard,
+  RequirePermissions,
+} from '@pssms/shared';
 import { InventoryService } from '../application/inventory.service';
 import {
   CreateStockItemDto,
@@ -18,6 +30,8 @@ import {
 
 @ApiTags('Inventory')
 @ApiBearerAuth()
+@UseGuards(PermissionsGuard)
+@RequirePermissions('inventory.manage')
 @Controller('inventory')
 export class InventoryController {
   constructor(private readonly service: InventoryService) {}

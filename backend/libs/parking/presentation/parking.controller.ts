@@ -6,6 +6,7 @@ import {
   Patch,
   Post,
   Query,
+  UseGuards,
 } from '@nestjs/common';
 import {
   ApiBearerAuth,
@@ -16,7 +17,13 @@ import {
   ApiTags,
 } from '@nestjs/swagger';
 import { ParkingDecision, PermitStatus } from '@prisma/client';
-import { AuthUser, CurrentUser, resolveCustomerScope } from '@pssms/shared';
+import {
+  AuthUser,
+  CurrentUser,
+  PermissionsGuard,
+  RequireAnyPermissions,
+  resolveCustomerScope,
+} from '@pssms/shared';
 import { ParkingService } from '../application/parking.service';
 import {
   AnprResultResponseDto,
@@ -126,7 +133,15 @@ export class ParkingController {
   }
 
   @Get('anpr-results')
-  @ApiOperation({ summary: 'List ANPR results' })
+  @UseGuards(PermissionsGuard)
+  @RequireAnyPermissions(
+    'parking.manage',
+    'cctv.manage',
+    'operations.manage',
+  )
+  @ApiOperation({
+    summary: 'List ANPR results (parking / CCTV mosaic / ops)',
+  })
   @ApiQuery({ name: 'siteId', required: false })
   @ApiQuery({ name: 'decision', required: false, enum: ParkingDecision })
   @ApiOkResponse({ type: [AnprResultResponseDto] })
@@ -139,7 +154,11 @@ export class ParkingController {
   }
 
   @Patch('anpr-results/:id/decide')
-  @ApiOperation({ summary: 'Allow/deny ANPR result and record entry/violation' })
+  @UseGuards(PermissionsGuard)
+  @RequireAnyPermissions('parking.manage', 'operations.manage')
+  @ApiOperation({
+    summary: 'Allow/deny ANPR result (parking/ops — not CCTV-only)',
+  })
   @ApiOkResponse({ type: AnprResultResponseDto })
   decideAnpr(
     @Param('id') id: string,

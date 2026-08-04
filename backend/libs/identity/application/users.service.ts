@@ -9,6 +9,8 @@ import * as bcrypt from 'bcryptjs';
 import {
   AuthUser,
   PrismaService,
+  assertActorMayAssignRoles,
+  assertActorMayManagePrivilegedUser,
   evaluatePasswordPolicy,
 } from '@pssms/shared';
 import { AuditService } from '@pssms/audit';
@@ -52,6 +54,22 @@ export class UsersService {
       throw new NotFoundException({
         error: 'NOT_FOUND',
         message: 'One or more roles not found',
+      });
+    }
+
+    assertActorMayAssignRoles(actor, dto.roleCodes);
+    if (dto.roleCodes.includes('CUSTOMER_EMPLOYEE')) {
+      throw new BadRequestException({
+        error: 'CUSTOMER_EMPLOYEE_REQUIRES_CUSTOMER',
+        message:
+          'CUSTOMER_EMPLOYEE must be created with a customer binding (use customer portal invite / access link flow)',
+      });
+    }
+    if (dto.roleCodes.includes('OTHER_SECURITY_COMPANY')) {
+      throw new BadRequestException({
+        error: 'OTHER_SECURITY_REQUIRES_PARTNER',
+        message:
+          'OTHER_SECURITY_COMPANY must be created with a b2bPartnerId binding (seed / partner invite)',
       });
     }
 
@@ -118,7 +136,12 @@ export class UsersService {
         message: 'You cannot suspend your own account',
       });
     }
-    await this.requireOrgUser(userId, actor);
+    const target = await this.requireOrgUser(userId, actor);
+    assertActorMayManagePrivilegedUser(
+      actor,
+      target.roles.map((r) => r.role.code),
+      'suspend',
+    );
     const user = await this.prisma.user.update({
       where: { id: userId },
       data: {
@@ -140,7 +163,12 @@ export class UsersService {
   }
 
   async reactivate(userId: string, actor: AuthUser): Promise<UserResponseDto> {
-    await this.requireOrgUser(userId, actor);
+    const target = await this.requireOrgUser(userId, actor);
+    assertActorMayManagePrivilegedUser(
+      actor,
+      target.roles.map((r) => r.role.code),
+      'reactivate',
+    );
     const user = await this.prisma.user.update({
       where: { id: userId },
       data: { isActive: true, suspendedAt: null, suspendedReason: null },
@@ -172,6 +200,30 @@ export class UsersService {
       });
     }
     const before = target.roles.map((r) => r.role.code);
+    assertActorMayAssignRoles(actor, roleCodes, {
+      targetUserId: userId,
+      targetCurrentRoleCodes: before,
+    });
+    if (
+      roleCodes.includes('CUSTOMER_EMPLOYEE') &&
+      !target.customerId
+    ) {
+      throw new BadRequestException({
+        error: 'CUSTOMER_EMPLOYEE_REQUIRES_CUSTOMER',
+        message:
+          'Cannot assign CUSTOMER_EMPLOYEE without linking the user to a customer',
+      });
+    }
+    if (
+      roleCodes.includes('OTHER_SECURITY_COMPANY') &&
+      !(target as { b2bPartnerId?: string | null }).b2bPartnerId
+    ) {
+      throw new BadRequestException({
+        error: 'OTHER_SECURITY_REQUIRES_PARTNER',
+        message:
+          'Cannot assign OTHER_SECURITY_COMPANY without linking the user to a B2B partner',
+      });
+    }
     await this.prisma.$transaction([
       this.prisma.userRole.deleteMany({ where: { userId } }),
       this.prisma.userRole.createMany({

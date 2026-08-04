@@ -9,6 +9,8 @@ import {
   type CreateBreachBody,
   type DataBreachCase,
 } from '@pssms/api-client';
+import { getSessionUser } from '@pssms/auth';
+import { can } from '@pssms/permissions';
 import {
   DataTable,
   GlassCard,
@@ -19,7 +21,7 @@ import {
   inputCls,
 } from '@pssms/ui';
 import { AlertTriangle, Plus, RefreshCw } from 'lucide-react';
-import { FormEvent, useCallback, useEffect, useState } from 'react';
+import { FormEvent, useCallback, useEffect, useMemo, useState } from 'react';
 import { ComplianceShell } from '../_components/ComplianceShell';
 import {
   BREACH_NEXT,
@@ -30,6 +32,8 @@ import {
 } from '../_components/shared';
 
 export default function ComplianceBreachesPage() {
+  const sessionUser = useMemo(() => getSessionUser(), []);
+  const canMutateBreach = can(sessionUser, 'dpo.manage');
   const [rows, setRows] = useState<DataBreachCase[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -70,7 +74,7 @@ export default function ComplianceBreachesPage() {
   return (
     <ComplianceShell
       title="DPO data breach register"
-      description="Personal-data breach cases for Compliance / DPO. Separate from ops incident SECURITY_BREACH. Status advances REPORTED → INVESTIGATING → CONTAINED → CLOSED only."
+      description="Personal-data breach cases (DPO register). Mutates require dpo.manage. Separate from ops SECURITY_BREACH. Status REPORTED → INVESTIGATING → CONTAINED → CLOSED."
       actions={
         <>
           <button
@@ -84,20 +88,22 @@ export default function ComplianceBreachesPage() {
             />
             Refresh
           </button>
-          <button
-            type="button"
-            onClick={() => setCreateOpen(true)}
-            className={btnPrimary}
-          >
-            <Plus className="h-3.5 w-3.5" />
-            Report breach
-          </button>
+          {canMutateBreach ? (
+            <button
+              type="button"
+              onClick={() => setCreateOpen(true)}
+              className={btnPrimary}
+            >
+              <Plus className="h-3.5 w-3.5" />
+              Report breach
+            </button>
+          ) : null}
         </>
       }
     >
       <p className="mb-4 rounded border border-[#e1dfdd] bg-[#faf9f8] px-3 py-2 text-xs text-[#605e5c]">
-        This is the DPO register for personal-data breaches — not the field
-        operations incident log. Risk register / DPIA remain deferred.
+        DPO owns report/update; Compliance Officer and Internal Auditor may
+        view. Risk register / DPIA remain deferred.
       </p>
 
       {error ? (
@@ -166,6 +172,11 @@ export default function ComplianceBreachesPage() {
                   if (!next) {
                     return (
                       <span className="text-[11px] text-[#a19f9d]">Closed</span>
+                    );
+                  }
+                  if (!canMutateBreach) {
+                    return (
+                      <span className="text-[11px] text-[#a19f9d]">View only</span>
                     );
                   }
                   return (

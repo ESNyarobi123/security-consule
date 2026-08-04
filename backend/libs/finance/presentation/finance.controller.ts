@@ -66,7 +66,13 @@ export class InvoicesController {
   }
 
   @Get()
-  @ApiOperation({ summary: 'List invoices' })
+  @UseGuards(PermissionsGuard)
+  @RequirePermissions('finance.manage')
+  @ApiOperation({
+    summary: 'List invoices',
+    description:
+      'Staff: finance.manage (org-wide). Customer portal: own customer via JWT scope (portal role has finance.manage).',
+  })
   @ApiQuery({ name: 'customerId', required: false })
   @ApiQuery({ name: 'contractId', required: false })
   @ApiOkResponse({ type: [InvoiceResponseDto] })

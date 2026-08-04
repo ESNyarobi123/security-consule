@@ -1,4 +1,12 @@
-import { Body, Controller, Get, Param, Post, Query } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  Param,
+  Post,
+  Query,
+  UseGuards,
+} from '@nestjs/common';
 import {
   ApiBearerAuth,
   ApiCreatedResponse,
@@ -10,6 +18,8 @@ import {
 import {
   AuthUser,
   CurrentUser,
+  PermissionsGuard,
+  RequirePermissions,
   resolveSupplierScope,
 } from '@pssms/shared';
 import {
@@ -28,6 +38,8 @@ import {
 
 @ApiTags('Procurement — Suppliers')
 @ApiBearerAuth()
+@UseGuards(PermissionsGuard)
+@RequirePermissions('procurement.manage')
 @Controller('procurement/suppliers')
 export class SuppliersController {
   constructor(private readonly service: SuppliersService) {}
@@ -63,6 +75,8 @@ export class SuppliersController {
 
 @ApiTags('Procurement — Purchase Orders')
 @ApiBearerAuth()
+@UseGuards(PermissionsGuard)
+@RequirePermissions('procurement.manage')
 @Controller('procurement/purchase-orders')
 export class PurchaseOrdersController {
   constructor(private readonly service: PurchaseOrdersService) {}

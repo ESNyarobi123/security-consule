@@ -3,7 +3,12 @@ import {
   ConflictException,
   Injectable,
 } from '@nestjs/common';
-import { PrismaService, AuthUser } from '@pssms/shared';
+import {
+  PrismaService,
+  AuthUser,
+  assertSiteAccess,
+  siteScopeWhere,
+} from '@pssms/shared';
 import { AuditService } from '@pssms/audit';
 import {
   CheckpointResponseDto,
@@ -59,6 +64,7 @@ export class CheckpointsService {
       select: { id: true, code: true, name: true },
     });
     if (!site) throw new BadRequestException('Site not found in organization');
+    assertSiteAccess(user, dto.siteId);
 
     const exists = await this.prisma.checkpoint.findFirst({
       where: {
@@ -95,20 +101,21 @@ export class CheckpointsService {
     return this.toDto(cp, site);
   }
 
-  async list(organizationId: string, siteId?: string) {
+  async list(organizationId: string, user: AuthUser, siteId?: string) {
     if (siteId) {
       const site = await this.prisma.site.findFirst({
         where: { id: siteId, organizationId },
         select: { id: true },
       });
       if (!site) throw new BadRequestException('Site not found in organization');
+      assertSiteAccess(user, siteId);
     }
 
     const rows = await this.prisma.checkpoint.findMany({
       where: {
         organizationId,
         isActive: true,
-        ...(siteId ? { siteId } : {}),
+        ...siteScopeWhere(user, siteId),
       },
       orderBy: [{ siteId: 'asc' }, { code: 'asc' }],
     });

@@ -4,7 +4,12 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { GateType } from '@prisma/client';
-import { PrismaService, AuthUser } from '@pssms/shared';
+import {
+  PrismaService,
+  AuthUser,
+  assertSiteAccess,
+  siteScopeWhere,
+} from '@pssms/shared';
 import { AuditService } from '@pssms/audit';
 import { CreateGateDto, GateResponseDto } from '../presentation/dto/enterprise.dto';
 
@@ -20,6 +25,7 @@ export class GatesService {
       where: { id: dto.siteId, organizationId: user.organizationId },
     });
     if (!site) throw new NotFoundException('Site not found');
+    assertSiteAccess(user, dto.siteId);
 
     const exists = await this.prisma.gate.findFirst({
       where: {
@@ -55,13 +61,14 @@ export class GatesService {
 
   async list(
     organizationId: string,
+    user: AuthUser,
     siteId?: string,
   ): Promise<GateResponseDto[]> {
     const rows = await this.prisma.gate.findMany({
       where: {
         organizationId,
         isActive: true,
-        ...(siteId ? { siteId } : {}),
+        ...siteScopeWhere(user, siteId),
       },
       orderBy: { name: 'asc' },
     });

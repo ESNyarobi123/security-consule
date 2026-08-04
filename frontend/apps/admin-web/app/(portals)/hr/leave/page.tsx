@@ -209,6 +209,15 @@ export default function HrLeavePage() {
             const isSuperAdmin =
               sessionUser?.roles?.includes('SUPER_ADMIN') ?? false;
             if (isOwn && !isSuperAdmin) return 'own';
+            const required = r.approvalRequiredRole;
+            if (
+              required &&
+              required !== '*' &&
+              !isSuperAdmin &&
+              !(sessionUser?.roles ?? []).includes(required)
+            ) {
+              return false;
+            }
             return true;
           }}
           toolbar={

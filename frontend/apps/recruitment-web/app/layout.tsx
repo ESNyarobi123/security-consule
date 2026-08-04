@@ -19,12 +19,20 @@ export default function RootLayout({
               <Link href="/" className="text-sm font-semibold text-slate-900">
                 HIGHLINK Careers
               </Link>
-              <Link
-                href="/status"
-                className="text-sm text-slate-600 hover:text-sky-700"
-              >
-                Check application status
-              </Link>
+              <div className="flex items-center gap-4">
+                <Link
+                  href="/partner/login"
+                  className="text-sm text-slate-600 hover:text-sky-700"
+                >
+                  Partner portal
+                </Link>
+                <Link
+                  href="/status"
+                  className="text-sm text-slate-600 hover:text-sky-700"
+                >
+                  Check application status
+                </Link>
+              </div>
             </div>
           </nav>
           {children}

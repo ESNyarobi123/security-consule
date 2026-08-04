@@ -14,6 +14,10 @@ export const SUPPLIER_USER_COOKIE = 'pssms_supplier_user';
 export const PARKING_TOKEN_COOKIE = 'pssms_parking_token';
 export const PARKING_USER_COOKIE = 'pssms_parking_user';
 
+export const PARTNER_TOKEN_COOKIE = 'pssms_partner_token';
+export const PARTNER_USER_COOKIE = 'pssms_partner_user';
+export const PARTNER_REFRESH_COOKIE = 'pssms_partner_refresh';
+
 export type SessionUser = {
   id: string;
   email: string;
@@ -23,6 +27,7 @@ export type SessionUser = {
   permissions: string[];
   customerId?: string | null;
   supplierId?: string | null;
+  b2bPartnerId?: string | null;
   mustChangePassword?: boolean;
 };
 
@@ -113,6 +118,12 @@ const supplierAuth = createAuthStore({
 const parkingAuth = createAuthStore({
   tokenCookie: PARKING_TOKEN_COOKIE,
   userCookie: PARKING_USER_COOKIE,
+});
+
+const partnerAuth = createAuthStore({
+  tokenCookie: PARTNER_TOKEN_COOKIE,
+  userCookie: PARTNER_USER_COOKIE,
+  refreshCookie: PARTNER_REFRESH_COOKIE,
 });
 
 export function getToken(): string | null {
@@ -210,6 +221,26 @@ export function clearParkingSession() {
   parkingAuth.clearSession();
 }
 
+export function getPartnerToken(): string | null {
+  return partnerAuth.getToken();
+}
+
+export function getPartnerSessionUser(): SessionUser | null {
+  return partnerAuth.getSessionUser();
+}
+
+export function setPartnerSession(
+  token: string,
+  user: SessionUser,
+  refreshToken?: string,
+) {
+  partnerAuth.setSession(token, user, refreshToken);
+}
+
+export function clearPartnerSession() {
+  partnerAuth.clearSession();
+}
+
 export function authHeaders(token?: string | null): HeadersInit {
   const t = token ?? getToken();
   return t ? { Authorization: `Bearer ${t}` } : {};
@@ -227,6 +258,11 @@ export function supplierAuthHeaders(token?: string | null): HeadersInit {
 
 export function parkingAuthHeaders(token?: string | null): HeadersInit {
   const t = token ?? getParkingToken();
+  return t ? { Authorization: `Bearer ${t}` } : {};
+}
+
+export function partnerAuthHeaders(token?: string | null): HeadersInit {
+  const t = token ?? getPartnerToken();
   return t ? { Authorization: `Bearer ${t}` } : {};
 }
 

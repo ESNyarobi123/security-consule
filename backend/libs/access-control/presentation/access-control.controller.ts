@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Post, Query } from '@nestjs/common';
+import { Body, Controller, Get, Post, Query, UseGuards } from '@nestjs/common';
 import {
   ApiBearerAuth,
   ApiCreatedResponse,
@@ -10,6 +10,9 @@ import {
 import {
   AuthUser,
   CurrentUser,
+  PermissionsGuard,
+  RequireAnyPermissions,
+  RequirePermissions,
   requireCustomerScope,
   resolveCustomerScope,
 } from '@pssms/shared';
@@ -23,11 +26,23 @@ import {
 
 @ApiTags('Access Control')
 @ApiBearerAuth()
+@UseGuards(PermissionsGuard)
 @Controller('access')
 export class AccessControlController {
   constructor(private readonly service: AccessControlService) {}
 
+  @Get('me')
+  @RequireAnyPermissions('access.self', 'access.manage')
+  @ApiOperation({
+    summary: 'Own customer-employee profile (Portal 35.9 self)',
+  })
+  @ApiOkResponse({ type: CustomerEmployeeResponseDto })
+  me(@CurrentUser() user: AuthUser) {
+    return this.service.getMyEmployee(user);
+  }
+
   @Post('employees')
+  @RequirePermissions('access.manage')
   @ApiOperation({ summary: 'Register customer employee for site access' })
   @ApiCreatedResponse({ type: CustomerEmployeeResponseDto })
   createEmployee(
@@ -38,8 +53,10 @@ export class AccessControlController {
   }
 
   @Get('employees')
+  @RequirePermissions('access.manage')
   @ApiOperation({
-    summary: 'List customer employees (customer-scoped; portal users force-scoped)',
+    summary:
+      'List customer employees (customer-scoped; portal users force-scoped)',
   })
   @ApiQuery({ name: 'customerId', required: false })
   @ApiOkResponse({ type: [CustomerEmployeeResponseDto] })
@@ -52,6 +69,7 @@ export class AccessControlController {
   }
 
   @Post('entries')
+  @RequirePermissions('access.manage')
   @ApiOperation({ summary: 'Record customer employee check-in/out' })
   @ApiCreatedResponse({ type: AccessEntryResponseDto })
   recordEntry(
@@ -62,7 +80,11 @@ export class AccessControlController {
   }
 
   @Get('entries')
-  @ApiOperation({ summary: 'List access entries' })
+  @RequireAnyPermissions('access.manage', 'access.self')
+  @ApiOperation({
+    summary:
+      'List access entries (staff/portal customer-scoped; employee = own only)',
+  })
   @ApiQuery({ name: 'customerId', required: false })
   @ApiQuery({ name: 'siteId', required: false })
   @ApiOkResponse({ type: [AccessEntryResponseDto] })

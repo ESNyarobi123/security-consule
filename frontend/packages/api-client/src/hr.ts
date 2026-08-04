@@ -201,6 +201,10 @@ export type LeaveRequest = {
   reason: string;
   status: LeaveRequestStatus | string;
   approvalInstanceId?: string | null;
+  approvalStatus?: string;
+  approvalCurrentStepOrder?: number;
+  approvalCurrentStepName?: string | null;
+  approvalRequiredRole?: string | null;
   createdBy?: string | null;
   approvedBy?: string | null;
   approvedAt?: string | null;
@@ -237,6 +241,7 @@ export const createLeaveRequest = (
 export const approveLeaveRequest = (id: string, token?: string) =>
   coreFetch<LeaveRequest>(`/api/v1/hr/leave/requests/${id}/approve`, {
     method: 'POST',
+    body: JSON.stringify({}),
     token,
   });
 

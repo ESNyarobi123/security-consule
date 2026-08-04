@@ -62,6 +62,9 @@ export class CustomerEmployeeResponseDto {
   customerId!: string;
 
   @ApiPropertyOptional()
+  userId?: string | null;
+
+  @ApiPropertyOptional()
   employeeNumber?: string | null;
 
   @ApiProperty()

@@ -3,7 +3,11 @@ import { ConfigModule, ConfigService } from '@nestjs/config';
 import { JwtModule } from '@nestjs/jwt';
 import { PassportModule } from '@nestjs/passport';
 import { AuditModule } from '@pssms/audit';
-import { CustomerPortalGuard, SupplierPortalGuard } from '@pssms/shared';
+import {
+  CustomerPortalGuard,
+  OtherSecurityPortalGuard,
+  SupplierPortalGuard,
+} from '@pssms/shared';
 import { AuthService } from './application/auth.service';
 import { KeycloakUserMapperService } from './application/keycloak-user-mapper.service';
 import { MfaService } from './application/mfa.service';
@@ -44,6 +48,7 @@ import { APP_GUARD } from '@nestjs/core';
     { provide: APP_GUARD, useClass: JwtAuthGuard },
     { provide: APP_GUARD, useClass: CustomerPortalGuard },
     { provide: APP_GUARD, useClass: SupplierPortalGuard },
+    { provide: APP_GUARD, useClass: OtherSecurityPortalGuard },
   ],
   exports: [AuthService, MfaService, UsersService, RolesService, OidcConfigService, JwtModule],
 })

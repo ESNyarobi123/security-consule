@@ -5,7 +5,12 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { AccessEntryType, AccessMethod } from '@prisma/client';
-import { PrismaService, AuthUser } from '@pssms/shared';
+import {
+  PrismaService,
+  AuthUser,
+  isCustomerEmployeeSelfScoped,
+  mustSelfScopeAccessEntries,
+} from '@pssms/shared';
 import { AuditService } from '@pssms/audit';
 import {
   CreateAccessEntryDto,
@@ -32,6 +37,30 @@ export class AccessControlService {
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
   ) {}
+
+  async getMyEmployee(user: AuthUser): Promise<CustomerEmployeeResponseDto> {
+    if (!user.customerId) {
+      throw new ForbiddenException({
+        error: 'FORBIDDEN',
+        message: 'Not a customer-scoped account',
+      });
+    }
+    const employee = await this.prisma.customerEmployee.findFirst({
+      where: {
+        organizationId: user.organizationId,
+        customerId: user.customerId,
+        userId: user.id,
+        isActive: true,
+      },
+    });
+    if (!employee) {
+      throw new NotFoundException({
+        error: 'NOT_FOUND',
+        message: 'No customer employee profile linked to this login',
+      });
+    }
+    return this.toEmployeeDto(employee);
+  }
 
   async createEmployee(
     dto: CreateCustomerEmployeeDto,
@@ -77,6 +106,12 @@ export class AccessControlService {
     customerId: string,
     user: AuthUser,
   ): Promise<CustomerEmployeeResponseDto[]> {
+    if (isCustomerEmployeeSelfScoped(user)) {
+      throw new ForbiddenException({
+        error: 'FORBIDDEN',
+        message: 'Customer employees cannot list the staff roster',
+      });
+    }
     await this.assertCustomerInOrg(customerId, user.organizationId);
     const rows = await this.prisma.customerEmployee.findMany({
       where: { organizationId: user.organizationId, customerId },
@@ -140,11 +175,32 @@ export class AccessControlService {
     customerId?: string,
     siteId?: string,
   ): Promise<AccessEntryResponseDto[]> {
+    let selfEmployeeId: string | undefined;
+    if (mustSelfScopeAccessEntries(user) || isCustomerEmployeeSelfScoped(user)) {
+      const me = await this.prisma.customerEmployee.findFirst({
+        where: {
+          organizationId: user.organizationId,
+          userId: user.id,
+          isActive: true,
+          ...(user.customerId ? { customerId: user.customerId } : {}),
+        },
+        select: { id: true },
+      });
+      if (!me) {
+        throw new ForbiddenException({
+          error: 'FORBIDDEN',
+          message: 'No customer employee profile linked to this login',
+        });
+      }
+      selfEmployeeId = me.id;
+    }
+
     const rows = await this.prisma.accessEntry.findMany({
       where: {
         organizationId: user.organizationId,
         ...(customerId ? { customerId } : {}),
         ...(siteId ? { siteId } : {}),
+        ...(selfEmployeeId ? { employeeId: selfEmployeeId } : {}),
       },
       orderBy: { recordedAt: 'desc' },
       take: 100,
@@ -264,6 +320,7 @@ export class AccessControlService {
     id: string;
     organizationId: string;
     customerId: string;
+    userId?: string | null;
     employeeNumber: string | null;
     fullName: string;
     email: string | null;
@@ -278,6 +335,7 @@ export class AccessControlService {
       id: e.id,
       organizationId: e.organizationId,
       customerId: e.customerId,
+      userId: e.userId ?? null,
       employeeNumber: e.employeeNumber,
       fullName: e.fullName,
       email: e.email,

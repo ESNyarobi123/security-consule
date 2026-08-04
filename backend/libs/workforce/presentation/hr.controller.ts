@@ -21,6 +21,7 @@ import {
   AuthUser,
   CurrentUser,
   PermissionsGuard,
+  RequireAnyPermissions,
   RequirePermissions,
 } from '@pssms/shared';
 import { EmployeesService } from '../application/employees.service';
@@ -123,12 +124,12 @@ export class EmployeesController {
 @ApiTags('HR — Leave')
 @ApiBearerAuth()
 @UseGuards(PermissionsGuard)
-@RequirePermissions('hr.manage')
 @Controller('hr/leave')
 export class LeaveController {
   constructor(private readonly service: LeaveService) {}
 
   @Post('types')
+  @RequirePermissions('hr.manage')
   @ApiOperation({ summary: 'Create leave type' })
   @ApiCreatedResponse({ type: LeaveTypeResponseDto })
   createType(@Body() dto: CreateLeaveTypeDto, @CurrentUser() user: AuthUser) {
@@ -136,6 +137,7 @@ export class LeaveController {
   }
 
   @Get('types')
+  @RequirePermissions('hr.manage')
   @ApiOperation({ summary: 'List leave types' })
   @ApiOkResponse({ type: [LeaveTypeResponseDto] })
   listTypes(@CurrentUser() user: AuthUser) {
@@ -143,6 +145,7 @@ export class LeaveController {
   }
 
   @Post('requests')
+  @RequirePermissions('hr.manage')
   @ApiOperation({ summary: 'Apply for leave (starts approval workflow)' })
   @ApiCreatedResponse({ type: LeaveRequestResponseDto })
   apply(@Body() dto: CreateLeaveRequestDto, @CurrentUser() user: AuthUser) {
@@ -150,13 +153,19 @@ export class LeaveController {
   }
 
   @Post('requests/:id/approve')
-  @ApiOperation({ summary: 'Approve leave request' })
+  @RequireAnyPermissions('hr.manage', 'approvals.act')
+  @ApiOperation({
+    summary: 'Approve leave request (current matrix step)',
+    description:
+      '§4 A5: Supervisor → HR → Dept Head → GM. Use domain route so LeaveRequest status syncs.',
+  })
   @ApiOkResponse({ type: LeaveRequestResponseDto })
   approve(@Param('id') id: string, @CurrentUser() user: AuthUser) {
     return this.service.approveLeave(id, user);
   }
 
   @Post('requests/:id/reject')
+  @RequireAnyPermissions('hr.manage', 'approvals.act')
   @ApiOperation({ summary: 'Reject leave request' })
   @ApiOkResponse({ type: LeaveRequestResponseDto })
   reject(
@@ -168,6 +177,7 @@ export class LeaveController {
   }
 
   @Get('requests')
+  @RequirePermissions('hr.manage')
   @ApiOperation({ summary: 'List leave requests' })
   @ApiQuery({ name: 'employeeId', required: false })
   @ApiOkResponse({ type: [LeaveRequestResponseDto] })

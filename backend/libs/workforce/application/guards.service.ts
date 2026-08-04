@@ -20,19 +20,6 @@ const INELIGIBLE_STATUSES: GuardStatus[] = [
   GuardStatus.TERMINATED,
 ];
 
-/** Staff roles that may administer GuardProfile despite also holding GUARD. */
-const GUARD_ADMIN_ROLES = new Set([
-  'SUPER_ADMIN',
-  'GENERAL_MANAGER',
-  'HR_OFFICER',
-  'SUPERVISOR',
-  'DEVELOPER',
-  'CEO',
-  'CMD',
-  'LEGAL',
-  'MARKETING',
-]);
-
 type GuardRow = {
   id: string;
   organizationId: string;
@@ -80,19 +67,20 @@ export class GuardsService {
   ) {}
 
   /**
-   * Field guards with only GUARD role must not create/admin other GuardProfiles
-   * (seeded GUARD also has operations.manage for mobile/ops read paths).
+   * §4 Harden A4 — GuardProfile admin requires `guards.manage`
+   * (not bare `operations.manage`; SUPERVISOR / CONTROL_ROOM / CCTV stay out).
    */
   private assertCanAdministerGuards(user: AuthUser): void {
     if (
-      user.roles.includes('GUARD') &&
-      !user.roles.some((r) => GUARD_ADMIN_ROLES.has(r))
+      user.roles.includes('SUPER_ADMIN') ||
+      user.permissions.includes('guards.manage')
     ) {
-      throw new ForbiddenException({
-        error: 'FORBIDDEN',
-        message: 'Guards cannot create or administer guard profiles',
-      });
+      return;
     }
+    throw new ForbiddenException({
+      error: 'FORBIDDEN',
+      message: 'Missing permission: guards.manage',
+    });
   }
 
   async create(dto: CreateGuardDto, user: AuthUser): Promise<GuardResponseDto> {

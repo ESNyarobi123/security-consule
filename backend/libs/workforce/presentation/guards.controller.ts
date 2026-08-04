@@ -18,6 +18,7 @@ import {
   AuthUser,
   CurrentUser,
   PermissionsGuard,
+  RequireAnyPermissions,
   RequirePermissions,
 } from '@pssms/shared';
 import { GuardsService } from '../application/guards.service';
@@ -32,12 +33,12 @@ import {
 @ApiTags('Guards')
 @ApiBearerAuth()
 @UseGuards(PermissionsGuard)
-@RequirePermissions('operations.manage')
 @Controller('guards')
 export class GuardsController {
   constructor(private readonly service: GuardsService) {}
 
   @Post()
+  @RequirePermissions('guards.manage')
   @ApiOperation({ summary: 'Create guard profile (links IAM user)' })
   @ApiCreatedResponse({ type: GuardResponseDto })
   create(@Body() dto: CreateGuardDto, @CurrentUser() user: AuthUser) {
@@ -45,13 +46,19 @@ export class GuardsController {
   }
 
   @Get()
-  @ApiOperation({ summary: 'List guard profiles (ops-enriched)' })
+  @RequireAnyPermissions('operations.manage', 'guards.manage')
+  @ApiOperation({
+    summary: 'List guard profiles (ops-enriched)',
+    description:
+      'Roster read for branch pickers (ops) and guard admin console (guards.manage).',
+  })
   @ApiOkResponse({ type: [GuardResponseDto] })
   list(@CurrentUser() user: AuthUser) {
     return this.service.list(user.organizationId);
   }
 
   @Get('linkable-users')
+  @RequirePermissions('guards.manage')
   @ApiOperation({
     summary: 'Active org users without a GuardProfile (create picker)',
   })
@@ -61,6 +68,7 @@ export class GuardsController {
   }
 
   @Patch(':id/status')
+  @RequirePermissions('guards.manage')
   @ApiOperation({
     summary:
       'Update guard status / deployment eligibility (G3: readiness incomplete does not hard-block)',
@@ -80,6 +88,7 @@ export class GuardsController {
   }
 
   @Patch(':id/readiness')
+  @RequirePermissions('guards.manage')
   @ApiOperation({
     summary:
       'Thin G3 readiness checklist (training / clearance / firearm flags)',

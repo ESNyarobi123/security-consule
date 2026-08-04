@@ -1,5 +1,6 @@
 'use client';
 
+import { getSessionUser } from '@pssms/auth';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import type { ReactNode } from 'react';
@@ -13,6 +14,11 @@ export const HR_TABS = [
   { href: '/hr/training', label: 'Training' },
   { href: '/hr/discipline', label: 'Discipline' },
   { href: '/hr/movements', label: 'Movements' },
+  {
+    href: '/hr/b2b-requests',
+    label: 'B2B requests',
+    permission: 'recruitment.manage',
+  },
 ] as const;
 
 export function HrShell({
@@ -27,6 +33,15 @@ export function HrShell({
   children: ReactNode;
 }) {
   const pathname = usePathname();
+  const session = getSessionUser();
+  const perms = session?.permissions ?? [];
+  const isSuper = session?.roles?.includes('SUPER_ADMIN');
+  const tabs = HR_TABS.filter(
+    (tab) =>
+      !('permission' in tab && tab.permission) ||
+      isSuper ||
+      perms.includes(tab.permission),
+  );
 
   return (
     <div>
@@ -58,7 +73,7 @@ export function HrShell({
         aria-label="HR sections"
         className="mb-5 flex gap-1 overflow-x-auto rounded-lg border border-[#e1dfdd] bg-[#faf9f8] p-1"
       >
-        {HR_TABS.map((tab) => {
+        {tabs.map((tab) => {
           const exact = 'exact' in tab && tab.exact;
           const active = exact
             ? pathname === tab.href

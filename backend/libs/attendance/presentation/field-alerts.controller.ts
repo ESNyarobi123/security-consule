@@ -59,6 +59,7 @@ export class FieldAlertsController {
         : undefined;
     return this.service.list(
       user.organizationId,
+      user,
       siteId,
       acked,
       stage,
@@ -68,7 +69,7 @@ export class FieldAlertsController {
   @Post(':id/escalate')
   @ApiOperation({
     summary:
-      'Advance field-alert escalation (ALERTNESS_MISSED / PATROL_MISSED: SUPERVISOR→FIELD→BOM→CONTROL)',
+      'Advance field-alert escalation (SUPERVISOR→FIELD→BOM→CONTROL; stage-gated: Supervisor / Field Officer / BOM+)',
   })
   @ApiOkResponse({ type: FieldAlertResponseDto })
   escalate(@Param('id') id: string, @CurrentUser() user: AuthUser) {

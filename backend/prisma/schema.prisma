@@ -23,6 +23,8 @@ model User {
   createdBy       String?            @map("created_by")
   customerId      String?            @map("customer_id")
   supplierId      String?            @map("supplier_id")
+  /** Portal 35.14 — other security company partner binding */
+  b2bPartnerId    String?            @map("b2b_partner_id")
   keycloakSub     String?            @unique @map("keycloak_sub")
   mfaSecret       String?            @map("mfa_secret")
   mfaVerifiedAt   DateTime?          @map("mfa_verified_at")
@@ -37,6 +39,7 @@ model User {
 
   @@index([organizationId, customerId])
   @@index([organizationId, supplierId])
+  @@index([organizationId, b2bPartnerId])
   @@map("users")
   @@schema("iam")
 }
@@ -719,6 +722,8 @@ model CustomerEmployee {
   id             String   @id @default(uuid())
   organizationId String   @map("organization_id")
   customerId     String   @map("customer_id")
+  /** Linked IAM login for Portal 35.9 self-scope (nullable until invited). */
+  userId         String?  @unique @map("user_id")
   employeeNumber String?  @map("employee_number")
   fullName       String   @map("full_name")
   email          String?
@@ -1166,6 +1171,50 @@ model JobApplication {
   @@unique([organizationId, referenceNumber])
   @@index([postingId, status])
   @@map("job_applications")
+  @@schema("recruitment")
+}
+
+/** Portal 35.14 / §15 — external security firm (B2B partner). */
+model B2bSecurityPartner {
+  id             String               @id @default(uuid())
+  organizationId String               @map("organization_id")
+  code           String
+  name           String
+  email          String?
+  phone          String?
+  status         B2bPartnerStatus     @default(PENDING)
+  createdAt      DateTime             @default(now()) @map("created_at")
+  createdBy      String?              @map("created_by")
+  requests       GuardSupplyRequest[]
+
+  @@unique([organizationId, code])
+  @@map("b2b_security_partners")
+  @@schema("recruitment")
+}
+
+/** External firm requests guards by criteria (thin B2B — no invoice in E2). */
+model GuardSupplyRequest {
+  id              String                   @id @default(uuid())
+  organizationId  String                   @map("organization_id")
+  partnerId       String                   @map("partner_id")
+  referenceNumber String                   @map("reference_number")
+  guardCount      Int                      @map("guard_count")
+  siteLocation    String?                  @map("site_location")
+  startDate       DateTime?                @map("start_date") @db.Date
+  endDate         DateTime?                @map("end_date") @db.Date
+  criteriaNotes   String?                  @map("criteria_notes")
+  status          GuardSupplyRequestStatus @default(SUBMITTED)
+  processedBy     String?                  @map("processed_by")
+  processedAt     DateTime?                @map("processed_at")
+  staffNotes      String?                  @map("staff_notes")
+  createdAt       DateTime                 @default(now()) @map("created_at")
+  createdBy       String?                  @map("created_by")
+  partner         B2bSecurityPartner       @relation(fields: [partnerId], references: [id])
+
+  @@unique([organizationId, referenceNumber])
+  @@index([organizationId, partnerId])
+  @@index([organizationId, status])
+  @@map("guard_supply_requests")
   @@schema("recruitment")
 }
 
@@ -2251,6 +2300,24 @@ enum ApplicationStatus {
   HIRED
   REJECTED
   WITHDRAWN
+
+  @@schema("recruitment")
+}
+
+enum B2bPartnerStatus {
+  PENDING
+  APPROVED
+  SUSPENDED
+
+  @@schema("recruitment")
+}
+
+enum GuardSupplyRequestStatus {
+  SUBMITTED
+  UNDER_REVIEW
+  ACCEPTED
+  REJECTED
+  CANCELLED
 
   @@schema("recruitment")
 }

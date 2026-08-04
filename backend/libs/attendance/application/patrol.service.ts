@@ -1,6 +1,16 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ForbiddenException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { AttendanceMethod } from '@prisma/client';
-import { PrismaService, AuthUser } from '@pssms/shared';
+import {
+  PrismaService,
+  AuthUser,
+  isGuardSelfScoped,
+  siteScopeWhere,
+} from '@pssms/shared';
 import { AuditService } from '@pssms/audit';
 import { GuardsService } from '@pssms/workforce';
 import { PatrolScanDto } from '../presentation/dto/attendance.dto';
@@ -74,9 +84,26 @@ export class PatrolService {
     return scan;
   }
 
-  async list(organizationId: string, siteId?: string) {
+  async list(organizationId: string, user: AuthUser, siteId?: string) {
+    let selfGuardId: string | undefined;
+    if (isGuardSelfScoped(user)) {
+      const self = await this.guards.getByUserId(user.id, organizationId);
+      if (!self) {
+        throw new ForbiddenException({
+          error: 'GUARD_SCOPE_DENIED',
+          message: 'No guard profile linked to this user',
+        });
+      }
+      selfGuardId = self.id;
+    }
+
     const scans = await this.prisma.patrolScan.findMany({
-      where: { organizationId, ...(siteId ? { siteId } : {}) },
+      where: {
+        organizationId,
+        ...(selfGuardId
+          ? { guardId: selfGuardId }
+          : siteScopeWhere(user, siteId)),
+      },
       orderBy: { scannedAt: 'desc' },
       take: 100,
       include: {

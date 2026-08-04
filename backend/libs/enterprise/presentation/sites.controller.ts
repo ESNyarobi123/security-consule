@@ -34,6 +34,6 @@ export class SitesController {
   @ApiOperation({ summary: 'List sites' })
   @ApiOkResponse({ type: [SiteResponseDto] })
   list(@CurrentUser() user: AuthUser) {
-    return this.service.list(user.organizationId);
+    return this.service.list(user.organizationId, user);
   }
 }

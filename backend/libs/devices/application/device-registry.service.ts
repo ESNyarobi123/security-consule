@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  ForbiddenException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
@@ -15,6 +16,18 @@ import {
   RegisterEdgeGatewayDto,
   UpdateDeviceDto,
 } from '../presentation/dto/device.dto';
+
+const CCTV_DEVICE_TYPE = 'CCTV_CAMERA';
+const CCTV_EVENT_TYPE = 'CCTV_EVENT';
+
+/** Has cctv.manage but not full ops — mosaic / camera metadata only. */
+function isCctvScoped(user: AuthUser): boolean {
+  return (
+    user.permissions.includes('cctv.manage') &&
+    !user.permissions.includes('operations.manage') &&
+    !user.roles.includes('SUPER_ADMIN')
+  );
+}
 
 function generateKey(prefix: string): string {
   return `${prefix}_${randomBytes(24).toString('base64url')}`;
@@ -65,6 +78,7 @@ export class DeviceRegistryService {
 
   // ── Edge gateways ──────────────────────────────────────────────
   async registerGateway(dto: RegisterEdgeGatewayDto, user: AuthUser) {
+    this.assertFullOpsDevices(user);
     if (dto.siteId) {
       await this.assertSiteInOrg(dto.siteId, user.organizationId);
     }
@@ -96,6 +110,7 @@ export class DeviceRegistryService {
   }
 
   async listGateways(user: AuthUser): Promise<EdgeGatewayResponseDto[]> {
+    this.assertFullOpsDevices(user);
     const rows = await this.prisma.edgeGateway.findMany({
       where: { organizationId: user.organizationId },
       orderBy: { createdAt: 'desc' },
@@ -109,6 +124,19 @@ export class DeviceRegistryService {
 
   // ── Devices ────────────────────────────────────────────────────
   async registerDevice(dto: RegisterDeviceDto, user: AuthUser) {
+    if (isCctvScoped(user) && dto.type !== CCTV_DEVICE_TYPE) {
+      throw new ForbiddenException({
+        error: 'CCTV_SCOPE_DENIED',
+        message: 'CCTV operators may only register CCTV_CAMERA devices',
+      });
+    }
+    if (isCctvScoped(user) && dto.directPush) {
+      throw new ForbiddenException({
+        error: 'CCTV_SCOPE_DENIED',
+        message:
+          'CCTV operators cannot mint device API keys (directPush) — ops only',
+      });
+    }
     if (dto.siteId) {
       await this.assertSiteInOrg(dto.siteId, user.organizationId);
     }
@@ -164,10 +192,23 @@ export class DeviceRegistryService {
     user: AuthUser,
     filters: { type?: string; siteId?: string; status?: string } = {},
   ): Promise<DeviceResponseDto[]> {
+    const typeFilter = isCctvScoped(user)
+      ? CCTV_DEVICE_TYPE
+      : filters.type;
+    if (
+      isCctvScoped(user) &&
+      filters.type &&
+      filters.type !== CCTV_DEVICE_TYPE
+    ) {
+      throw new ForbiddenException({
+        error: 'CCTV_SCOPE_DENIED',
+        message: 'CCTV operators may only list CCTV_CAMERA devices',
+      });
+    }
     const rows = await this.prisma.device.findMany({
       where: {
         organizationId: user.organizationId,
-        type: filters.type as never,
+        ...(typeFilter ? { type: typeFilter as never } : {}),
         siteId: filters.siteId,
         status: filters.status as never,
       },
@@ -184,10 +225,23 @@ export class DeviceRegistryService {
     user: AuthUser,
     filters: { type?: string; deviceId?: string } = {},
   ) {
+    const typeFilter = isCctvScoped(user)
+      ? CCTV_EVENT_TYPE
+      : filters.type;
+    if (
+      isCctvScoped(user) &&
+      filters.type &&
+      filters.type !== CCTV_EVENT_TYPE
+    ) {
+      throw new ForbiddenException({
+        error: 'CCTV_SCOPE_DENIED',
+        message: 'CCTV operators may only list CCTV_EVENT metadata',
+      });
+    }
     return this.prisma.deviceEvent.findMany({
       where: {
         organizationId: user.organizationId,
-        ...(filters.type ? { type: filters.type as never } : {}),
+        ...(typeFilter ? { type: typeFilter as never } : {}),
         ...(filters.deviceId ? { deviceId: filters.deviceId } : {}),
       },
       orderBy: { capturedAt: 'desc' },
@@ -213,6 +267,7 @@ export class DeviceRegistryService {
       where: { id, organizationId: user.organizationId },
     });
     if (!device) throw new NotFoundException('Device not found');
+    this.assertCctvDeviceAccess(user, device.type);
     const [eventCount, pendingCommands] = await Promise.all([
       this.prisma.deviceEvent.count({ where: { deviceId: id } }),
       this.prisma.deviceCommand.count({
@@ -234,6 +289,7 @@ export class DeviceRegistryService {
       where: { id, organizationId: user.organizationId },
     });
     if (!device) throw new NotFoundException('Device not found');
+    this.assertCctvDeviceAccess(user, device.type);
     if (dto.siteId) {
       await this.assertSiteInOrg(dto.siteId, user.organizationId);
     }
@@ -265,6 +321,29 @@ export class DeviceRegistryService {
       updated.siteId,
     ]);
     return this.deviceView(updated, siteById);
+  }
+
+  private assertFullOpsDevices(user: AuthUser): void {
+    if (
+      user.permissions.includes('operations.manage') ||
+      user.roles.includes('SUPER_ADMIN')
+    ) {
+      return;
+    }
+    throw new ForbiddenException({
+      error: 'CCTV_SCOPE_DENIED',
+      message: 'Edge gateways require operations.manage',
+    });
+  }
+
+  private assertCctvDeviceAccess(user: AuthUser, deviceType: string): void {
+    if (!isCctvScoped(user)) return;
+    if (deviceType !== CCTV_DEVICE_TYPE) {
+      throw new ForbiddenException({
+        error: 'CCTV_SCOPE_DENIED',
+        message: 'CCTV operators may only access CCTV_CAMERA devices',
+      });
+    }
   }
 
   private async assertSiteInOrg(siteId: string, organizationId: string) {

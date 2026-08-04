@@ -27,6 +27,11 @@ async function main() {
     { code: 'attendance.manage', name: 'Manage attendance', module: 'attendance' },
     { code: 'incidents.manage', name: 'Manage incidents', module: 'incidents' },
     { code: 'access.manage', name: 'Manage customer access', module: 'access-control' },
+    {
+      code: 'access.self',
+      name: 'Own customer employee access (Portal 35.9)',
+      module: 'access-control',
+    },
     { code: 'visitors.manage', name: 'Manage visitors', module: 'visitors' },
     { code: 'parking.manage', name: 'Manage parking', module: 'parking' },
     { code: 'hr.manage', name: 'Manage HR', module: 'workforce' },
@@ -36,6 +41,11 @@ async function main() {
       module: 'workforce',
     },
     { code: 'recruitment.manage', name: 'Manage recruitment', module: 'recruitment' },
+    {
+      code: 'recruitment.b2b',
+      name: 'Other security company B2B self-service',
+      module: 'recruitment',
+    },
     { code: 'payroll.manage', name: 'Manage payroll', module: 'payroll' },
     { code: 'loans.manage', name: 'Manage employee loans', module: 'employee-loans' },
     { code: 'finance.manage', name: 'Manage finance', module: 'finance' },
@@ -51,8 +61,18 @@ async function main() {
     },
     {
       code: 'compliance.manage',
-      name: 'Manage compliance policies & breach register',
+      name: 'Manage compliance policy documents',
       module: 'compliance',
+    },
+    {
+      code: 'dpo.manage',
+      name: 'Manage DPO data-breach register',
+      module: 'compliance',
+    },
+    {
+      code: 'cctv.manage',
+      name: 'Manage CCTV mosaic & camera metadata',
+      module: 'devices',
     },
     {
       code: 'documents.manage',
@@ -64,7 +84,7 @@ async function main() {
   for (const p of permissions) {
     await prisma.permission.upsert({
       where: { code: p.code },
-      update: {},
+      update: { name: p.name },
       create: p,
     });
   }
@@ -80,7 +100,17 @@ async function main() {
     { code: 'PARKING_OFFICER', name: 'Parking Officer', isSystem: true },
     { code: 'SUPERVISOR', name: 'Site Supervisor', isSystem: true },
     { code: 'CUSTOMER_PORTAL', name: 'Customer Portal User', isSystem: true },
+    {
+      code: 'CUSTOMER_EMPLOYEE',
+      name: 'Customer Employee Access',
+      isSystem: true,
+    },
     { code: 'SUPPLIER_PORTAL', name: 'Supplier Portal User', isSystem: true },
+    {
+      code: 'OTHER_SECURITY_COMPANY',
+      name: 'Other Security Company (B2B)',
+      isSystem: true,
+    },
     {
       code: 'DEVELOPER',
       name: 'Developer / ICT Integrator',
@@ -88,7 +118,12 @@ async function main() {
     },
     {
       code: 'COMPLIANCE_OFFICER',
-      name: 'Compliance / DPO Officer',
+      name: 'Compliance Officer',
+      isSystem: true,
+    },
+    {
+      code: 'DPO',
+      name: 'Data Protection Officer',
       isSystem: true,
     },
     {
@@ -111,6 +146,76 @@ async function main() {
       name: 'Marketing / Business Development',
       isSystem: true,
     },
+    {
+      code: 'FIELD_OFFICER',
+      name: 'Field Officer',
+      isSystem: true,
+    },
+    {
+      code: 'BRANCH_MANAGER',
+      name: 'Branch / Operations Manager (BOM)',
+      isSystem: true,
+    },
+    {
+      code: 'OPERATIONS_MANAGER',
+      name: 'Operations Manager',
+      isSystem: true,
+    },
+    {
+      code: 'ACCOUNTS_OFFICER',
+      name: 'Accounts Officer',
+      isSystem: true,
+    },
+    {
+      code: 'PAYROLL_OFFICER',
+      name: 'Payroll Officer',
+      isSystem: true,
+    },
+    {
+      code: 'PROCUREMENT_OFFICER',
+      name: 'Procurement Officer',
+      isSystem: true,
+    },
+    {
+      code: 'STOREKEEPER',
+      name: 'Storekeeper',
+      isSystem: true,
+    },
+    {
+      code: 'CCTV_OPERATOR',
+      name: 'CCTV Operator',
+      isSystem: true,
+    },
+    {
+      code: 'CONTROL_ROOM',
+      name: 'Control Room Officer',
+      isSystem: true,
+    },
+    {
+      code: 'DEPARTMENT_HEAD',
+      name: 'Department Head',
+      isSystem: true,
+    },
+    {
+      code: 'CISO',
+      name: 'Chief Information Security Officer',
+      isSystem: true,
+    },
+    {
+      code: 'INTERNAL_AUDITOR',
+      name: 'Internal Auditor',
+      isSystem: true,
+    },
+    {
+      code: 'CALL_CENTRE',
+      name: 'Call Centre Agent',
+      isSystem: true,
+    },
+    {
+      code: 'IT_SUPPORT',
+      name: 'IT Support Staff',
+      isSystem: true,
+    },
   ];
 
   const portalPermCodes = new Set([
@@ -121,7 +226,13 @@ async function main() {
     'parking.manage',
   ]);
 
+  /** Portal 35.9 — own access profile + entries only (not staff roster / CRM). */
+  const customerEmployeePermCodes = new Set(['access.self']);
+
   const supplierPortalPermCodes = new Set(['procurement.manage']);
+
+  /** Portal 35.14 / §15 — own partner profile + guard supply requests only. */
+  const otherSecurityPermCodes = new Set(['recruitment.b2b']);
 
   const gateOfficerPermCodes = new Set([
     'visitors.manage',
@@ -141,29 +252,99 @@ async function main() {
     'enterprise.manage',
     'ess.access',
     'documents.manage',
+    // §4 Harden A5 — leave step 1 (domain approve via approvals.act; no hr.manage)
+    'approvals.act',
   ]);
 
+  /** §4 Field Officer — same branch ops surface as supervisor (sites + escalate FIELD). */
+  const fieldOfficerPermCodes = new Set([
+    'operations.manage',
+    'attendance.manage',
+    'incidents.manage',
+    'enterprise.manage',
+    'ess.access',
+    'documents.manage',
+  ]);
+
+  /** §4 Branch / BOM — branch ops + guard roster admin + light reporting. */
+  const branchManagerPermCodes = new Set([
+    'operations.manage',
+    'guards.manage',
+    'attendance.manage',
+    'incidents.manage',
+    'enterprise.manage',
+    'ess.access',
+    'documents.manage',
+    'reporting.read',
+  ]);
+
+  /** §4 Operations Manager — ops console + guards + CCTV + reporting (not finance/HR). */
+  const operationsManagerPermCodes = new Set([
+    'operations.manage',
+    'cctv.manage',
+    'attendance.manage',
+    'incidents.manage',
+    'enterprise.manage',
+    'guards.manage',
+    'ess.access',
+    'documents.manage',
+    'reporting.read',
+  ]);
+
+  /**
+   * §4 Harden A3 — Guard: self-service + field punch/incident (no Field ops nav).
+   * Own-records enforced in list APIs via isGuardSelfScoped.
+   */
   const guardPermCodes = new Set([
     'ess.access',
     'attendance.manage',
-    'operations.manage',
     'incidents.manage',
     'documents.manage',
   ]);
 
-  // devices.manage does not exist — operations.manage covers /devices portal access
+  /**
+   * §4 Phase 6 — DEVELOPER refine: integrator only (not helpdesk users.manage).
+   * operations.manage kept for /developer device summary + health probes.
+   */
   const developerPermCodes = new Set([
     'integrations.manage',
-    'users.manage',
     'audit.read',
     'notifications.manage',
     'operations.manage',
   ]);
 
+  /**
+   * §4 Phase 6 — Call Centre: visitors inbox + service tickets
+   * (tickets allowlisted via visitors.manage OR customers.manage — no full CRM).
+   */
+  const callCentrePermCodes = new Set([
+    'visitors.manage',
+    'documents.manage',
+  ]);
+
+  /** §4 Phase 6 — IT Support: user helpdesk (not full integrator). */
+  const itSupportPermCodes = new Set([
+    'users.manage',
+    'notifications.manage',
+    'audit.read',
+    'documents.manage',
+  ]);
+
+  /** Policies + approve steps; breach register is read-only (DPO owns mutates). */
   const complianceOfficerPermCodes = new Set([
     'compliance.manage',
     'audit.read',
     'approvals.act',
+  ]);
+
+  /**
+   * §4 Harden A1 — DPO: data-breach register + audit/docs (not policy publish matrix).
+   * Consent/DPIA/DR still deferred vs §32.
+   */
+  const dpoPermCodes = new Set([
+    'dpo.manage',
+    'audit.read',
+    'documents.manage',
   ]);
 
   /** Contract approvers (Legal / CEO / CMD) — + reporting for Executive portal 35.2. */
@@ -181,12 +362,129 @@ async function main() {
     'documents.manage',
   ]);
 
+  /** §4 Phase 2 — HR harden (was allPerms). + E2 B2B triage. */
+  const hrOfficerPermCodes = new Set([
+    'hr.manage',
+    'ess.access',
+    'approvals.act',
+    'documents.manage',
+    'loans.manage',
+    'recruitment.manage',
+  ]);
+
+  /** §4 Phase 2 — Accounts: invoices / petty cash / vouchers + customer/contract pickers. */
+  const accountsOfficerPermCodes = new Set([
+    'finance.manage',
+    'customers.manage',
+    'contracts.manage',
+    'documents.manage',
+    'approvals.act',
+  ]);
+
+  /** §4 Phase 2 — Payroll cycles / snapshots only (not HR admin / finance). */
+  const payrollOfficerPermCodes = new Set([
+    'payroll.manage',
+    'approvals.act',
+    'ess.access',
+  ]);
+
+  /** §4 Phase 3 — Procurement: suppliers / POs / GRN + stock visibility. */
+  const procurementOfficerPermCodes = new Set([
+    'procurement.manage',
+    'inventory.manage',
+    'approvals.act',
+    'documents.manage',
+  ]);
+
+  /** §4 Phase 3 — Storekeeper: assets register/assign/returns + stock movements. */
+  const storekeeperPermCodes = new Set([
+    'assets.manage',
+    'inventory.manage',
+    'ess.access',
+    'documents.manage',
+  ]);
+
+  /**
+   * §4 Harden A2 — CCTV operator: mosaic + CCTV_CAMERA metadata only (no Field ops nav).
+   */
+  const cctvOperatorPermCodes = new Set(['cctv.manage', 'documents.manage']);
+
+  /** §4 Phase 4 — Control Room: AL1 CONTROL ack + branch alerts / incidents + CCTV mosaic. */
+  const controlRoomPermCodes = new Set([
+    'operations.manage',
+    'cctv.manage',
+    'attendance.manage',
+    'incidents.manage',
+    'enterprise.manage',
+    'documents.manage',
+  ]);
+
+  /** §4 Phase 5 — Dept Head: people approvals + limited HR/reporting (not finance god-mode). */
+  const departmentHeadPermCodes = new Set([
+    'approvals.act',
+    'hr.manage',
+    'ess.access',
+    'reporting.read',
+    'enterprise.manage',
+    'audit.read',
+    'documents.manage',
+  ]);
+
+  /** §4 Phase 5 — CISO: security/compliance + DPO oversight + user access (not ops/finance). */
+  const cisoPermCodes = new Set([
+    'compliance.manage',
+    'dpo.manage',
+    'audit.read',
+    'approvals.act',
+    'users.manage',
+    'documents.manage',
+  ]);
+
+  /** §4 Phase 5 — Internal Auditor: audit + compliance GET (via audit.read); no manage/approvals. */
+  const internalAuditorPermCodes = new Set([
+    'audit.read',
+    'documents.manage',
+  ]);
+
+  const restrictedPermSets: Record<string, Set<string>> = {
+    CUSTOMER_PORTAL: portalPermCodes,
+    CUSTOMER_EMPLOYEE: customerEmployeePermCodes,
+    SUPPLIER_PORTAL: supplierPortalPermCodes,
+    OTHER_SECURITY_COMPANY: otherSecurityPermCodes,
+    GATE_OFFICER: gateOfficerPermCodes,
+    PARKING_OFFICER: parkingOfficerPermCodes,
+    SUPERVISOR: supervisorPermCodes,
+    FIELD_OFFICER: fieldOfficerPermCodes,
+    BRANCH_MANAGER: branchManagerPermCodes,
+    OPERATIONS_MANAGER: operationsManagerPermCodes,
+    GUARD: guardPermCodes,
+    DEVELOPER: developerPermCodes,
+    COMPLIANCE_OFFICER: complianceOfficerPermCodes,
+    DPO: dpoPermCodes,
+    LEGAL: contractApproverPermCodes,
+    CEO: contractApproverPermCodes,
+    CMD: contractApproverPermCodes,
+    MARKETING: marketingPermCodes,
+    HR_OFFICER: hrOfficerPermCodes,
+    ACCOUNTS_OFFICER: accountsOfficerPermCodes,
+    PAYROLL_OFFICER: payrollOfficerPermCodes,
+    PROCUREMENT_OFFICER: procurementOfficerPermCodes,
+    STOREKEEPER: storekeeperPermCodes,
+    CCTV_OPERATOR: cctvOperatorPermCodes,
+    CONTROL_ROOM: controlRoomPermCodes,
+    DEPARTMENT_HEAD: departmentHeadPermCodes,
+    CISO: cisoPermCodes,
+    INTERNAL_AUDITOR: internalAuditorPermCodes,
+    CALL_CENTRE: callCentrePermCodes,
+    IT_SUPPORT: itSupportPermCodes,
+  };
+
   for (const r of roleDefs) {
     const role = await prisma.role.upsert({
       where: {
         organizationId_code: { organizationId: org.id, code: r.code },
       },
-      update: {},
+      update: { name: r.name },
       create: {
         organizationId: org.id,
         code: r.code,
@@ -195,36 +493,10 @@ async function main() {
       },
     });
 
-    const permsForRole =
-      r.code === 'CUSTOMER_PORTAL'
-        ? allPerms.filter((p) => portalPermCodes.has(p.code))
-        : r.code === 'SUPPLIER_PORTAL'
-          ? allPerms.filter((p) => supplierPortalPermCodes.has(p.code))
-          : r.code === 'GATE_OFFICER'
-            ? allPerms.filter((p) => gateOfficerPermCodes.has(p.code))
-            : r.code === 'PARKING_OFFICER'
-              ? allPerms.filter((p) => parkingOfficerPermCodes.has(p.code))
-              : r.code === 'SUPERVISOR'
-                ? allPerms.filter((p) => supervisorPermCodes.has(p.code))
-                : r.code === 'GUARD'
-                  ? allPerms.filter((p) => guardPermCodes.has(p.code))
-                  : r.code === 'DEVELOPER'
-                    ? allPerms.filter((p) => developerPermCodes.has(p.code))
-                    : r.code === 'COMPLIANCE_OFFICER'
-                      ? allPerms.filter((p) =>
-                          complianceOfficerPermCodes.has(p.code),
-                        )
-                      : r.code === 'LEGAL' ||
-                          r.code === 'CEO' ||
-                          r.code === 'CMD'
-                        ? allPerms.filter((p) =>
-                            contractApproverPermCodes.has(p.code),
-                          )
-                        : r.code === 'MARKETING'
-                          ? allPerms.filter((p) =>
-                              marketingPermCodes.has(p.code),
-                            )
-                          : allPerms;
+    const restricted = restrictedPermSets[r.code];
+    const permsForRole = restricted
+      ? allPerms.filter((p) => restricted.has(p.code))
+      : allPerms;
 
     for (const perm of permsForRole) {
       await prisma.rolePermission.upsert({
@@ -237,22 +509,7 @@ async function main() {
     }
 
     // Keep restricted roles honest on re-seed (drop stale grants).
-    if (
-      [
-        'GUARD',
-        'SUPERVISOR',
-        'GATE_OFFICER',
-        'PARKING_OFFICER',
-        'DEVELOPER',
-        'COMPLIANCE_OFFICER',
-        'LEGAL',
-        'CEO',
-        'CMD',
-        'MARKETING',
-        'CUSTOMER_PORTAL',
-        'SUPPLIER_PORTAL',
-      ].includes(r.code)
-    ) {
+    if (restricted) {
       await prisma.rolePermission.deleteMany({
         where: {
           roleId: role.id,
@@ -294,6 +551,54 @@ async function main() {
   });
   const marketingRole = await prisma.role.findFirstOrThrow({
     where: { organizationId: org.id, code: 'MARKETING' },
+  });
+  const fieldOfficerRole = await prisma.role.findFirstOrThrow({
+    where: { organizationId: org.id, code: 'FIELD_OFFICER' },
+  });
+  const branchManagerRole = await prisma.role.findFirstOrThrow({
+    where: { organizationId: org.id, code: 'BRANCH_MANAGER' },
+  });
+  const operationsManagerRole = await prisma.role.findFirstOrThrow({
+    where: { organizationId: org.id, code: 'OPERATIONS_MANAGER' },
+  });
+  const hrOfficerRole = await prisma.role.findFirstOrThrow({
+    where: { organizationId: org.id, code: 'HR_OFFICER' },
+  });
+  const accountsOfficerRole = await prisma.role.findFirstOrThrow({
+    where: { organizationId: org.id, code: 'ACCOUNTS_OFFICER' },
+  });
+  const payrollOfficerRole = await prisma.role.findFirstOrThrow({
+    where: { organizationId: org.id, code: 'PAYROLL_OFFICER' },
+  });
+  const procurementOfficerRole = await prisma.role.findFirstOrThrow({
+    where: { organizationId: org.id, code: 'PROCUREMENT_OFFICER' },
+  });
+  const storekeeperRole = await prisma.role.findFirstOrThrow({
+    where: { organizationId: org.id, code: 'STOREKEEPER' },
+  });
+  const cctvOperatorRole = await prisma.role.findFirstOrThrow({
+    where: { organizationId: org.id, code: 'CCTV_OPERATOR' },
+  });
+  const controlRoomRole = await prisma.role.findFirstOrThrow({
+    where: { organizationId: org.id, code: 'CONTROL_ROOM' },
+  });
+  const departmentHeadRole = await prisma.role.findFirstOrThrow({
+    where: { organizationId: org.id, code: 'DEPARTMENT_HEAD' },
+  });
+  const cisoRole = await prisma.role.findFirstOrThrow({
+    where: { organizationId: org.id, code: 'CISO' },
+  });
+  const internalAuditorRole = await prisma.role.findFirstOrThrow({
+    where: { organizationId: org.id, code: 'INTERNAL_AUDITOR' },
+  });
+  const callCentreRole = await prisma.role.findFirstOrThrow({
+    where: { organizationId: org.id, code: 'CALL_CENTRE' },
+  });
+  const itSupportRole = await prisma.role.findFirstOrThrow({
+    where: { organizationId: org.id, code: 'IT_SUPPORT' },
+  });
+  const developerRole = await prisma.role.findFirstOrThrow({
+    where: { organizationId: org.id, code: 'DEVELOPER' },
   });
 
   const passwordHash = await bcrypt.hash('ChangeMe123!', 12);
@@ -382,6 +687,21 @@ async function main() {
     },
   });
 
+  const dpoRole = await prisma.role.findFirstOrThrow({
+    where: { organizationId: org.id, code: 'DPO' },
+  });
+  await prisma.user.upsert({
+    where: { email: 'dpo1@highlink.co.tz' },
+    update: {},
+    create: {
+      email: 'dpo1@highlink.co.tz',
+      fullName: 'Diana DPO',
+      passwordHash,
+      organizationId: org.id,
+      roles: { create: [{ roleId: dpoRole.id }] },
+    },
+  });
+
   await prisma.user.upsert({
     where: { email: 'legal1@highlink.co.tz' },
     update: {},
@@ -427,6 +747,204 @@ async function main() {
       passwordHash,
       organizationId: org.id,
       roles: { create: [{ roleId: marketingRole.id }] },
+    },
+  });
+
+  // §4 Phase 1 — Field / Branch / Ops Manager demos (password ChangeMe123!)
+  await prisma.user.upsert({
+    where: { email: 'field1@highlink.co.tz' },
+    update: {},
+    create: {
+      email: 'field1@highlink.co.tz',
+      fullName: 'Faraji Field',
+      passwordHash,
+      organizationId: org.id,
+      roles: { create: [{ roleId: fieldOfficerRole.id }] },
+    },
+  });
+
+  await prisma.user.upsert({
+    where: { email: 'bom1@highlink.co.tz' },
+    update: {},
+    create: {
+      email: 'bom1@highlink.co.tz',
+      fullName: 'Bella Branch Manager',
+      passwordHash,
+      organizationId: org.id,
+      roles: { create: [{ roleId: branchManagerRole.id }] },
+    },
+  });
+
+  await prisma.user.upsert({
+    where: { email: 'ops1@highlink.co.tz' },
+    update: {},
+    create: {
+      email: 'ops1@highlink.co.tz',
+      fullName: 'Omar Operations',
+      passwordHash,
+      organizationId: org.id,
+      roles: { create: [{ roleId: operationsManagerRole.id }] },
+    },
+  });
+
+  // §4 Phase 2 — HR / Accounts / Payroll demos (password ChangeMe123!)
+  await prisma.user.upsert({
+    where: { email: 'hr1@highlink.co.tz' },
+    update: {},
+    create: {
+      email: 'hr1@highlink.co.tz',
+      fullName: 'Hannah HR',
+      passwordHash,
+      organizationId: org.id,
+      roles: { create: [{ roleId: hrOfficerRole.id }] },
+    },
+  });
+
+  await prisma.user.upsert({
+    where: { email: 'accounts1@highlink.co.tz' },
+    update: {},
+    create: {
+      email: 'accounts1@highlink.co.tz',
+      fullName: 'Amina Accounts',
+      passwordHash,
+      organizationId: org.id,
+      roles: { create: [{ roleId: accountsOfficerRole.id }] },
+    },
+  });
+
+  await prisma.user.upsert({
+    where: { email: 'payroll1@highlink.co.tz' },
+    update: {},
+    create: {
+      email: 'payroll1@highlink.co.tz',
+      fullName: 'Peter Payroll',
+      passwordHash,
+      organizationId: org.id,
+      roles: { create: [{ roleId: payrollOfficerRole.id }] },
+    },
+  });
+
+  // §4 Phase 3 — Procurement / Storekeeper demos (password ChangeMe123!)
+  await prisma.user.upsert({
+    where: { email: 'procurement1@highlink.co.tz' },
+    update: {},
+    create: {
+      email: 'procurement1@highlink.co.tz',
+      fullName: 'Pendo Procurement',
+      passwordHash,
+      organizationId: org.id,
+      roles: { create: [{ roleId: procurementOfficerRole.id }] },
+    },
+  });
+
+  await prisma.user.upsert({
+    where: { email: 'store1@highlink.co.tz' },
+    update: {},
+    create: {
+      email: 'store1@highlink.co.tz',
+      fullName: 'Salma Storekeeper',
+      passwordHash,
+      organizationId: org.id,
+      roles: { create: [{ roleId: storekeeperRole.id }] },
+    },
+  });
+
+  // §4 Phase 4 — CCTV / Control Room demos (password ChangeMe123!)
+  await prisma.user.upsert({
+    where: { email: 'cctv1@highlink.co.tz' },
+    update: {},
+    create: {
+      email: 'cctv1@highlink.co.tz',
+      fullName: 'Chris CCTV',
+      passwordHash,
+      organizationId: org.id,
+      roles: { create: [{ roleId: cctvOperatorRole.id }] },
+    },
+  });
+
+  await prisma.user.upsert({
+    where: { email: 'control1@highlink.co.tz' },
+    update: {},
+    create: {
+      email: 'control1@highlink.co.tz',
+      fullName: 'Carol Control Room',
+      passwordHash,
+      organizationId: org.id,
+      roles: { create: [{ roleId: controlRoomRole.id }] },
+    },
+  });
+
+  // §4 Phase 5 — Dept Head / CISO / Internal Auditor demos
+  await prisma.user.upsert({
+    where: { email: 'depthead1@highlink.co.tz' },
+    update: {},
+    create: {
+      email: 'depthead1@highlink.co.tz',
+      fullName: 'Diana Department Head',
+      passwordHash,
+      organizationId: org.id,
+      roles: { create: [{ roleId: departmentHeadRole.id }] },
+    },
+  });
+
+  await prisma.user.upsert({
+    where: { email: 'ciso1@highlink.co.tz' },
+    update: {},
+    create: {
+      email: 'ciso1@highlink.co.tz',
+      fullName: 'Ivan CISO',
+      passwordHash,
+      organizationId: org.id,
+      roles: { create: [{ roleId: cisoRole.id }] },
+    },
+  });
+
+  await prisma.user.upsert({
+    where: { email: 'auditor1@highlink.co.tz' },
+    update: {},
+    create: {
+      email: 'auditor1@highlink.co.tz',
+      fullName: 'Audrey Auditor',
+      passwordHash,
+      organizationId: org.id,
+      roles: { create: [{ roleId: internalAuditorRole.id }] },
+    },
+  });
+
+  // §4 Phase 6 — Call Centre / IT Support / Developer demos
+  await prisma.user.upsert({
+    where: { email: 'callcentre1@highlink.co.tz' },
+    update: {},
+    create: {
+      email: 'callcentre1@highlink.co.tz',
+      fullName: 'Cathy Call Centre',
+      passwordHash,
+      organizationId: org.id,
+      roles: { create: [{ roleId: callCentreRole.id }] },
+    },
+  });
+
+  await prisma.user.upsert({
+    where: { email: 'it1@highlink.co.tz' },
+    update: {},
+    create: {
+      email: 'it1@highlink.co.tz',
+      fullName: 'Isaac IT Support',
+      passwordHash,
+      organizationId: org.id,
+      roles: { create: [{ roleId: itSupportRole.id }] },
+    },
+  });
+
+  await prisma.user.upsert({
+    where: { email: 'dev1@highlink.co.tz' },
+    update: {},
+    create: {
+      email: 'dev1@highlink.co.tz',
+      fullName: 'Devon Developer',
+      passwordHash,
+      organizationId: org.id,
+      roles: { create: [{ roleId: developerRole.id }] },
     },
   });
 
@@ -579,29 +1097,11 @@ async function main() {
     },
   });
 
-  const customerEmployee = await prisma.customerEmployee.upsert({
-    where: {
-      customerId_email: {
-        customerId: customer.id,
-        email: 'jane.doe@demo-mfg.co.tz',
-      },
-    },
-    update: {},
-    create: {
-      organizationId: org.id,
-      customerId: customer.id,
-      employeeNumber: 'EMP-1001',
-      fullName: 'Jane Doe',
-      email: 'jane.doe@demo-mfg.co.tz',
-      phone: '+255755000100',
-      department: 'Logistics',
-      accessCardRef: 'CARD-EMP-1001',
-      createdBy: admin.id,
-    },
-  });
-
   const portalRole = await prisma.role.findFirstOrThrow({
     where: { organizationId: org.id, code: 'CUSTOMER_PORTAL' },
+  });
+  const customerEmployeeRole = await prisma.role.findFirstOrThrow({
+    where: { organizationId: org.id, code: 'CUSTOMER_EMPLOYEE' },
   });
 
   const portalUser = await prisma.user.upsert({
@@ -614,6 +1114,56 @@ async function main() {
       organizationId: org.id,
       customerId: customer.id,
       roles: { create: [{ roleId: portalRole.id }] },
+    },
+  });
+
+  // Portal 35.9 — Jane Doe self-access login (linked to EMP-1001).
+  const janeEmployeeUser = await prisma.user.upsert({
+    where: { email: 'jane.doe@demo-mfg.co.tz' },
+    update: { customerId: customer.id },
+    create: {
+      email: 'jane.doe@demo-mfg.co.tz',
+      fullName: 'Jane Doe',
+      passwordHash,
+      organizationId: org.id,
+      customerId: customer.id,
+      roles: { create: [{ roleId: customerEmployeeRole.id }] },
+    },
+  });
+  // Ensure role binding if user already existed without CUSTOMER_EMPLOYEE.
+  await prisma.userRole.upsert({
+    where: {
+      userId_roleId: {
+        userId: janeEmployeeUser.id,
+        roleId: customerEmployeeRole.id,
+      },
+    },
+    update: {},
+    create: {
+      userId: janeEmployeeUser.id,
+      roleId: customerEmployeeRole.id,
+    },
+  });
+
+  const customerEmployee = await prisma.customerEmployee.upsert({
+    where: {
+      customerId_email: {
+        customerId: customer.id,
+        email: 'jane.doe@demo-mfg.co.tz',
+      },
+    },
+    update: { userId: janeEmployeeUser.id },
+    create: {
+      organizationId: org.id,
+      customerId: customer.id,
+      userId: janeEmployeeUser.id,
+      employeeNumber: 'EMP-1001',
+      fullName: 'Jane Doe',
+      email: 'jane.doe@demo-mfg.co.tz',
+      phone: '+255755000100',
+      department: 'Logistics',
+      accessCardRef: 'CARD-EMP-1001',
+      createdBy: admin.id,
     },
   });
 
@@ -715,6 +1265,35 @@ async function main() {
       longitude: 39.2803,
       createdBy: admin.id,
     },
+  });
+
+  // §4 Phase 7 — ABAC viewing hierarchy (UserSiteAccess / UserBranchAccess → JWT claims)
+  const field1User = await prisma.user.findUniqueOrThrow({
+    where: { email: 'field1@highlink.co.tz' },
+  });
+  const bom1User = await prisma.user.findUniqueOrThrow({
+    where: { email: 'bom1@highlink.co.tz' },
+  });
+  for (const userId of [supervisorUser.id, field1User.id, guardUser.id]) {
+    await prisma.userSiteAccess.upsert({
+      where: {
+        userId_siteId: { userId, siteId: site.id },
+      },
+      update: {},
+      create: { userId, siteId: site.id },
+    });
+  }
+  // BOM: branch ACL only — A7 expands branch→sites at login/refresh (no UserSiteAccess).
+  await prisma.userBranchAccess.upsert({
+    where: {
+      userId_branchId: { userId: bom1User.id, branchId: branch.id },
+    },
+    update: {},
+    create: { userId: bom1User.id, branchId: branch.id },
+  });
+  // Clear any legacy seed-expanded site rows so branch-only ACL is the truth.
+  await prisma.userSiteAccess.deleteMany({
+    where: { userId: bom1User.id },
   });
 
   const contractSeeds: {
@@ -2844,6 +3423,138 @@ async function main() {
     }
   }
 
+  // §4 Phase 5 — transfer / exit: Department Head → GM (thin matrix).
+  // Leave moved to Harden A5 (Supervisor → HR → Dept → GM) below.
+  for (const code of [
+    'employee-transfer-approval',
+    'employee-exit-approval',
+  ] as const) {
+    const def = await prisma.workflowDefinition.findFirst({
+      where: { organizationId: org.id, code },
+    });
+    if (!def) continue;
+    const ver = await prisma.workflowVersion.findFirst({
+      where: { definitionId: def.id, isCurrent: true },
+      include: { steps: { orderBy: { stepOrder: 'asc' } } },
+    });
+    const deptHeadOk =
+      !!ver &&
+      ver.steps.length === 2 &&
+      ver.steps[0]?.requiredRole === 'DEPARTMENT_HEAD' &&
+      ver.steps[1]?.requiredRole === 'GENERAL_MANAGER';
+    if (deptHeadOk) continue;
+    if (ver) {
+      await prisma.workflowVersion.update({
+        where: { id: ver.id },
+        data: { isCurrent: false },
+      });
+    }
+    await prisma.workflowVersion.create({
+      data: {
+        definitionId: def.id,
+        version: (ver?.version ?? 0) + 1,
+        isCurrent: true,
+        steps: {
+          create: [
+            {
+              stepOrder: 1,
+              name: 'Department Head Review',
+              requiredRole: 'DEPARTMENT_HEAD',
+              minApprovers: 1,
+            },
+            {
+              stepOrder: 2,
+              name: 'General Manager Review',
+              requiredRole: 'GENERAL_MANAGER',
+              minApprovers: 1,
+            },
+          ],
+        },
+      },
+    });
+    await prisma.workflowDefinition.update({
+      where: { id: def.id },
+      data: {
+        description: `${def.name}: Department Head → General Manager (§4 Phase 5 thin)`,
+      },
+    });
+  }
+
+  // §4 Harden A5 — leave-approval: Supervisor → HR → Dept Head → GM.
+  {
+    const leaveDesc =
+      'Leave approval: Supervisor → HR → Department Head → General Manager (§4 Harden A5)';
+    const def = await prisma.workflowDefinition.upsert({
+      where: {
+        organizationId_code: {
+          organizationId: org.id,
+          code: 'leave-approval',
+        },
+      },
+      update: { description: leaveDesc },
+      create: {
+        organizationId: org.id,
+        code: 'leave-approval',
+        name: 'Leave Approval',
+        description: leaveDesc,
+      },
+    });
+    const ver = await prisma.workflowVersion.findFirst({
+      where: { definitionId: def.id, isCurrent: true },
+      include: { steps: { orderBy: { stepOrder: 'asc' } } },
+    });
+    const leaveOk =
+      !!ver &&
+      ver.steps.length === 4 &&
+      ver.steps[0]?.requiredRole === 'SUPERVISOR' &&
+      ver.steps[1]?.requiredRole === 'HR_OFFICER' &&
+      ver.steps[2]?.requiredRole === 'DEPARTMENT_HEAD' &&
+      ver.steps[3]?.requiredRole === 'GENERAL_MANAGER';
+    if (!leaveOk) {
+      if (ver) {
+        await prisma.workflowVersion.update({
+          where: { id: ver.id },
+          data: { isCurrent: false },
+        });
+      }
+      await prisma.workflowVersion.create({
+        data: {
+          definitionId: def.id,
+          version: (ver?.version ?? 0) + 1,
+          isCurrent: true,
+          steps: {
+            create: [
+              {
+                stepOrder: 1,
+                name: 'Supervisor Review',
+                requiredRole: 'SUPERVISOR',
+                minApprovers: 1,
+              },
+              {
+                stepOrder: 2,
+                name: 'HR Review',
+                requiredRole: 'HR_OFFICER',
+                minApprovers: 1,
+              },
+              {
+                stepOrder: 3,
+                name: 'Department Head Review',
+                requiredRole: 'DEPARTMENT_HEAD',
+                minApprovers: 1,
+              },
+              {
+                stepOrder: 4,
+                name: 'General Manager Review',
+                requiredRole: 'GENERAL_MANAGER',
+                minApprovers: 1,
+              },
+            ],
+          },
+        },
+      });
+    }
+  }
+
   // Thin policy-change: CO drafts/submits; GM alone publishes (CEO/CMD deferred).
   // Avoid CO→GM two-step deadlock when the only CO is also the submitter (creator≠approver).
   {
@@ -3029,6 +3740,80 @@ async function main() {
             },
           ],
         },
+      },
+    });
+  }
+
+  // Portal 35.14 / §15 — B2B other security company (thin guard supply).
+  const b2bPartner = await prisma.b2bSecurityPartner.upsert({
+    where: {
+      organizationId_code: { organizationId: org.id, code: 'OSC-DEMO' },
+    },
+    update: {
+      name: 'Demo Partner Security Ltd',
+      email: 'partner@demo-security.co.tz',
+      status: 'APPROVED',
+    },
+    create: {
+      organizationId: org.id,
+      code: 'OSC-DEMO',
+      name: 'Demo Partner Security Ltd',
+      email: 'partner@demo-security.co.tz',
+      phone: '+255755000900',
+      status: 'APPROVED',
+      createdBy: admin.id,
+    },
+  });
+
+  const otherSecurityRole = await prisma.role.findFirstOrThrow({
+    where: { organizationId: org.id, code: 'OTHER_SECURITY_COMPANY' },
+  });
+
+  const partnerUser = await prisma.user.upsert({
+    where: { email: 'partner@demo-security.co.tz' },
+    update: { b2bPartnerId: b2bPartner.id },
+    create: {
+      email: 'partner@demo-security.co.tz',
+      fullName: 'Demo Partner Security Portal',
+      passwordHash,
+      organizationId: org.id,
+      b2bPartnerId: b2bPartner.id,
+      roles: { create: [{ roleId: otherSecurityRole.id }] },
+    },
+  });
+  await prisma.userRole.upsert({
+    where: {
+      userId_roleId: {
+        userId: partnerUser.id,
+        roleId: otherSecurityRole.id,
+      },
+    },
+    update: {},
+    create: {
+      userId: partnerUser.id,
+      roleId: otherSecurityRole.id,
+    },
+  });
+
+  const existingGsr = await prisma.guardSupplyRequest.findFirst({
+    where: {
+      organizationId: org.id,
+      referenceNumber: 'GSR-00001',
+    },
+  });
+  if (!existingGsr) {
+    await prisma.guardSupplyRequest.create({
+      data: {
+        organizationId: org.id,
+        partnerId: b2bPartner.id,
+        referenceNumber: 'GSR-00001',
+        guardCount: 12,
+        siteLocation: 'Dar es Salaam — Industrial Zone A',
+        startDate: new Date('2026-09-01'),
+        endDate: new Date('2026-12-31'),
+        criteriaNotes: 'Night shift; basic firearms clearance preferred',
+        status: 'SUBMITTED',
+        createdBy: partnerUser.id,
       },
     });
   }
@@ -3288,18 +4073,37 @@ async function main() {
   console.log('  gm@highlink.co.tz / ChangeMe123!');
   console.log('  portal@demo-mfg.co.tz / ChangeMe123! (CUSTOMER_PORTAL → CUST-DEMO)');
   console.log('  portal@uniforms.co.tz / ChangeMe123! (SUPPLIER_PORTAL → SUP-UNIFORM)');
-  console.log('  guard1@highlink.co.tz / ChangeMe123! (guard profile GRD-0001)');
+  console.log('  partner@demo-security.co.tz / ChangeMe123! (OTHER_SECURITY_COMPANY → OSC-DEMO · Portal 35.14)');
+  console.log('  guard1@highlink.co.tz / ChangeMe123! (GUARD self-scope; site SITE-WAREHOUSE-A; no ops.manage)');
   console.log('  gate1@highlink.co.tz / ChangeMe123! (GATE_OFFICER)');
   console.log('  parking1@highlink.co.tz / ChangeMe123! (PARKING_OFFICER)');
-  console.log('  supervisor1@highlink.co.tz / ChangeMe123! (SUPERVISOR + ESS office OFF-SUP-001)');
-  console.log('  compliance1@highlink.co.tz / ChangeMe123! (COMPLIANCE_OFFICER)');
+  console.log('  supervisor1@highlink.co.tz / ChangeMe123! (SUPERVISOR + ESS + site SITE-WAREHOUSE-A)');
+  console.log('  field1@highlink.co.tz / ChangeMe123! (FIELD_OFFICER — AL1 FIELD + site SITE-WAREHOUSE-A only)');
+  console.log('  bom1@highlink.co.tz / ChangeMe123! (BRANCH_MANAGER — branch ACL; A7 expands DSM-HQ sites)');
+  console.log('  ops1@highlink.co.tz / ChangeMe123! (OPERATIONS_MANAGER)');
+  console.log('  hr1@highlink.co.tz / ChangeMe123! (HR_OFFICER — hardened perms)');
+  console.log('  accounts1@highlink.co.tz / ChangeMe123! (ACCOUNTS_OFFICER)');
+  console.log('  payroll1@highlink.co.tz / ChangeMe123! (PAYROLL_OFFICER)');
+  console.log('  procurement1@highlink.co.tz / ChangeMe123! (PROCUREMENT_OFFICER)');
+  console.log('  store1@highlink.co.tz / ChangeMe123! (STOREKEEPER — assets returns)');
+  console.log('  cctv1@highlink.co.tz / ChangeMe123! (CCTV_OPERATOR — cctv.manage only; no Field ops)');
+  console.log('  control1@highlink.co.tz / ChangeMe123! (CONTROL_ROOM — AL1 CONTROL ack + cctv.manage)');
+  console.log('  depthead1@highlink.co.tz / ChangeMe123! (DEPARTMENT_HEAD — leave step 3; transfer/exit step 1)');
+  console.log('  ciso1@highlink.co.tz / ChangeMe123! (CISO)');
+  console.log('  auditor1@highlink.co.tz / ChangeMe123! (INTERNAL_AUDITOR — audit.read; compliance GET only)');
+  console.log('  callcentre1@highlink.co.tz / ChangeMe123! (CALL_CENTRE)');
+  console.log('  it1@highlink.co.tz / ChangeMe123! (IT_SUPPORT — users helpdesk)');
+  console.log('  dev1@highlink.co.tz / ChangeMe123! (DEVELOPER — integrator; no users.manage)');
+  console.log('  compliance1@highlink.co.tz / ChangeMe123! (COMPLIANCE_OFFICER — policies)');
+  console.log('  dpo1@highlink.co.tz / ChangeMe123! (DPO — breach register dpo.manage)');
   console.log('  legal1@highlink.co.tz / ChangeMe123! (LEGAL — contract step 1)');
   console.log('  ceo@highlink.co.tz / ChangeMe123! (CEO — contract step 3)');
   console.log('  cmd@highlink.co.tz / ChangeMe123! (CMD — contract step 4 if fee ≥ 10M)');
   console.log('  marketing1@highlink.co.tz / ChangeMe123! (MARKETING — contract creator)');
   console.log('  Demo customer: CUST-DEMO, site SITE-WAREHOUSE-A, gates GATE-MAIN / GATE-VEHICLE');
   console.log('  Contracts↔Sites (B2): CTR-DEMO-* linked to SITE-WAREHOUSE-A / SITE-OFFICE-DEMO');
-  console.log('  Demo employee: jane.doe@demo-mfg.co.tz, vehicle T123ABC permit PRM-DEMO-001');
+  console.log('  Demo employee login: jane.doe@demo-mfg.co.tz / ChangeMe123! (CUSTOMER_EMPLOYEE · EMP-1001 · Portal 35.9)');
+  console.log('  Demo vehicle T123ABC permit PRM-DEMO-001 (Jane Doe)');
   console.log('  Parking fleet demo: 10× CAR / MOTORCYCLE / TRUCK / BUS (+ ACTIVE permits)');
   console.log('  HR: employee GRD-0001 (John Guard), salary 850k TZS, job posting open');
   console.log('  Branch Ops: ACTIVE deployment GRD-0001 → SITE-WAREHOUSE-A under CTR-DEMO-GUARD-2026 (G2); G3 readiness GRD-0001 OK + firearm, GRD-0002 training only; open FieldAlert; today open attendance seed-branch-att-today-open; EOB demo ×2 at SITE-WAREHOUSE-A');
@@ -3309,10 +4113,19 @@ async function main() {
   console.log('  CCTV: CAM-GATE-01 / CAM-YARD-01 / CAM-WH-01 / CAM-PARK-01 at SITE-WAREHOUSE-A + 3 CCTV_EVENT AI alerts (metadata only)');
   console.log('  ESS: AST-RADIO-001 assigned to GRD-0001 (request return → admin confirms)');
   console.log('  Integrations: console-sms, VISITOR_GATE_CODE template, service token ready');
-  console.log('  Role DEVELOPER: integrations.manage + users.manage + audit.read + notifications.manage + operations.manage');
-  console.log('  Role COMPLIANCE_OFFICER: compliance.manage + audit.read + approvals.act');
+  console.log('  Role DEVELOPER: integrations.manage + audit.read + notifications.manage + operations.manage (no users.manage)');
+  console.log('  Role COMPLIANCE_OFFICER: compliance.manage + audit.read + approvals.act (policies; breach GET)');
+  console.log('  Role DPO: dpo.manage + audit.read + documents.manage (breach mutates; not policy publish)');
   console.log('  Roles LEGAL/CEO/CMD: contracts.manage + approvals.act + audit.read + customers.manage');
   console.log('  Role MARKETING: contracts.manage + customers.manage + documents.manage');
+  console.log('  §4 Phase 1: FIELD_OFFICER / BRANCH_MANAGER / OPERATIONS_MANAGER (ops perms; AL1 stage-gated)');
+  console.log('  §4 Phase 2: HR_OFFICER harden + ACCOUNTS_OFFICER + PAYROLL_OFFICER (least privilege)');
+  console.log('  §4 Phase 3: PROCUREMENT_OFFICER + STOREKEEPER (procurement/inventory/assets gated)');
+  console.log('  §4 Phase 4 + A2: CCTV_OPERATOR=cctv.manage; CONTROL_ROOM/Ops Mgr + cctv.manage');
+  console.log('  §4 Phase 5: DEPARTMENT_HEAD / CISO / INTERNAL_AUDITOR (transfer/exit DeptHead→GM)');
+  console.log('  §4 Harden A6: CISO/IT users.manage cannot assign SUPER_ADMIN/GM/CEO/CMD/CISO');
+  console.log('  §4 Harden A5: leave-approval Supervisor→HR→DeptHead→GM (supervisor1 has approvals.act)');
+  console.log('  §4 Phase 6: CALL_CENTRE + IT_SUPPORT + DEVELOPER refine (visitors staff gated)');
   console.log('  Compliance demo: policy POL-DPP-001 (PUBLISHED), breach BRCH-00001 (REPORTED)');
   console.log('  Workflow policy-change-approval: CO submits → GENERAL_MANAGER publishes');
   console.log('  Workflow contract-approval (B3): Legal → GM → CEO → CMD@10M monthlyFee');

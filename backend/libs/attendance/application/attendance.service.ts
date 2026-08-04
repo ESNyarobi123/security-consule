@@ -11,6 +11,9 @@ import {
   AuthUser,
   distanceMeters,
   DEFAULT_GEOFENCE_RADIUS_M,
+  assertSiteAccess,
+  isGuardSelfScoped,
+  siteScopeWhere,
 } from '@pssms/shared';
 
 /** Device-normalized guard punch resolved inside the attendance domain. */
@@ -45,6 +48,10 @@ const ATTENDANCE_SUPERVISE_ROLES = new Set([
   'GENERAL_MANAGER',
   'HR_OFFICER',
   'SUPERVISOR',
+  'FIELD_OFFICER',
+  'BRANCH_MANAGER',
+  'OPERATIONS_MANAGER',
+  'CONTROL_ROOM',
   'DEVELOPER',
   'CEO',
   'CMD',
@@ -62,17 +69,14 @@ export class AttendanceService {
   ) {}
 
   /**
-   * Seeded GUARD also has operations.manage / attendance.manage for mobile.
-   * Approve + supervisor punch stay staff-only (same pattern as G1 guard admin).
+   * Approve + supervisor punch require a positive supervise role allowlist
+   * (not merely operations.manage — CCTV_OPERATOR must not approve punches).
    */
   private assertCanSuperviseAttendance(user: AuthUser): void {
-    if (
-      user.roles.includes('GUARD') &&
-      !user.roles.some((r) => ATTENDANCE_SUPERVISE_ROLES.has(r))
-    ) {
+    if (!user.roles.some((r) => ATTENDANCE_SUPERVISE_ROLES.has(r))) {
       throw new ForbiddenException({
         error: 'FORBIDDEN',
-        message: 'Guards cannot approve or supervisor-punch attendance',
+        message: 'Role cannot approve or supervisor-punch attendance',
       });
     }
   }
@@ -178,6 +182,7 @@ export class AttendanceService {
       where: { id: dto.siteId, organizationId: user.organizationId },
     });
     if (!site) throw new NotFoundException('Site not found');
+    assertSiteAccess(user, dto.siteId);
 
     if (dto.shiftId) {
       const shift = await this.prisma.shift.findFirst({
@@ -446,6 +451,7 @@ export class AttendanceService {
 
   async list(
     organizationId: string,
+    user: AuthUser,
     siteId?: string,
     supervisorApproved?: boolean,
     from?: Date,
@@ -453,10 +459,25 @@ export class AttendanceService {
   ): Promise<AttendanceListItemDto[]> {
     const fromOk = from && !Number.isNaN(from.getTime()) ? from : undefined;
     const toOk = to && !Number.isNaN(to.getTime()) ? to : undefined;
+
+    let selfGuardId: string | undefined;
+    if (isGuardSelfScoped(user)) {
+      const self = await this.guards.getByUserId(user.id, organizationId);
+      if (!self) {
+        throw new ForbiddenException({
+          error: 'GUARD_SCOPE_DENIED',
+          message: 'No guard profile linked to this user',
+        });
+      }
+      selfGuardId = self.id;
+    }
+
     const rows = await this.prisma.guardAttendance.findMany({
       where: {
         organizationId,
-        ...(siteId ? { siteId } : {}),
+        ...(selfGuardId
+          ? { guardId: selfGuardId }
+          : siteScopeWhere(user, siteId)),
         ...(typeof supervisorApproved === 'boolean'
           ? { supervisorApproved }
           : {}),
@@ -501,6 +522,7 @@ export class AttendanceService {
       where: { id, organizationId: user.organizationId },
     });
     if (!attendance) throw new NotFoundException('Attendance not found');
+    assertSiteAccess(user, attendance.siteId);
 
     if (attendance.supervisorApproved) {
       const shift = await this.loadShiftTiming(
