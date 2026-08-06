@@ -223,15 +223,30 @@ export const EXTERNAL_PORTALS: PortalEntry[] = [
   },
   {
     id: 'files',
-    name: 'Files (MinIO)',
+    name: 'Files (MinIO S3 API)',
     designRef: 'Documents / ID scans / EOB attachments',
-    summary: 'Object storage for DocumentObject uploads (EOB, petty cash, visitor ID, customer docs).',
+    summary:
+      'Object storage API for DocumentObject uploads (EOB, petty cash, visitor ID, customer docs). Not a login portal.',
     howItWorks:
-      'Apps upload via /api/v1/documents (presigned URLs). Browser uses public files host in production.',
+      'Apps upload via /api/v1/documents (presigned URLs on https://files.hisgc.co.tz). Opening the root in a browser often shows 403 — that is normal for the S3 API. For the MinIO web UI use console.hisgc.co.tz (never :9001).',
     path: '/',
     localPort: 9010,
     prodHost: 'files.hisgc.co.tz',
     logins: [],
+    kind: 'files',
+  },
+  {
+    id: 'minio-console',
+    name: 'MinIO Console',
+    designRef: 'Object storage browser (admin)',
+    summary:
+      'Web UI to browse buckets (pssms-documents). Separate from the S3 API host.',
+    howItWorks:
+      'HTTPS via Caddy → MinIO console inside Docker (:9001 is NOT open on the public host). Login with MINIO_ROOT_USER / MINIO_ROOT_PASSWORD from server .env.prod. Do not use https://files.hisgc.co.tz:9001 — Firefox cannot connect because that port is closed on purpose.',
+    path: '/',
+    localPort: 9011,
+    prodHost: 'console.hisgc.co.tz',
+    logins: [{ email: 'pssms (MINIO_ROOT_USER)', role: 'MinIO root' }],
     kind: 'files',
   },
   {

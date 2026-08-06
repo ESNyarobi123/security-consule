@@ -10,7 +10,8 @@ name: pssms-prod
 #   https://recruitment.hisgc.co.tz -> recruitment-web
 #   https://visitor.hisgc.co.tz     -> visitor-web
 #   https://parking.hisgc.co.tz     -> parking-web
-#   https://files.hisgc.co.tz       -> MinIO
+#   https://files.hisgc.co.tz       -> MinIO S3 API (:9000)
+#   https://console.hisgc.co.tz     -> MinIO Browser UI (:9001)
 #
 # Bring up:
 #   docker compose -f docker-compose.prod.yml --env-file .env.prod up -d --build
@@ -83,10 +84,15 @@ services:
     image: minio/minio:latest
     container_name: pssms-minio
     restart: unless-stopped
+    # Console stays on container :9001 only (no host publish). Public UI via Caddy
+    # https://console.hisgc.co.tz — never https://files…:9001
     command: server /data --console-address ":9001"
     environment:
       MINIO_ROOT_USER: ${MINIO_ROOT_USER:-pssms}
       MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-pssms_minio_password}
+      # Public URLs so the browser console + presigned redirects work behind Caddy TLS.
+      MINIO_SERVER_URL: ${MINIO_SERVER_URL:-https://files.hisgc.co.tz}
+      MINIO_BROWSER_REDIRECT_URL: ${MINIO_BROWSER_REDIRECT_URL:-https://console.hisgc.co.tz}
     volumes:
       - minio_data:/data
 

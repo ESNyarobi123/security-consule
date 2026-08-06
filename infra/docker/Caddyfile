@@ -11,7 +11,8 @@
 #   recruitment -> recruitment-web:3004
 #   visitor     -> visitor-web:3005
 #   parking     -> parking-web:3006
-#   files       -> minio:9000
+#   files       -> minio:9000   (S3 API / presigned downloads)
+#   console     -> minio:9001   (MinIO Browser UI — do NOT use :9001 on the host)
 #
 # Public Let's Encrypt for all hosts (DNS A → origin, Proxy OFF / grey-cloud).
 # Internal admin portals (HR, Branch, CCTV, …) live under web.hisgc.co.tz routes.
@@ -62,7 +63,19 @@ parking.hisgc.co.tz {
 	reverse_proxy parking-web:3006
 }
 
+# S3 API + presigned object URLs (browser root often returns 403 — expected).
 files.hisgc.co.tz {
 	encode gzip
 	reverse_proxy minio:9000
+}
+
+# MinIO Console (web UI). Port 9001 is NOT published on the host — use this HTTPS
+# hostname instead of https://files.hisgc.co.tz:9001
+console.hisgc.co.tz {
+	encode gzip
+	reverse_proxy minio:9001 {
+		header_up Host {host}
+		header_up X-Forwarded-Proto {scheme}
+		header_up X-Forwarded-Host {host}
+	}
 }
