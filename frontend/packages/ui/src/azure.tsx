@@ -583,6 +583,7 @@ export function moduleVisual(href: string): { glyph: GlyphName; color: string } 
     ['/developer/logs', { glyph: 'terminal', color: '#64748b' }],
     ['/developer/config', { glyph: 'gear', color: '#0d9488' }],
     ['/developer', { glyph: 'code', color: '#475569' }],
+    ['/portal-directory', { glyph: 'book', color: '#0ea5e9' }],
     /* Parking ops portal (35.12) — before generic customer /dashboard */
     ['/permits', { glyph: 'badge-check', color: '#2563eb' }],
     ['/entries', { glyph: 'key', color: '#0d9488' }],

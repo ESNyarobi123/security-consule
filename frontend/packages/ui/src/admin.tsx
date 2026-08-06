@@ -237,6 +237,11 @@ export function AdminShell({
     acc[g].push(item);
     return acc;
   }, {});
+  /** Keep Guide (Portal directory) pinned at the bottom of the sidebar. */
+  const groupEntries = [
+    ...Object.entries(groups).filter(([g]) => g !== 'Guide'),
+    ...Object.entries(groups).filter(([g]) => g === 'Guide'),
+  ];
 
   const initials =
     userName
@@ -361,7 +366,7 @@ export function AdminShell({
       </div>
 
       <nav className="no-scrollbar mt-4 flex-1 space-y-4 overflow-y-auto pb-4">
-        {Object.entries(groups).map(([group, items], gi) => (
+        {groupEntries.map(([group, items], gi) => (
           <div key={group}>
             {!collapsed ? (
               <p className="mb-1 flex items-center gap-1.5 px-2.5 text-[10px] font-semibold uppercase tracking-wider text-[#605e5c]">

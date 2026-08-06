@@ -81,6 +81,13 @@ export const ADMIN_PORTALS: NavItem[] = [
   { href: '/callcentre', label: 'Call Centre', permission: 'visitors.manage', group: 'Service' },
   { href: '/marketing', label: 'Marketing', permission: 'customers.manage', group: 'Service' },
   { href: '/developer', label: 'Developer', permission: 'integrations.manage', group: 'Platform' },
+  /** Bottom of sidebar — portal URLs, ports/subdomains, demo logins */
+  {
+    href: '/portal-directory',
+    label: 'Portal directory',
+    permission: 'users.manage',
+    group: 'Guide',
+  },
 ];
 
 export const SUPERADMIN_LINKS: NavItem[] = [
