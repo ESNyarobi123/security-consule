@@ -161,9 +161,18 @@ export const CUSTOMER_NAV: NavItem[] = [
 
 /** External supplier portal navigation (cookie-isolated from admin/customer). */
 export const SUPPLIER_NAV: NavItem[] = [
-  { href: '/dashboard', label: 'Dashboard', permission: 'procurement.manage' },
-  { href: '/profile', label: 'Profile', permission: 'procurement.manage' },
-  { href: '/orders', label: 'Orders', permission: 'procurement.manage' },
+  {
+    href: '/orders',
+    label: 'Purchase orders',
+    permission: 'procurement.manage',
+    group: 'Commerce',
+  },
+  {
+    href: '/profile',
+    label: 'Company profile',
+    permission: 'procurement.manage',
+    group: 'Account',
+  },
 ];
 
 /** Parking ops portal navigation (cookie-isolated). */

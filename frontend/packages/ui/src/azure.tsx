@@ -590,8 +590,9 @@ export function moduleVisual(href: string): { glyph: GlyphName; color: string } 
     ['/anpr', { glyph: 'video', color: '#f59e0b' }],
     ['/violations', { glyph: 'alert', color: '#e11d48' }],
     ['/blacklist', { glyph: 'shield', color: '#64748b' }],
-    /* Customer portal */
+    /* Customer + supplier portals */
     ['/dashboard', { glyph: 'home', color: '#0078d4' }],
+    ['/orders', { glyph: 'cart', color: '#ea580c' }],
     ['/contracts', { glyph: 'contract', color: '#6366f1' }],
     ['/guards', { glyph: 'shield-user', color: '#059669' }],
     ['/attendance', { glyph: 'clipboard', color: '#0d9488' }],
@@ -604,7 +605,7 @@ export function moduleVisual(href: string): { glyph: GlyphName; color: string } 
     ['/sla', { glyph: 'badge-check', color: '#0d9488' }],
     ['/documents', { glyph: 'book', color: '#64748b' }],
     ['/notifications', { glyph: 'bell', color: '#f59e0b' }],
-    ['/profile', { glyph: 'gear', color: '#475569' }],
+    ['/profile', { glyph: 'building', color: '#475569' }],
   ];
   const hit = map.find(([prefix]) => href === prefix || href.startsWith(`${prefix}/`));
   return hit ? hit[1] : { glyph: 'default', color: '#0078d4' };
