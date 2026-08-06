@@ -33,7 +33,27 @@ async function main() {
       module: 'access-control',
     },
     { code: 'visitors.manage', name: 'Manage visitors', module: 'visitors' },
+    {
+      code: 'visitors.self',
+      name: 'Own visitor appointments / entries (contractor)',
+      module: 'visitors',
+    },
+    {
+      code: 'consultants.self',
+      name: 'Own consultant visit appointments / entries',
+      module: 'visitors',
+    },
+    {
+      code: 'providers.self',
+      name: 'Own service-provider visit appointments / entries',
+      module: 'visitors',
+    },
     { code: 'parking.manage', name: 'Manage parking', module: 'parking' },
+    {
+      code: 'parking.self',
+      name: 'Own vehicles / permits / entries (owner-driver)',
+      module: 'parking',
+    },
     { code: 'hr.manage', name: 'Manage HR', module: 'workforce' },
     {
       code: 'ess.access',
@@ -109,6 +129,26 @@ async function main() {
     {
       code: 'OTHER_SECURITY_COMPANY',
       name: 'Other Security Company (B2B)',
+      isSystem: true,
+    },
+    {
+      code: 'VEHICLE_OWNER',
+      name: 'Approved vehicle owner / driver',
+      isSystem: true,
+    },
+    {
+      code: 'CONTRACTOR',
+      name: 'Site contractor / vendor visitor',
+      isSystem: true,
+    },
+    {
+      code: 'CONSULTANT',
+      name: 'External consultant / auditor visitor',
+      isSystem: true,
+    },
+    {
+      code: 'SERVICE_PROVIDER',
+      name: 'External service provider / technician visitor',
       isSystem: true,
     },
     {
@@ -233,6 +273,18 @@ async function main() {
 
   /** Portal 35.14 / §15 — own partner profile + guard supply requests only. */
   const otherSecurityPermCodes = new Set(['recruitment.b2b']);
+
+  /** External E3 — own linked vehicles / permits / entries (read). */
+  const vehicleOwnerPermCodes = new Set(['parking.self']);
+
+  /** External E4 — own linked visitor appointments / entries (read). */
+  const contractorPermCodes = new Set(['visitors.self']);
+
+  /** External E5 — own linked consultant visit appointments / entries (read). */
+  const consultantPermCodes = new Set(['consultants.self']);
+
+  /** External E6 — own linked service-provider visit appointments / entries (read). */
+  const serviceProviderPermCodes = new Set(['providers.self']);
 
   const gateOfficerPermCodes = new Set([
     'visitors.manage',
@@ -451,6 +503,10 @@ async function main() {
     CUSTOMER_EMPLOYEE: customerEmployeePermCodes,
     SUPPLIER_PORTAL: supplierPortalPermCodes,
     OTHER_SECURITY_COMPANY: otherSecurityPermCodes,
+    VEHICLE_OWNER: vehicleOwnerPermCodes,
+    CONTRACTOR: contractorPermCodes,
+    CONSULTANT: consultantPermCodes,
+    SERVICE_PROVIDER: serviceProviderPermCodes,
     GATE_OFFICER: gateOfficerPermCodes,
     PARKING_OFFICER: parkingOfficerPermCodes,
     SUPERVISOR: supervisorPermCodes,
@@ -1059,6 +1115,53 @@ async function main() {
     data: { customerId: customer.id },
   });
 
+  // Module 6-M — multi-contact directory for CUST-DEMO
+  const demoPrimaryContact = await prisma.customerContact.findFirst({
+    where: {
+      organizationId: org.id,
+      customerId: customer.id,
+      isPrimary: true,
+    },
+  });
+  if (!demoPrimaryContact) {
+    await prisma.customerContact.create({
+      data: {
+        organizationId: org.id,
+        customerId: customer.id,
+        fullName: 'Jane Doe',
+        designation: 'Security Manager',
+        role: 'SECURITY',
+        email: 'jane.doe@demo-mfg.co.tz',
+        phone: '+255755000001',
+        isPrimary: true,
+        createdBy: admin.id,
+      },
+    });
+  }
+  const demoBillingContact = await prisma.customerContact.findFirst({
+    where: {
+      organizationId: org.id,
+      customerId: customer.id,
+      role: 'BILLING',
+      email: 'billing@demo-mfg.co.tz',
+    },
+  });
+  if (!demoBillingContact) {
+    await prisma.customerContact.create({
+      data: {
+        organizationId: org.id,
+        customerId: customer.id,
+        fullName: 'Asha Mwinyi',
+        designation: 'Accounts Officer',
+        role: 'BILLING',
+        email: 'billing@demo-mfg.co.tz',
+        phone: '+255755000010',
+        isPrimary: false,
+        createdBy: admin.id,
+      },
+    });
+  }
+
   const gate = await prisma.gate.upsert({
     where: {
       organizationId_siteId_code: {
@@ -1106,10 +1209,15 @@ async function main() {
 
   const portalUser = await prisma.user.upsert({
     where: { email: 'portal@demo-mfg.co.tz' },
-    update: { customerId: customer.id },
+    update: {
+      customerId: customer.id,
+      // Module 12-E — host notify smoke (SMS + EMAIL on gate deny)
+      phone: '+255755000200',
+    },
     create: {
       email: 'portal@demo-mfg.co.tz',
       fullName: 'Demo Manufacturing Portal',
+      phone: '+255755000200',
       passwordHash,
       organizationId: org.id,
       customerId: customer.id,
@@ -1192,6 +1300,61 @@ async function main() {
     });
   }
 
+  // Module 6-B — demo customer complaint (distinct from SR tickets).
+  const existingCmp = await prisma.customerComplaint.findFirst({
+    where: {
+      organizationId: org.id,
+      referenceNumber: 'CMP-00001',
+    },
+  });
+  if (!existingCmp) {
+    await prisma.customerComplaint.create({
+      data: {
+        organizationId: org.id,
+        customerId: customer.id,
+        referenceNumber: 'CMP-00001',
+        category: 'SERVICE_QUALITY',
+        severity: 'HIGH',
+        status: 'OPEN',
+        title: 'Demo: Night patrol missed checkpoint',
+        description:
+          'Customer reports that the night patrol missed the warehouse rear checkpoint twice this week. Request investigation and feedback.',
+        siteId: site.id,
+        callbackPhone: '+255755000200',
+        createdBy: portalUser.id,
+      },
+    });
+  }
+
+  // External E3 — approved owner/driver (separate from Jane CUSTOMER_EMPLOYEE).
+  const vehicleOwnerRole = await prisma.role.findFirstOrThrow({
+    where: { organizationId: org.id, code: 'VEHICLE_OWNER' },
+  });
+  const vehicleOwnerUser = await prisma.user.upsert({
+    where: { email: 'owner1@highlink.co.tz' },
+    update: {},
+    create: {
+      email: 'owner1@highlink.co.tz',
+      fullName: 'Amina Vehicle Owner',
+      passwordHash,
+      organizationId: org.id,
+      roles: { create: [{ roleId: vehicleOwnerRole.id }] },
+    },
+  });
+  await prisma.userRole.upsert({
+    where: {
+      userId_roleId: {
+        userId: vehicleOwnerUser.id,
+        roleId: vehicleOwnerRole.id,
+      },
+    },
+    update: {},
+    create: {
+      userId: vehicleOwnerUser.id,
+      roleId: vehicleOwnerRole.id,
+    },
+  });
+
   const vehicle = await prisma.vehicle.upsert({
     where: {
       organizationId_plateNumber: {
@@ -1199,17 +1362,23 @@ async function main() {
         plateNumber: 'T123ABC',
       },
     },
-    update: {},
+    update: {
+      userId: vehicleOwnerUser.id,
+      ownerName: 'Amina Vehicle Owner',
+      rfidTagRef: 'RFID-DEMO-T123',
+    },
     create: {
       organizationId: org.id,
       customerId: customer.id,
+      userId: vehicleOwnerUser.id,
       plateNumber: 'T123ABC',
       vehicleType: 'CAR',
       make: 'Toyota',
       model: 'Corolla',
       color: 'White',
-      ownerName: 'Jane Doe',
+      ownerName: 'Amina Vehicle Owner',
       ownerPhone: '+255755000100',
+      rfidTagRef: 'RFID-DEMO-T123',
       createdBy: admin.id,
     },
   });
@@ -1229,6 +1398,9 @@ async function main() {
       status: 'ACTIVE',
       validFrom: permitValidFrom,
       validUntil: permitValidUntil,
+      // Module 13-B — demo fee (not billed until ops Bill action)
+      feeAmount: 150000,
+      currency: 'TZS',
     },
     create: {
       organizationId: org.id,
@@ -1239,6 +1411,8 @@ async function main() {
       status: 'ACTIVE',
       validFrom: permitValidFrom,
       validUntil: permitValidUntil,
+      feeAmount: 150000,
+      currency: 'TZS',
       createdBy: admin.id,
     },
   });
@@ -1523,6 +1697,7 @@ async function main() {
       fullName: 'Jane Doe',
       phone: '+255755000100',
       department: 'Logistics',
+      accessLevel: 'STANDARD' as const,
       accessCardRef: 'CARD-EMP-1001',
     },
     {
@@ -1531,6 +1706,7 @@ async function main() {
       fullName: 'Peter Mwangi',
       phone: '+255755000101',
       department: 'Security Office',
+      accessLevel: 'ELEVATED' as const,
       accessCardRef: 'CARD-EMP-1002',
     },
     {
@@ -1539,6 +1715,7 @@ async function main() {
       fullName: 'Aisha Hassan',
       phone: '+255755000102',
       department: 'Finance',
+      accessLevel: 'RESTRICTED' as const,
       accessCardRef: 'CARD-EMP-1003',
     },
     {
@@ -1547,6 +1724,7 @@ async function main() {
       fullName: 'Joseph Kimaro',
       phone: '+255755000103',
       department: 'Operations',
+      accessLevel: 'STANDARD' as const,
       accessCardRef: 'CARD-EMP-1004',
     },
     {
@@ -1555,6 +1733,7 @@ async function main() {
       fullName: 'Grace Nelly',
       phone: '+255755000104',
       department: 'HR',
+      accessLevel: 'STANDARD' as const,
       accessCardRef: 'CARD-EMP-1005',
     },
   ];
@@ -1567,6 +1746,7 @@ async function main() {
         fullName: s.fullName,
         phone: s.phone,
         department: s.department,
+        accessLevel: s.accessLevel,
         accessCardRef: s.accessCardRef,
         employeeNumber: s.employeeNumber,
         isActive: true,
@@ -1575,6 +1755,29 @@ async function main() {
         organizationId: org.id,
         customerId: customer.id,
         ...s,
+        createdBy: admin.id,
+      },
+    });
+  }
+
+  // Module 11-C — Jane limited to SITE-WAREHOUSE-A; others unrestricted (no grant rows)
+  const janeEmp = await prisma.customerEmployee.findFirst({
+    where: {
+      customerId: customer.id,
+      organizationId: org.id,
+      employeeNumber: 'EMP-1001',
+    },
+  });
+  if (janeEmp) {
+    await prisma.customerEmployeeSiteAccess.deleteMany({
+      where: { employeeId: janeEmp.id, organizationId: org.id },
+    });
+    await prisma.customerEmployeeSiteAccess.create({
+      data: {
+        organizationId: org.id,
+        customerId: customer.id,
+        employeeId: janeEmp.id,
+        siteId: site.id,
         createdBy: admin.id,
       },
     });
@@ -1744,7 +1947,7 @@ async function main() {
       make: 'Toyota',
       model: 'Corolla',
       color: 'White',
-      owner: 'Jane Doe',
+      owner: 'Amina Vehicle Owner',
       phone: '+255755000100',
       permit: 'PRM-DEMO-001',
       permitType: 'EMPLOYEE',
@@ -1874,6 +2077,8 @@ async function main() {
   ensureTen('BUS', busMakes, 'T4BUS', 'PRM-BUS-', 'RESERVED');
 
   for (const v of vehicleSeeds) {
+    const bindOwnerUserId =
+      v.plate === 'T123ABC' ? vehicleOwnerUser.id : undefined;
     const veh = await prisma.vehicle.upsert({
       where: {
         organizationId_plateNumber: {
@@ -1890,10 +2095,12 @@ async function main() {
         ownerName: v.owner,
         ownerPhone: v.phone,
         isActive: true,
+        ...(bindOwnerUserId ? { userId: bindOwnerUserId } : {}),
       },
       create: {
         organizationId: org.id,
         customerId: customer.id,
+        ...(bindOwnerUserId ? { userId: bindOwnerUserId } : {}),
         plateNumber: v.plate,
         vehicleType: v.type,
         make: v.make,
@@ -1946,11 +2153,13 @@ async function main() {
     untilHours: number;
     siteId: string;
     plate?: string;
+    idType?: 'NIDA' | 'PASSPORT' | 'DRIVERS_LICENSE' | 'OTHER';
+    idNumber?: string;
   }[] = [
     {
       referenceNumber: 'VIS-DEMO-001',
       visitorName: 'Samuel Okello',
-      visitorEmail: 'samuel.okello@vendor.co.tz',
+      visitorEmail: 'contractor1@vendor.co.tz',
       visitorPhone: '+255712111001',
       purpose: 'Supplier delivery — packaging materials',
       hostName: 'Jane Doe',
@@ -1959,11 +2168,14 @@ async function main() {
       untilHours: 6,
       siteId: site.id,
       plate: 'T998XYZ',
+      /** Module 12-D */
+      idType: 'NIDA' as const,
+      idNumber: '19850101123456789012',
     },
     {
       referenceNumber: 'VIS-DEMO-002',
       visitorName: 'Fatuma Ally',
-      visitorEmail: 'fatuma@auditpartners.tz',
+      visitorEmail: 'consultant1@auditpartners.tz',
       visitorPhone: '+255712111002',
       purpose: 'External audit kickoff meeting',
       hostName: 'Aisha Hassan',
@@ -1974,10 +2186,10 @@ async function main() {
     },
     {
       referenceNumber: 'VIS-DEMO-003',
-      visitorName: 'Daniel Mushi',
-      visitorEmail: 'd.mushi@techfix.co.tz',
-      visitorPhone: '+255712111003',
-      purpose: 'IT infrastructure survey',
+      visitorName: 'Fatuma Ally',
+      visitorEmail: 'consultant1@auditpartners.tz',
+      visitorPhone: '+255712111002',
+      purpose: 'IT infrastructure survey (follow-up)',
       hostName: 'Peter Mwangi',
       status: 'PENDING',
       fromHours: 24,
@@ -2010,9 +2222,9 @@ async function main() {
     },
     {
       referenceNumber: 'VIS-DEMO-005',
-      visitorName: 'Unknown Contractor',
-      visitorEmail: 'unknown@mail.test',
-      visitorPhone: '+255712111005',
+      visitorName: 'Samuel Okello',
+      visitorEmail: 'contractor1@vendor.co.tz',
+      visitorPhone: '+255712111001',
       purpose: 'Unscheduled site walkthrough',
       hostName: 'Joseph Kimaro',
       status: 'REJECTED',
@@ -2033,10 +2245,146 @@ async function main() {
       siteId: site.id,
       plate: 'T555VIP',
     },
+    {
+      referenceNumber: 'VIS-DEMO-008',
+      visitorName: 'Daniel Mwamba',
+      visitorEmail: 'provider1@techcare.tz',
+      visitorPhone: '+255712111008',
+      purpose: 'CCTV / access control maintenance (TechCare)',
+      hostName: 'Peter Mwangi',
+      status: 'APPROVED',
+      fromHours: -1,
+      untilHours: 7,
+      siteId: site.id,
+      plate: 'T777SVC',
+    },
+    {
+      referenceNumber: 'VIS-DEMO-009',
+      visitorName: 'Daniel Mwamba',
+      visitorEmail: 'provider1@techcare.tz',
+      visitorPhone: '+255712111008',
+      purpose: 'After-hours generator service call',
+      hostName: 'Joseph Kimaro',
+      status: 'REJECTED',
+      fromHours: 12,
+      untilHours: 18,
+      siteId: siteOffice.id,
+    },
   ];
+
+  // External E4 — site contractor self-view (Portal 35.10 lane).
+  const contractorRole = await prisma.role.findFirstOrThrow({
+    where: { organizationId: org.id, code: 'CONTRACTOR' },
+  });
+  const contractorUser = await prisma.user.upsert({
+    where: { email: 'contractor1@vendor.co.tz' },
+    update: {},
+    create: {
+      email: 'contractor1@vendor.co.tz',
+      fullName: 'Samuel Okello',
+      passwordHash,
+      organizationId: org.id,
+      roles: { create: [{ roleId: contractorRole.id }] },
+    },
+  });
+  await prisma.userRole.upsert({
+    where: {
+      userId_roleId: {
+        userId: contractorUser.id,
+        roleId: contractorRole.id,
+      },
+    },
+    update: {},
+    create: {
+      userId: contractorUser.id,
+      roleId: contractorRole.id,
+    },
+  });
+
+  // External E5 — consultant / auditor self-view (Portal 35.10 lane).
+  const consultantRole = await prisma.role.findFirstOrThrow({
+    where: { organizationId: org.id, code: 'CONSULTANT' },
+  });
+  const consultantUser = await prisma.user.upsert({
+    where: { email: 'consultant1@auditpartners.tz' },
+    update: {},
+    create: {
+      email: 'consultant1@auditpartners.tz',
+      fullName: 'Fatuma Ally',
+      passwordHash,
+      organizationId: org.id,
+      roles: { create: [{ roleId: consultantRole.id }] },
+    },
+  });
+  await prisma.userRole.upsert({
+    where: {
+      userId_roleId: {
+        userId: consultantUser.id,
+        roleId: consultantRole.id,
+      },
+    },
+    update: {},
+    create: {
+      userId: consultantUser.id,
+      roleId: consultantRole.id,
+    },
+  });
+
+  // External E6 — service-provider self-view (Portal 35.10 lane).
+  const serviceProviderRole = await prisma.role.findFirstOrThrow({
+    where: { organizationId: org.id, code: 'SERVICE_PROVIDER' },
+  });
+  const serviceProviderUser = await prisma.user.upsert({
+    where: { email: 'provider1@techcare.tz' },
+    update: {},
+    create: {
+      email: 'provider1@techcare.tz',
+      fullName: 'Daniel Mwamba',
+      passwordHash,
+      organizationId: org.id,
+      roles: { create: [{ roleId: serviceProviderRole.id }] },
+    },
+  });
+  await prisma.userRole.upsert({
+    where: {
+      userId_roleId: {
+        userId: serviceProviderUser.id,
+        roleId: serviceProviderRole.id,
+      },
+    },
+    update: {},
+    create: {
+      userId: serviceProviderUser.id,
+      roleId: serviceProviderRole.id,
+    },
+  });
+
   for (const v of visitorSeeds) {
     const validFrom = new Date(now.getTime() + v.fromHours * 3600_000);
     const validUntil = new Date(now.getTime() + v.untilHours * 3600_000);
+    const bindContractor =
+      v.referenceNumber === 'VIS-DEMO-001' ||
+      v.referenceNumber === 'VIS-DEMO-005';
+    const bindConsultant =
+      v.referenceNumber === 'VIS-DEMO-002' ||
+      v.referenceNumber === 'VIS-DEMO-003';
+    const bindProvider =
+      v.referenceNumber === 'VIS-DEMO-008' ||
+      v.referenceNumber === 'VIS-DEMO-009';
+    const bindUserId = bindContractor
+      ? contractorUser.id
+      : bindConsultant
+        ? consultantUser.id
+        : bindProvider
+          ? serviceProviderUser.id
+          : undefined;
+    const companyName = bindContractor
+      ? 'Vendor Logistics Ltd'
+      : bindConsultant
+        ? 'Audit Partners TZ'
+        : bindProvider
+          ? 'TechCare Systems Ltd'
+          : 'Demo Manufacturing visitor';
     await prisma.visitorAppointment.upsert({
       where: {
         organizationId_referenceNumber: {
@@ -2056,6 +2404,10 @@ async function main() {
         siteId: v.siteId,
         customerId: customer.id,
         vehiclePlate: v.plate ?? null,
+        companyName,
+        idType: v.idType ?? null,
+        idNumber: v.idNumber ?? null,
+        ...(bindUserId ? { userId: bindUserId } : {}),
         approvedBy: v.status === 'APPROVED' || v.status === 'COMPLETED' ? admin.id : null,
         approvedAt:
           v.status === 'APPROVED' || v.status === 'COMPLETED' ? now : null,
@@ -2067,12 +2419,15 @@ async function main() {
         customerId: customer.id,
         siteId: v.siteId,
         gateId: gate.id,
+        ...(bindUserId ? { userId: bindUserId } : {}),
         referenceNumber: v.referenceNumber,
         visitorName: v.visitorName,
         visitorEmail: v.visitorEmail,
         visitorPhone: v.visitorPhone,
-        companyName: 'Demo Manufacturing visitor',
+        companyName,
         purpose: v.purpose,
+        idType: v.idType ?? null,
+        idNumber: v.idNumber ?? null,
         hostName: v.hostName,
         vehiclePlate: v.plate,
         validFrom,
@@ -2286,6 +2641,11 @@ async function main() {
       clearanceVerified: true,
       firearmAuthorized: true,
       firearmExpiry: new Date('2030-12-31'),
+      medicalFitnessVerified: true,
+      medicalFitnessExpiry: new Date('2027-06-30'),
+      nationalIdRef: 'NIDA-GRD-0001',
+      uniformIssued: true,
+      equipmentIssued: true,
     },
     create: {
       organizationId: org.id,
@@ -2296,6 +2656,11 @@ async function main() {
       clearanceVerified: true,
       firearmAuthorized: true,
       firearmExpiry: new Date('2030-12-31'),
+      medicalFitnessVerified: true,
+      medicalFitnessExpiry: new Date('2027-06-30'),
+      nationalIdRef: 'NIDA-GRD-0001',
+      uniformIssued: true,
+      equipmentIssued: true,
       phone: '+255712345678',
     },
   });
@@ -3612,6 +3977,62 @@ async function main() {
     }
   }
 
+  // M5-E — IAM role change: staff with users.manage submits → GM approves (creator≠approver).
+  {
+    const def = await prisma.workflowDefinition.upsert({
+      where: {
+        organizationId_code: {
+          organizationId: org.id,
+          code: 'iam-role-change-approval',
+        },
+      },
+      update: {
+        description:
+          'Thin IAM role change: IT/CISO submits → GM applies roles (SUPER_ADMIN direct setRoles kept as break-glass)',
+      },
+      create: {
+        organizationId: org.id,
+        code: 'iam-role-change-approval',
+        name: 'IAM Role Change Approval',
+        description:
+          'Thin IAM role change: IT/CISO submits → GM applies roles (SUPER_ADMIN direct setRoles kept as break-glass)',
+      },
+    });
+    const ver = await prisma.workflowVersion.findFirst({
+      where: { definitionId: def.id, isCurrent: true },
+      include: { steps: { orderBy: { stepOrder: 'asc' } } },
+    });
+    const thinOk =
+      !!ver &&
+      ver.steps.length === 1 &&
+      ver.steps[0]?.requiredRole === 'GENERAL_MANAGER';
+    if (!thinOk) {
+      if (ver) {
+        await prisma.workflowVersion.update({
+          where: { id: ver.id },
+          data: { isCurrent: false },
+        });
+      }
+      await prisma.workflowVersion.create({
+        data: {
+          definitionId: def.id,
+          version: (ver?.version ?? 0) + 1,
+          isCurrent: true,
+          steps: {
+            create: [
+              {
+                stepOrder: 1,
+                name: 'General Manager Approval',
+                requiredRole: 'GENERAL_MANAGER',
+                minApprovers: 1,
+              },
+            ],
+          },
+        },
+      });
+    }
+  }
+
   // Demo published policy + reported breach (idempotent by unique codes).
   await prisma.policyDocument.upsert({
     where: {
@@ -4011,6 +4432,18 @@ async function main() {
   });
 
   await prisma.notificationTemplate.upsert({
+    where: { code: 'CUSTOMER_EMPLOYEE_INVITE' },
+    update: {},
+    create: {
+      code: 'CUSTOMER_EMPLOYEE_INVITE',
+      channel: 'EMAIL',
+      subjectTemplate: 'HIGHLINK employee access — {{customerName}}',
+      bodyTemplate:
+        'You have been invited to HIGHLINK employee self-access. Sign in with the temporary password provided by your HIGHLINK administrator.',
+    },
+  });
+
+  await prisma.notificationTemplate.upsert({
     where: { code: 'CONTRACT_EXPIRING' },
     update: {},
     create: {
@@ -4077,6 +4510,10 @@ async function main() {
   console.log('  guard1@highlink.co.tz / ChangeMe123! (GUARD self-scope; site SITE-WAREHOUSE-A; no ops.manage)');
   console.log('  gate1@highlink.co.tz / ChangeMe123! (GATE_OFFICER)');
   console.log('  parking1@highlink.co.tz / ChangeMe123! (PARKING_OFFICER)');
+  console.log('  owner1@highlink.co.tz / ChangeMe123! (VEHICLE_OWNER → T123ABC · E3 self-view)');
+  console.log('  contractor1@vendor.co.tz / ChangeMe123! (CONTRACTOR → VIS-DEMO-001/005 · E4 self-view)');
+  console.log('  consultant1@auditpartners.tz / ChangeMe123! (CONSULTANT → VIS-DEMO-002/003 · E5 self-view)');
+  console.log('  provider1@techcare.tz / ChangeMe123! (SERVICE_PROVIDER → VIS-DEMO-008/009 · E6 self-view)');
   console.log('  supervisor1@highlink.co.tz / ChangeMe123! (SUPERVISOR + ESS + site SITE-WAREHOUSE-A)');
   console.log('  field1@highlink.co.tz / ChangeMe123! (FIELD_OFFICER — AL1 FIELD + site SITE-WAREHOUSE-A only)');
   console.log('  bom1@highlink.co.tz / ChangeMe123! (BRANCH_MANAGER — branch ACL; A7 expands DSM-HQ sites)');
@@ -4103,7 +4540,7 @@ async function main() {
   console.log('  Demo customer: CUST-DEMO, site SITE-WAREHOUSE-A, gates GATE-MAIN / GATE-VEHICLE');
   console.log('  Contracts↔Sites (B2): CTR-DEMO-* linked to SITE-WAREHOUSE-A / SITE-OFFICE-DEMO');
   console.log('  Demo employee login: jane.doe@demo-mfg.co.tz / ChangeMe123! (CUSTOMER_EMPLOYEE · EMP-1001 · Portal 35.9)');
-  console.log('  Demo vehicle T123ABC permit PRM-DEMO-001 (Jane Doe)');
+  console.log('  Demo vehicle T123ABC RFID-DEMO-T123 permit PRM-DEMO-001 (owner1 · Amina Vehicle Owner)');
   console.log('  Parking fleet demo: 10× CAR / MOTORCYCLE / TRUCK / BUS (+ ACTIVE permits)');
   console.log('  HR: employee GRD-0001 (John Guard), salary 850k TZS, job posting open');
   console.log('  Branch Ops: ACTIVE deployment GRD-0001 → SITE-WAREHOUSE-A under CTR-DEMO-GUARD-2026 (G2); G3 readiness GRD-0001 OK + firearm, GRD-0002 training only; open FieldAlert; today open attendance seed-branch-att-today-open; EOB demo ×2 at SITE-WAREHOUSE-A');
@@ -4128,6 +4565,7 @@ async function main() {
   console.log('  §4 Phase 6: CALL_CENTRE + IT_SUPPORT + DEVELOPER refine (visitors staff gated)');
   console.log('  Compliance demo: policy POL-DPP-001 (PUBLISHED), breach BRCH-00001 (REPORTED)');
   console.log('  Workflow policy-change-approval: CO submits → GENERAL_MANAGER publishes');
+  console.log('  Workflow iam-role-change-approval: IT/CISO submits → GENERAL_MANAGER applies');
   console.log('  Workflow contract-approval (B3): Legal → GM → CEO → CMD@10M monthlyFee');
   console.log('  Reporting: 24 KPI definitions seeded (executive dashboard)');
 }

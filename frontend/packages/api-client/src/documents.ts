@@ -1,6 +1,7 @@
 /**
  * Document attachments (MinIO metadata) — upload / list / presigned download.
- * Permission: `documents.manage`. Used by Branch EOB; reusable for petty-cash receipts.
+ * Staff: `documents.manage` + parent perm. Portal: read-only on own Customer /
+ * Contract / VisitorAppointment. Used by EOB, petty-cash, CRM, visitor ID scans.
  */
 import { authHeaders, clearSession, getRefreshToken, setTokens } from '@pssms/auth';
 

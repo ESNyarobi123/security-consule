@@ -74,6 +74,8 @@ function LoginForm() {
   const searchParams = useSearchParams();
   const [email, setEmail] = useState('admin@highlink.co.tz');
   const [password, setPassword] = useState('ChangeMe123!');
+  const [mfaCode, setMfaCode] = useState('');
+  const [mfaRequired, setMfaRequired] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -118,15 +120,35 @@ function LoginForm() {
     setLoading(true);
     setError(null);
     try {
-      const result = await login(email, password);
+      const result = await login(
+        email,
+        password,
+        mfaRequired ? mfaCode.trim() : undefined,
+      );
       setSession(
         result.tokens.accessToken,
         result.user,
         result.tokens.refreshToken,
       );
-      router.push(defaultPortal(result.user));
+      if (result.user.mustChangePassword) {
+        router.push('/change-password');
+      } else {
+        router.push(defaultPortal(result.user));
+      }
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Login failed');
+      const code =
+        err && typeof err === 'object' && 'code' in err
+          ? String((err as { code?: string }).code ?? '')
+          : '';
+      if (code === 'MFA_REQUIRED') {
+        setMfaRequired(true);
+        setError('Enter the 6-digit code from your authenticator app.');
+      } else if (code === 'MFA_INVALID_CODE') {
+        setMfaRequired(true);
+        setError('Invalid authentication code. Try again.');
+      } else {
+        setError(err instanceof Error ? err.message : 'Login failed');
+      }
     } finally {
       setLoading(false);
     }
@@ -285,7 +307,13 @@ function LoginForm() {
                     id="login-password"
                     type={showPassword ? 'text' : 'password'}
                     value={password}
-                    onChange={(e) => setPassword(e.target.value)}
+                    onChange={(e) => {
+                      setPassword(e.target.value);
+                      if (mfaRequired) {
+                        setMfaRequired(false);
+                        setMfaCode('');
+                      }
+                    }}
                     autoComplete="current-password"
                     placeholder="••••••••"
                     className="az-input pr-14"
@@ -300,6 +328,33 @@ function LoginForm() {
                   </button>
                 </div>
               </div>
+
+              {mfaRequired ? (
+                <div>
+                  <label
+                    htmlFor="login-mfa"
+                    className="mb-1.5 block text-[12px] font-semibold text-[#323130]"
+                  >
+                    Authenticator code
+                  </label>
+                  <input
+                    id="login-mfa"
+                    type="text"
+                    inputMode="numeric"
+                    autoComplete="one-time-code"
+                    pattern="[0-9]{6,8}"
+                    maxLength={8}
+                    value={mfaCode}
+                    onChange={(e) =>
+                      setMfaCode(e.target.value.replace(/\s+/g, ''))
+                    }
+                    placeholder="123456"
+                    className="az-input tracking-[0.3em]"
+                    required
+                    autoFocus
+                  />
+                </div>
+              ) : null}
 
               {error ? (
                 <p className="rounded-md border-l-4 border-rose-500 bg-rose-50 px-3.5 py-2.5 text-sm text-rose-700">

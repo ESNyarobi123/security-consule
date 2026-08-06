@@ -7,6 +7,7 @@ import {
   IsObject,
   IsOptional,
   IsString,
+  MaxLength,
   ValidateNested,
 } from 'class-validator';
 import { Type } from 'class-transformer';
@@ -162,6 +163,15 @@ export class ScheduleAlertnessDto {
   @ApiProperty() @IsString() siteId!: string;
   @ApiPropertyOptional() @IsOptional() @IsString() shiftId?: string;
   @ApiProperty() @IsDateString() scheduledAt!: string;
+}
+
+/** Module 10-B — optional supervisor note when marking missed. */
+export class MarkAlertnessMissedDto {
+  @ApiPropertyOptional({ maxLength: 500 })
+  @IsOptional()
+  @IsString()
+  @MaxLength(500)
+  supervisorRemarks?: string;
 }
 
 export class PatrolScanDto {

@@ -8,6 +8,7 @@ import { AzureGlyph } from '@pssms/ui';
 export const ESS_TABS = [
   { href: '/ess', label: 'Overview', exact: true },
   { href: '/ess/profile', label: 'Profile' },
+  { href: '/ess/security', label: 'Security' },
   { href: '/ess/leave', label: 'Leave' },
   { href: '/ess/requests', label: 'Requests' },
   { href: '/ess/payslips', label: 'Payslips' },

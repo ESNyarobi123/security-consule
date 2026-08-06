@@ -22,6 +22,7 @@ import {
   CurrentUser,
   PermissionsGuard,
   RequireAnyPermissions,
+  RequirePermissions,
   resolveCustomerScope,
 } from '@pssms/shared';
 import { ParkingService } from '../application/parking.service';
@@ -37,18 +38,47 @@ import {
   ParkingEntryResponseDto,
   ParkingPermitResponseDto,
   ParkingViolationResponseDto,
+  UpdateParkingPermitDto,
   UpdatePermitStatusDto,
+  UpdateVehicleDto,
   VehicleBlacklistResponseDto,
   VehicleResponseDto,
 } from './dto/parking.dto';
 
 @ApiTags('Parking')
 @ApiBearerAuth()
+@UseGuards(PermissionsGuard)
 @Controller('parking')
 export class ParkingController {
   constructor(private readonly service: ParkingService) {}
 
+  @Get('me')
+  @RequirePermissions('parking.self')
+  @ApiOperation({
+    summary: 'Own vehicles summary (approved owner/driver · E3)',
+  })
+  me(@CurrentUser() user: AuthUser) {
+    return this.service.getOwnerMe(user);
+  }
+
+  @Get('me/permits')
+  @RequirePermissions('parking.self')
+  @ApiOperation({ summary: 'Own vehicle permits (E3)' })
+  @ApiOkResponse({ type: [ParkingPermitResponseDto] })
+  myPermits(@CurrentUser() user: AuthUser) {
+    return this.service.listOwnerPermits(user);
+  }
+
+  @Get('me/entries')
+  @RequirePermissions('parking.self')
+  @ApiOperation({ summary: 'Own vehicle gate entries (E3)' })
+  @ApiOkResponse({ type: [ParkingEntryResponseDto] })
+  myEntries(@CurrentUser() user: AuthUser) {
+    return this.service.listOwnerEntries(user);
+  }
+
   @Post('vehicles')
+  @RequirePermissions('parking.manage')
   @ApiOperation({ summary: 'Register vehicle' })
   @ApiCreatedResponse({ type: VehicleResponseDto })
   createVehicle(@Body() dto: CreateVehicleDto, @CurrentUser() user: AuthUser) {
@@ -56,6 +86,7 @@ export class ParkingController {
   }
 
   @Get('vehicles')
+  @RequirePermissions('parking.manage')
   @ApiOperation({ summary: 'List vehicles' })
   @ApiQuery({ name: 'customerId', required: false })
   @ApiOkResponse({ type: [VehicleResponseDto] })
@@ -67,7 +98,22 @@ export class ParkingController {
     return this.service.listVehicles(user, scoped);
   }
 
+  @Patch('vehicles/:id')
+  @RequirePermissions('parking.manage')
+  @ApiOperation({
+    summary: 'Update vehicle (RFID tag + basic fields · Module 13-A)',
+  })
+  @ApiOkResponse({ type: VehicleResponseDto })
+  updateVehicle(
+    @Param('id') id: string,
+    @Body() dto: UpdateVehicleDto,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.service.updateVehicle(id, dto, user);
+  }
+
   @Post('permits')
+  @RequirePermissions('parking.manage')
   @ApiOperation({ summary: 'Issue parking permit (starts PENDING)' })
   @ApiCreatedResponse({ type: ParkingPermitResponseDto })
   createPermit(
@@ -78,6 +124,7 @@ export class ParkingController {
   }
 
   @Get('permits')
+  @RequirePermissions('parking.manage')
   @ApiOperation({ summary: 'List parking permits' })
   @ApiQuery({ name: 'siteId', required: false })
   @ApiQuery({ name: 'customerId', required: false })
@@ -93,21 +140,49 @@ export class ParkingController {
     return this.service.listPermits(user, siteId, scoped, status);
   }
 
+  @Patch('permits/:id')
+  @RequirePermissions('parking.manage')
+  @ApiOperation({
+    summary: 'Update permit fee / currency (Module 13-B · not auto-bill)',
+  })
+  @ApiOkResponse({ type: ParkingPermitResponseDto })
+  updatePermit(
+    @Param('id') id: string,
+    @Body() dto: UpdateParkingPermitDto,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.service.updatePermit(id, dto, user);
+  }
+
   @Post('permits/:id/approve')
-  @ApiOperation({ summary: 'Approve pending permit (SoD)' })
+  @RequirePermissions('parking.manage')
+  @ApiOperation({ summary: 'Approve pending permit (SoD · does not bill)' })
   @ApiOkResponse({ type: ParkingPermitResponseDto })
   approvePermit(@Param('id') id: string, @CurrentUser() user: AuthUser) {
     return this.service.approvePermit(id, user);
   }
 
   @Post('permits/:id/reject')
+  @RequirePermissions('parking.manage')
   @ApiOperation({ summary: 'Reject pending permit (SoD → REVOKED)' })
   @ApiOkResponse({ type: ParkingPermitResponseDto })
   rejectPermit(@Param('id') id: string, @CurrentUser() user: AuthUser) {
     return this.service.rejectPermit(id, user);
   }
 
+  @Post('permits/:id/bill')
+  @RequirePermissions('parking.manage')
+  @ApiOperation({
+    summary:
+      'Create DRAFT parking invoice for permit fee (Module 13-B · requires customer on vehicle)',
+  })
+  @ApiOkResponse({ type: ParkingPermitResponseDto })
+  billPermit(@Param('id') id: string, @CurrentUser() user: AuthUser) {
+    return this.service.billPermit(id, user);
+  }
+
   @Patch('permits/:id/status')
+  @RequirePermissions('parking.manage')
   @ApiOperation({
     summary: 'Update permit status (REVOKED/SUSPENDED/ACTIVE ops)',
   })
@@ -121,6 +196,7 @@ export class ParkingController {
   }
 
   @Post('anpr-results')
+  @RequireAnyPermissions('parking.manage', 'operations.manage', 'cctv.manage')
   @ApiOperation({
     summary: 'Ingest ANPR metadata (from vision-ai-service / integration)',
   })
@@ -133,7 +209,6 @@ export class ParkingController {
   }
 
   @Get('anpr-results')
-  @UseGuards(PermissionsGuard)
   @RequireAnyPermissions(
     'parking.manage',
     'cctv.manage',
@@ -154,7 +229,6 @@ export class ParkingController {
   }
 
   @Patch('anpr-results/:id/decide')
-  @UseGuards(PermissionsGuard)
   @RequireAnyPermissions('parking.manage', 'operations.manage')
   @ApiOperation({
     summary: 'Allow/deny ANPR result (parking/ops — not CCTV-only)',
@@ -169,6 +243,7 @@ export class ParkingController {
   }
 
   @Post('entries')
+  @RequirePermissions('parking.manage')
   @ApiOperation({ summary: 'Record parking entry/exit (manual gate)' })
   @ApiCreatedResponse({ type: ParkingEntryResponseDto })
   recordEntry(
@@ -179,6 +254,7 @@ export class ParkingController {
   }
 
   @Get('entries')
+  @RequirePermissions('parking.manage')
   @ApiOperation({ summary: 'List parking entries' })
   @ApiQuery({ name: 'siteId', required: false })
   @ApiOkResponse({ type: [ParkingEntryResponseDto] })
@@ -190,6 +266,7 @@ export class ParkingController {
   }
 
   @Post('violations')
+  @RequirePermissions('parking.manage')
   @ApiOperation({ summary: 'Record parking violation' })
   @ApiCreatedResponse({ type: ParkingViolationResponseDto })
   createViolation(
@@ -200,6 +277,7 @@ export class ParkingController {
   }
 
   @Get('violations')
+  @RequirePermissions('parking.manage')
   @ApiOperation({ summary: 'List parking violations' })
   @ApiQuery({ name: 'siteId', required: false })
   @ApiOkResponse({ type: [ParkingViolationResponseDto] })
@@ -211,6 +289,7 @@ export class ParkingController {
   }
 
   @Get('blacklist')
+  @RequirePermissions('parking.manage')
   @ApiOperation({ summary: 'List vehicle blacklist' })
   @ApiQuery({ name: 'active', required: false, type: Boolean })
   @ApiOkResponse({ type: [VehicleBlacklistResponseDto] })
@@ -230,6 +309,7 @@ export class ParkingController {
   }
 
   @Post('blacklist')
+  @RequirePermissions('parking.manage')
   @ApiOperation({ summary: 'Add plate to blacklist' })
   @ApiCreatedResponse({ type: VehicleBlacklistResponseDto })
   addBlacklist(
@@ -240,6 +320,7 @@ export class ParkingController {
   }
 
   @Patch('blacklist/:id/deactivate')
+  @RequirePermissions('parking.manage')
   @ApiOperation({ summary: 'Deactivate blacklist entry' })
   @ApiOkResponse({ type: VehicleBlacklistResponseDto })
   deactivateBlacklist(

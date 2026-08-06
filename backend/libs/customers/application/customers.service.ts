@@ -509,7 +509,13 @@ export class CustomersService {
               customerId: customer.id,
             },
             orderBy: { name: 'asc' },
-            select: { id: true, code: true, name: true, isActive: true },
+            select: {
+              id: true,
+              code: true,
+              name: true,
+              address: true,
+              isActive: true,
+            },
           })
         : Promise.resolve(undefined as CustomerSiteSummaryDto[] | undefined),
     ]);

@@ -2,11 +2,17 @@ import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { JwtModule } from '@nestjs/jwt';
 import { PassportModule } from '@nestjs/passport';
+import { ApprovalsModule } from '@pssms/approvals';
 import { AuditModule } from '@pssms/audit';
 import {
+  ConsultantPortalGuard,
+  ContractorPortalGuard,
   CustomerPortalGuard,
+  MustChangePasswordGuard,
   OtherSecurityPortalGuard,
+  ServiceProviderPortalGuard,
   SupplierPortalGuard,
+  VehicleOwnerPortalGuard,
 } from '@pssms/shared';
 import { AuthService } from './application/auth.service';
 import { KeycloakUserMapperService } from './application/keycloak-user-mapper.service';
@@ -24,6 +30,7 @@ import { APP_GUARD } from '@nestjs/core';
 @Module({
   imports: [
     AuditModule,
+    ApprovalsModule,
     PassportModule.register({ defaultStrategy: 'jwt' }),
     JwtModule.registerAsync({
       imports: [ConfigModule],
@@ -46,9 +53,14 @@ import { APP_GUARD } from '@nestjs/core';
     KeycloakUserMapperService,
     JwtStrategy,
     { provide: APP_GUARD, useClass: JwtAuthGuard },
+    { provide: APP_GUARD, useClass: MustChangePasswordGuard },
     { provide: APP_GUARD, useClass: CustomerPortalGuard },
     { provide: APP_GUARD, useClass: SupplierPortalGuard },
     { provide: APP_GUARD, useClass: OtherSecurityPortalGuard },
+    { provide: APP_GUARD, useClass: VehicleOwnerPortalGuard },
+    { provide: APP_GUARD, useClass: ContractorPortalGuard },
+    { provide: APP_GUARD, useClass: ConsultantPortalGuard },
+    { provide: APP_GUARD, useClass: ServiceProviderPortalGuard },
   ],
   exports: [AuthService, MfaService, UsersService, RolesService, OidcConfigService, JwtModule],
 })

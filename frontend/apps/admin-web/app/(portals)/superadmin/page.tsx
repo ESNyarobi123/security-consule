@@ -34,6 +34,7 @@ import { useEffect, useMemo, useState } from 'react';
 
 // ── Azure-style quick access (top service row) ──
 const QUICK: { title: string; href: string }[] = [
+  { title: 'Users', href: '/superadmin/users' },
   { title: 'Customers', href: '/superadmin/customers' },
   { title: 'Contracts', href: '/superadmin/contracts' },
   { title: 'Guards', href: '/operations/guards' },
@@ -108,6 +109,7 @@ const CATALOG: { category: string; items: CatalogItem[] }[] = [
   {
     category: 'Governance & Platform',
     items: [
+      { title: 'Users', href: '/superadmin/users', description: 'Create staff, assign roles, suspend / reactivate (Module 5)' },
       { title: 'Approvals', href: '/approvals', description: 'Creator ≠ approver workflow engine' },
       { title: 'Compliance', href: '/compliance', description: 'DPO audit overview, policies & breaches' },
       { title: 'Policies', href: '/compliance/policies', description: 'Policy register & publish workflow' },

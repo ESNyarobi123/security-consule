@@ -1,4 +1,5 @@
 import {
+  IsBoolean,
   IsDateString,
   IsEnum,
   IsIn,
@@ -7,7 +8,9 @@ import {
   IsOptional,
   IsString,
   IsUUID,
+  Min,
   MinLength,
+  ValidateIf,
 } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import {
@@ -58,6 +61,67 @@ export class CreateVehicleDto {
   @IsOptional()
   @IsString()
   ownerPhone?: string;
+
+  /** Module 13-A — optional RFID / tag ref */
+  @ApiPropertyOptional({ example: 'RFID-DEMO-T123' })
+  @IsOptional()
+  @IsString()
+  @MinLength(3)
+  rfidTagRef?: string;
+}
+
+/** Module 13-A — patch RFID + basic editable vehicle fields */
+export class UpdateVehicleDto {
+  @ApiPropertyOptional({ enum: VehicleType })
+  @IsOptional()
+  @IsEnum(VehicleType)
+  vehicleType?: VehicleType;
+
+  @ApiPropertyOptional({ nullable: true })
+  @IsOptional()
+  @ValidateIf((_, v) => v !== null && v !== undefined)
+  @IsString()
+  make?: string | null;
+
+  @ApiPropertyOptional({ nullable: true })
+  @IsOptional()
+  @ValidateIf((_, v) => v !== null && v !== undefined)
+  @IsString()
+  model?: string | null;
+
+  @ApiPropertyOptional({ nullable: true })
+  @IsOptional()
+  @ValidateIf((_, v) => v !== null && v !== undefined)
+  @IsString()
+  color?: string | null;
+
+  @ApiPropertyOptional({ nullable: true })
+  @IsOptional()
+  @ValidateIf((_, v) => v !== null && v !== undefined)
+  @IsString()
+  ownerName?: string | null;
+
+  @ApiPropertyOptional({ nullable: true })
+  @IsOptional()
+  @ValidateIf((_, v) => v !== null && v !== undefined)
+  @IsString()
+  ownerPhone?: string | null;
+
+  @ApiPropertyOptional({
+    nullable: true,
+    example: 'RFID-DEMO-T123',
+    description: 'Pass null to clear RFID tag',
+  })
+  @IsOptional()
+  @ValidateIf((_, v) => v !== null && v !== undefined)
+  @IsString()
+  @MinLength(3)
+  rfidTagRef?: string | null;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsBoolean()
+  isActive?: boolean;
 }
 
 export class VehicleResponseDto {
@@ -91,6 +155,9 @@ export class VehicleResponseDto {
   @ApiPropertyOptional()
   ownerPhone?: string | null;
 
+  @ApiPropertyOptional({ example: 'RFID-DEMO-T123' })
+  rfidTagRef?: string | null;
+
   @ApiProperty()
   isActive!: boolean;
 
@@ -122,6 +189,36 @@ export class CreateParkingPermitDto {
   @ApiProperty()
   @IsDateString()
   validUntil!: string;
+
+  /** Module 13-B — optional fee (bill creates DRAFT invoice separately) */
+  @ApiPropertyOptional({ example: 150000 })
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  feeAmount?: number;
+
+  @ApiPropertyOptional({ default: 'TZS', example: 'TZS' })
+  @IsOptional()
+  @IsString()
+  currency?: string;
+}
+
+export class UpdateParkingPermitDto {
+  @ApiPropertyOptional({
+    description: 'Permit fee; null clears (blocked once billed)',
+    nullable: true,
+    example: 150000,
+  })
+  @IsOptional()
+  @ValidateIf((_, v) => v !== null)
+  @IsNumber()
+  @Min(0)
+  feeAmount?: number | null;
+
+  @ApiPropertyOptional({ example: 'TZS' })
+  @IsOptional()
+  @IsString()
+  currency?: string;
 }
 
 export class UpdatePermitStatusDto {
@@ -160,6 +257,21 @@ export class ParkingPermitResponseDto {
 
   @ApiProperty()
   createdAt!: Date;
+
+  @ApiPropertyOptional({ nullable: true })
+  feeAmount?: number | null;
+
+  @ApiPropertyOptional({ nullable: true })
+  currency?: string | null;
+
+  @ApiPropertyOptional({ nullable: true })
+  invoiceId?: string | null;
+
+  @ApiPropertyOptional({ nullable: true })
+  invoiceNumber?: string | null;
+
+  @ApiPropertyOptional({ nullable: true })
+  billedAt?: Date | null;
 
   @ApiPropertyOptional()
   plateNumber?: string | null;
@@ -281,9 +393,17 @@ export class CreateParkingEntryDto {
   @IsUUID()
   gateId?: string;
 
-  @ApiProperty()
+  /** Required unless rfidTagRef resolves a vehicle (Module 13-A). */
+  @ApiPropertyOptional({ example: 'T123ABC' })
+  @IsOptional()
   @IsString()
-  plateNumber!: string;
+  plateNumber?: string;
+
+  /** Module 13-A — resolve vehicle by org-scoped RFID tag when plate omitted. */
+  @ApiPropertyOptional({ example: 'RFID-DEMO-T123' })
+  @IsOptional()
+  @IsString()
+  rfidTagRef?: string;
 
   @ApiProperty({ enum: ParkingEntryDirection })
   @IsEnum(ParkingEntryDirection)

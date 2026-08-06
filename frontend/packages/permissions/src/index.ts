@@ -9,6 +9,12 @@ export type NavItem = {
 
 export const ADMIN_PORTALS: NavItem[] = [
   { href: '/superadmin', label: 'Administration', permission: 'customers.manage', group: 'Platform' },
+  {
+    href: '/superadmin/users',
+    label: 'Users',
+    permission: 'users.manage',
+    group: 'Platform',
+  },
   { href: '/hr', label: 'HR', permission: 'hr.manage', group: 'People' },
   { href: '/ess', label: 'My ESS', permission: 'ess.access', group: 'People' },
   { href: '/payroll', label: 'Payroll', permission: 'payroll.manage', group: 'People' },
@@ -79,6 +85,7 @@ export const ADMIN_PORTALS: NavItem[] = [
 
 export const SUPERADMIN_LINKS: NavItem[] = [
   { href: '/superadmin', label: 'Overview', permission: 'customers.manage' },
+  { href: '/superadmin/users', label: 'Users', permission: 'users.manage' },
   { href: '/superadmin/customers', label: 'Customers', permission: 'customers.manage' },
   { href: '/superadmin/contracts', label: 'Contracts', permission: 'contracts.manage' },
 ];
@@ -105,7 +112,7 @@ export const CUSTOMER_NAV: NavItem[] = [
   { href: '/parking', label: 'Parking', permission: 'parking.manage', group: 'Site ops' },
   {
     href: '/incidents',
-    label: 'Incidents & complaints',
+    label: 'Incidents',
     permission: 'contracts.manage',
     group: 'Site ops',
   },
@@ -116,11 +123,29 @@ export const CUSTOMER_NAV: NavItem[] = [
     permission: 'contracts.manage',
     group: 'Support',
   },
+  {
+    href: '/complaints',
+    label: 'Complaints',
+    permission: 'contracts.manage',
+    group: 'Support',
+  },
   { href: '/sla', label: 'SLA performance', permission: 'contracts.manage', group: 'Support' },
+  {
+    href: '/reports',
+    label: 'Reports',
+    permission: 'contracts.manage',
+    group: 'Support',
+  },
   { href: '/documents', label: 'Documents', permission: 'contracts.manage', group: 'Support' },
   {
     href: '/notifications',
     label: 'Alerts',
+    permission: 'contracts.manage',
+    group: 'Account',
+  },
+  {
+    href: '/contacts',
+    label: 'Contacts',
     permission: 'contracts.manage',
     group: 'Account',
   },
@@ -141,6 +166,12 @@ export const PARKING_NAV: NavItem[] = [
     label: 'Dashboard',
     permission: 'parking.manage',
     group: 'Overview',
+  },
+  {
+    href: '/vehicles',
+    label: 'Vehicles',
+    permission: 'parking.manage',
+    group: 'Access',
   },
   {
     href: '/permits',
@@ -221,6 +252,8 @@ export function permissionForPath(pathname: string): string | null {
     .sort((a, b) => b.href.length - a.href.length)
     .find((p) => pathname === p.href || pathname.startsWith(`${p.href}/`));
   if (nested) return nested.permission;
+  // Nested Super Admin routes not listed above (legacy fallback).
+  if (pathname.startsWith('/superadmin/users')) return 'users.manage';
   if (pathname.startsWith('/superadmin')) return 'customers.manage';
   return null;
 }

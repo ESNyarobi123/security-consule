@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   ConflictException,
   ForbiddenException,
   Injectable,
@@ -15,10 +16,77 @@ import {
   UpdateGuardReadinessDto,
 } from '../presentation/dto/guard.dto';
 
-const INELIGIBLE_STATUSES: GuardStatus[] = [
+/** Module 8-E/F — registered by AttendanceModule bridge (avoids Nest cycle). */
+export type AbsentDutyCleanup = (
+  guardId: string,
+  user: AuthUser,
+  meta?: { reason?: string },
+) => Promise<{ closedIds: string[]; cancelledAlertnessIds: string[] }>;
+
+/** Module 8-A/D — not deployable; active deployments ended on status change. */
+const FORCE_INELIGIBLE: GuardStatus[] = [
   GuardStatus.SUSPENDED,
   GuardStatus.TERMINATED,
+  GuardStatus.ON_LEAVE,
+  GuardStatus.ABSENT,
+  GuardStatus.TRANSFERRED,
 ];
+
+/** Also free the roster pool (AVAILABLE) by ending active deployments. */
+const END_ACTIVE_DEPLOYMENTS: GuardStatus[] = [
+  ...FORCE_INELIGIBLE,
+  GuardStatus.AVAILABLE,
+];
+
+const DEPLOYABLE_TOGGLE_OK: GuardStatus[] = [
+  GuardStatus.ACTIVE,
+  GuardStatus.AVAILABLE,
+];
+
+/** Allowed transitions (TERMINATED is terminal for ops console). */
+const NEXT_STATUSES: Record<GuardStatus, GuardStatus[]> = {
+  [GuardStatus.ACTIVE]: [
+    GuardStatus.AVAILABLE,
+    GuardStatus.ON_LEAVE,
+    GuardStatus.ABSENT,
+    GuardStatus.SUSPENDED,
+    GuardStatus.TRANSFERRED,
+    GuardStatus.TERMINATED,
+  ],
+  [GuardStatus.AVAILABLE]: [
+    GuardStatus.ACTIVE,
+    GuardStatus.ON_LEAVE,
+    GuardStatus.ABSENT,
+    GuardStatus.SUSPENDED,
+    GuardStatus.TRANSFERRED,
+    GuardStatus.TERMINATED,
+  ],
+  [GuardStatus.ON_LEAVE]: [
+    GuardStatus.ACTIVE,
+    GuardStatus.AVAILABLE,
+    GuardStatus.ABSENT,
+    GuardStatus.SUSPENDED,
+    GuardStatus.TERMINATED,
+  ],
+  [GuardStatus.ABSENT]: [
+    GuardStatus.ACTIVE,
+    GuardStatus.AVAILABLE,
+    GuardStatus.ON_LEAVE,
+    GuardStatus.SUSPENDED,
+    GuardStatus.TERMINATED,
+  ],
+  [GuardStatus.SUSPENDED]: [
+    GuardStatus.ACTIVE,
+    GuardStatus.AVAILABLE,
+    GuardStatus.TERMINATED,
+  ],
+  [GuardStatus.TRANSFERRED]: [
+    GuardStatus.ACTIVE,
+    GuardStatus.AVAILABLE,
+    GuardStatus.TERMINATED,
+  ],
+  [GuardStatus.TERMINATED]: [],
+};
 
 type GuardRow = {
   id: string;
@@ -31,6 +99,11 @@ type GuardRow = {
   firearmAuthorized: boolean;
   firearmExpiry: Date | null;
   clearanceVerified: boolean;
+  medicalFitnessVerified: boolean;
+  medicalFitnessExpiry: Date | null;
+  nationalIdRef: string | null;
+  uniformIssued: boolean;
+  equipmentIssued: boolean;
   phone: string | null;
   photoUrl: string | null;
   createdAt: Date;
@@ -60,11 +133,18 @@ const GUARD_INCLUDE = {
 
 @Injectable()
 export class GuardsService {
+  private absentDutyCleanup: AbsentDutyCleanup | null = null;
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
     private readonly deployments: DeploymentsService,
   ) {}
+
+  /** Called once from AttendanceModule on bootstrap (8-E punch + 8-F alertness). */
+  registerAbsentDutyCleanup(cleanup: AbsentDutyCleanup): void {
+    this.absentDutyCleanup = cleanup;
+  }
 
   /**
    * §4 Harden A4 — GuardProfile admin requires `guards.manage`
@@ -233,15 +313,50 @@ export class GuardsService {
     status: GuardStatus,
     deploymentEligible: boolean | undefined,
     user: AuthUser,
+    reason?: string,
   ): Promise<GuardResponseDto> {
     this.assertCanAdministerGuards(user);
 
     const existing = await this.loadGuard(id, user.organizationId);
     if (!existing) throw new NotFoundException('Guard not found');
 
-    // SUSPENDED / TERMINATED: always force deploymentEligible false.
-    // G3: incomplete training/clearance does NOT hard-block deployable.
-    const forceIneligible = INELIGIBLE_STATUSES.includes(status);
+    // Same-status deployable toggle only (ACTIVE / AVAILABLE).
+    if (status === existing.status) {
+      if (
+        deploymentEligible === undefined ||
+        !DEPLOYABLE_TOGGLE_OK.includes(status)
+      ) {
+        return this.toDtoWithSite(existing, user.organizationId);
+      }
+      const toggled = await this.prisma.guardProfile.update({
+        where: { id },
+        data: { deploymentEligible },
+        include: GUARD_INCLUDE,
+      });
+      await this.audit.record({
+        organizationId: user.organizationId,
+        actorId: user.id,
+        action: 'guard.status.updated',
+        resourceType: 'GuardProfile',
+        resourceId: id,
+        before: existing,
+        after: toggled,
+      });
+      return this.toDtoWithSite(toggled, user.organizationId);
+    }
+
+    const allowed = NEXT_STATUSES[existing.status] ?? [];
+    if (!allowed.includes(status)) {
+      throw new BadRequestException({
+        error: 'INVALID_GUARD_STATUS_TRANSITION',
+        message: `Cannot change status from ${existing.status} to ${status}`,
+        allowedNextStatuses: allowed,
+      });
+    }
+
+    // FORCE_INELIGIBLE: always clear deployable. G3 checklist still does not hard-block.
+    const forceIneligible = FORCE_INELIGIBLE.includes(status);
+    const endDeployments = END_ACTIVE_DEPLOYMENTS.includes(status);
 
     const updated = await this.prisma.guardProfile.update({
       where: { id },
@@ -251,16 +366,26 @@ export class GuardsService {
           ? { deploymentEligible: false }
           : deploymentEligible !== undefined
             ? { deploymentEligible }
-            : {}),
+            : status === GuardStatus.AVAILABLE
+              ? { deploymentEligible: true }
+              : {}),
       },
       include: GUARD_INCLUDE,
     });
 
-    if (forceIneligible) {
+    if (endDeployments) {
       await this.deployments.endAllActiveForGuard(id, user, {
         reason: `guard.status.${status.toLowerCase()}`,
       });
       updated.deployments = [];
+    }
+
+    let closedAttendanceIds: string[] = [];
+    let cancelledAlertnessIds: string[] = [];
+    if (status === GuardStatus.ABSENT && this.absentDutyCleanup) {
+      const cleanup = await this.absentDutyCleanup(id, user, { reason });
+      closedAttendanceIds = cleanup.closedIds;
+      cancelledAlertnessIds = cleanup.cancelledAlertnessIds;
     }
 
     await this.audit.record({
@@ -270,10 +395,23 @@ export class GuardsService {
       resourceType: 'GuardProfile',
       resourceId: id,
       before: existing,
-      after: updated,
+      after: {
+        ...updated,
+        ...(closedAttendanceIds.length ? { closedAttendanceIds } : {}),
+        ...(cancelledAlertnessIds.length
+          ? { cancelledAlertnessIds }
+          : {}),
+      },
     });
 
-    return this.toDtoWithSite(updated, user.organizationId);
+    const dto = await this.toDtoWithSite(updated, user.organizationId);
+    if (closedAttendanceIds.length) {
+      dto.closedAttendanceIds = closedAttendanceIds;
+    }
+    if (cancelledAlertnessIds.length) {
+      dto.cancelledAlertnessIds = cancelledAlertnessIds;
+    }
+    return dto;
   }
 
   async updateReadiness(
@@ -291,6 +429,11 @@ export class GuardsService {
       firearmAuthorized?: boolean;
       firearmExpiry?: Date | null;
       clearanceVerified?: boolean;
+      medicalFitnessVerified?: boolean;
+      medicalFitnessExpiry?: Date | null;
+      nationalIdRef?: string | null;
+      uniformIssued?: boolean;
+      equipmentIssued?: boolean;
     } = {};
 
     if (dto.trainingCompleted !== undefined) {
@@ -307,6 +450,27 @@ export class GuardsService {
         dto.firearmExpiry === null
           ? null
           : new Date(`${dto.firearmExpiry.slice(0, 10)}T00:00:00.000Z`);
+    }
+    if (dto.medicalFitnessVerified !== undefined) {
+      data.medicalFitnessVerified = dto.medicalFitnessVerified;
+    }
+    if (dto.medicalFitnessExpiry !== undefined) {
+      data.medicalFitnessExpiry =
+        dto.medicalFitnessExpiry === null
+          ? null
+          : new Date(
+              `${dto.medicalFitnessExpiry.slice(0, 10)}T00:00:00.000Z`,
+            );
+    }
+    if (dto.nationalIdRef !== undefined) {
+      const t = dto.nationalIdRef?.trim();
+      data.nationalIdRef = t && t.length > 0 ? t : null;
+    }
+    if (dto.uniformIssued !== undefined) {
+      data.uniformIssued = dto.uniformIssued;
+    }
+    if (dto.equipmentIssued !== undefined) {
+      data.equipmentIssued = dto.equipmentIssued;
     }
 
     if (Object.keys(data).length === 0) {
@@ -378,10 +542,17 @@ export class GuardsService {
       employeeNumber: g.employeeNumber,
       status: g.status,
       deploymentEligible: g.deploymentEligible,
+      canToggleDeployable: DEPLOYABLE_TOGGLE_OK.includes(g.status),
+      allowedNextStatuses: NEXT_STATUSES[g.status] ?? [],
       trainingCompleted: g.trainingCompleted,
       firearmAuthorized: g.firearmAuthorized,
       firearmExpiry: g.firearmExpiry ?? null,
       clearanceVerified: g.clearanceVerified,
+      medicalFitnessVerified: g.medicalFitnessVerified,
+      medicalFitnessExpiry: g.medicalFitnessExpiry ?? null,
+      nationalIdRef: g.nationalIdRef ?? null,
+      uniformIssued: g.uniformIssued,
+      equipmentIssued: g.equipmentIssued,
       phone: g.phone ?? null,
       photoUrl: g.photoUrl ?? null,
       createdAt: g.createdAt,

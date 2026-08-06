@@ -2,11 +2,14 @@
 
 import {
   approveCustomerVisitor,
+  getCustomerAttachedDocumentUrl,
+  listCustomerVisitorAppointmentDocuments,
   listCustomerVisitors,
   rejectCustomerVisitor,
+  type GateCodeDelivery,
   type VisitorAppointment,
 } from '@pssms/api-client';
-import { Check, RefreshCw, Users, X } from 'lucide-react';
+import { Check, FileImage, RefreshCw, Users, X } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   AvatarBadge,
@@ -25,6 +28,20 @@ function isPending(status: string) {
   return status.toUpperCase().replace(/[\s-]+/g, '_').includes('PEND');
 }
 
+function formatBytes(n: number) {
+  if (n < 1024) return `${n} B`;
+  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
+  return `${(n / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+type VisitorDoc = {
+  id: string;
+  fileName: string;
+  contentType: string;
+  sizeBytes: number;
+  createdAt: string;
+};
+
 export default function VisitorsPage() {
   const [rows, setRows] = useState<VisitorAppointment[]>([]);
   const [loading, setLoading] = useState(true);
@@ -36,10 +53,12 @@ export default function VisitorsPage() {
   const [codeModal, setCodeModal] = useState<{
     visitorName: string;
     code: string;
+    delivery?: GateCodeDelivery;
   } | null>(null);
   const [rejectTarget, setRejectTarget] = useState<VisitorAppointment | null>(
     null,
   );
+  const [docsTarget, setDocsTarget] = useState<VisitorAppointment | null>(null);
   const [rejectReason, setRejectReason] = useState('');
 
   const load = useCallback(async () => {
@@ -113,6 +132,7 @@ export default function VisitorsPage() {
       setCodeModal({
         visitorName: v.visitorName,
         code: res.verificationCode,
+        delivery: res.delivery,
       });
       await load();
     } catch (err) {
@@ -150,32 +170,44 @@ export default function VisitorsPage() {
     v: VisitorAppointment;
     compact?: boolean;
   }) {
-    if (!isPending(v.status)) return null;
     const busy = actingId === v.id;
+    const pending = isPending(v.status);
     return (
       <div className={`flex flex-wrap gap-2 ${compact ? '' : 'mt-3'}`}>
         <button
           type="button"
-          disabled={busy}
-          onClick={() => void approve(v)}
-          className="inline-flex items-center gap-1.5 rounded-lg bg-[#107c10] px-2.5 py-1.5 text-xs font-semibold text-white hover:bg-[#0b5a0b] disabled:opacity-50"
+          onClick={() => setDocsTarget(v)}
+          className="inline-flex items-center gap-1.5 rounded-lg border border-[#e1dfdd] bg-white px-2.5 py-1.5 text-xs font-semibold text-[#0078d4] hover:bg-[#deecf9]"
         >
-          <Check className="h-3.5 w-3.5" />
-          Approve
+          <FileImage className="h-3.5 w-3.5" />
+          ID scans
         </button>
-        <button
-          type="button"
-          disabled={busy}
-          onClick={() => {
-            setRejectTarget(v);
-            setRejectReason('');
-            setError(null);
-          }}
-          className="inline-flex items-center gap-1.5 rounded-lg border border-[#d13438]/40 bg-white px-2.5 py-1.5 text-xs font-semibold text-[#d13438] hover:bg-[#fde7e9] disabled:opacity-50"
-        >
-          <X className="h-3.5 w-3.5" />
-          Reject
-        </button>
+        {pending ? (
+          <>
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => void approve(v)}
+              className="inline-flex items-center gap-1.5 rounded-lg bg-[#107c10] px-2.5 py-1.5 text-xs font-semibold text-white hover:bg-[#0b5a0b] disabled:opacity-50"
+            >
+              <Check className="h-3.5 w-3.5" />
+              Approve
+            </button>
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => {
+                setRejectTarget(v);
+                setRejectReason('');
+                setError(null);
+              }}
+              className="inline-flex items-center gap-1.5 rounded-lg border border-[#d13438]/40 bg-white px-2.5 py-1.5 text-xs font-semibold text-[#d13438] hover:bg-[#fde7e9] disabled:opacity-50"
+            >
+              <X className="h-3.5 w-3.5" />
+              Reject
+            </button>
+          </>
+        ) : null}
       </div>
     );
   }
@@ -256,6 +288,11 @@ export default function VisitorsPage() {
                   <p className="mt-2 line-clamp-2 text-xs text-[#605e5c]">
                     {v.purpose || '—'}
                   </p>
+                  {v.idType && v.idNumber ? (
+                    <p className="mt-1.5 inline-flex items-center rounded-md bg-[#f3f2f1] px-2 py-0.5 font-mono text-[11px] font-semibold text-[#323130]">
+                      {v.idType.replace(/_/g, ' ')} · {v.idNumber}
+                    </p>
+                  ) : null}
                   <p className="mt-2 text-xs text-[#323130]">
                     Host: {v.hostName ?? '—'}
                     {v.siteCode || v.siteName
@@ -290,6 +327,9 @@ export default function VisitorsPage() {
                     <p className="truncate text-xs text-[#605e5c]">
                       {v.referenceNumber}
                       {v.siteCode ? ` · ${v.siteCode}` : ''}
+                      {v.idType && v.idNumber
+                        ? ` · ${v.idType} ${v.idNumber}`
+                        : ''}
                       {' · '}
                       {v.purpose}
                     </p>
@@ -308,7 +348,14 @@ export default function VisitorsPage() {
         </div>
       )}
 
-      <PortalDeferral note="Gate scan and deny-on-bad-code stay with HIGHLINK gate officers. Host approve here issues the one-time verification code (SMS when phone is on file)." />
+      <PortalDeferral note="Gate scan and deny-on-bad-code stay with HIGHLINK gate officers. Host approve issues the one-time code and queues Email / SMS / WhatsApp when contact details are on file. ID scan files are view-only here — Call Centre / gate staff upload via MinIO (no public book-time upload)." />
+
+      {docsTarget ? (
+        <VisitorIdScansModal
+          appointment={docsTarget}
+          onClose={() => setDocsTarget(null)}
+        />
+      ) : null}
 
       {codeModal ? (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
@@ -323,6 +370,27 @@ export default function VisitorsPage() {
             <p className="mt-4 rounded-xl bg-[#f3f2f1] py-4 text-center font-mono text-3xl font-bold tracking-[0.2em] text-[#0078d4]">
               {codeModal.code}
             </p>
+            {codeModal.delivery &&
+            (codeModal.delivery.email ||
+              codeModal.delivery.sms ||
+              codeModal.delivery.whatsapp) ? (
+              <ul className="mt-3 space-y-1 text-sm text-[#107c10]">
+                {codeModal.delivery.email ? (
+                  <li>Code emailed to visitor</li>
+                ) : null}
+                {codeModal.delivery.sms ? (
+                  <li>SMS queued to visitor phone</li>
+                ) : null}
+                {codeModal.delivery.whatsapp ? (
+                  <li>WhatsApp queued to visitor phone</li>
+                ) : null}
+              </ul>
+            ) : (
+              <p className="mt-3 text-sm text-[#605e5c]">
+                No email or phone on file — share this code with the visitor
+                manually.
+              </p>
+            )}
             <button
               type="button"
               onClick={() => setCodeModal(null)}
@@ -376,6 +444,113 @@ export default function VisitorsPage() {
           </div>
         </div>
       ) : null}
+    </div>
+  );
+}
+
+function VisitorIdScansModal({
+  appointment,
+  onClose,
+}: {
+  appointment: VisitorAppointment;
+  onClose: () => void;
+}) {
+  const [docs, setDocs] = useState<VisitorDoc[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [downloadingId, setDownloadingId] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    setError(null);
+    void listCustomerVisitorAppointmentDocuments(appointment.id)
+      .then((rows) => {
+        if (!cancelled) setDocs(rows);
+      })
+      .catch((err) => {
+        if (!cancelled) {
+          setError(err instanceof Error ? err.message : 'Failed to load ID scans');
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [appointment.id]);
+
+  async function onOpen(doc: VisitorDoc) {
+    setDownloadingId(doc.id);
+    setError(null);
+    try {
+      const { url } = await getCustomerAttachedDocumentUrl(doc.id);
+      window.open(url, '_blank', 'noopener,noreferrer');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Download failed');
+    } finally {
+      setDownloadingId(null);
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+      <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-xl">
+        <h2 className="text-lg font-semibold text-[#1b1a19]">ID scans</h2>
+        <p className="mt-1 text-sm text-[#605e5c]">
+          {appointment.visitorName} · {appointment.referenceNumber}
+        </p>
+        <p className="mt-2 text-xs text-[#8a8886]">
+          Read-only view of MinIO attachments uploaded by HIGHLINK staff. Portal
+          hosts cannot upload.
+        </p>
+        {error ? (
+          <p className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+            {error}
+          </p>
+        ) : null}
+        <div className="mt-4 max-h-64 overflow-y-auto">
+          {loading ? (
+            <p className="text-xs text-[#605e5c]">Loading…</p>
+          ) : docs.length === 0 ? (
+            <p className="text-xs text-[#605e5c]">No ID scans on file yet.</p>
+          ) : (
+            <ul className="divide-y divide-[#f3f2f1] rounded-xl border border-[#e1dfdd]">
+              {docs.map((d) => (
+                <li
+                  key={d.id}
+                  className="flex items-center justify-between gap-2 px-3 py-2.5 text-sm"
+                >
+                  <div className="min-w-0">
+                    <p className="truncate font-medium text-[#323130]">
+                      {d.fileName}
+                    </p>
+                    <p className="text-[11px] text-[#8a8886]">
+                      {d.contentType} · {formatBytes(d.sizeBytes)}
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    disabled={downloadingId === d.id}
+                    onClick={() => void onOpen(d)}
+                    className="shrink-0 text-xs font-semibold text-[#0078d4] hover:underline disabled:opacity-50"
+                  >
+                    {downloadingId === d.id ? '…' : 'Open'}
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+        <button
+          type="button"
+          onClick={onClose}
+          className="mt-5 w-full rounded-lg bg-[#0078d4] px-4 py-2.5 text-sm font-semibold text-white hover:bg-[#106ebe]"
+        >
+          Close
+        </button>
+      </div>
     </div>
   );
 }

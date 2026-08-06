@@ -66,37 +66,192 @@ export class NotificationsService {
     return this.toDto(notification);
   }
 
+  /**
+   * Module 12-C — enqueue gate code once per channel on host approve.
+   * Idempotency keys are appointment+channel so approve never double-queues.
+   */
   async enqueueVisitorGateCode(params: {
     organizationId: string;
     appointmentId: string;
-    visitorPhone: string;
+    visitorPhone?: string | null;
+    visitorEmail?: string | null;
     plainCode: string;
     siteName: string;
     validUntil: Date;
     actorId: string;
-  }): Promise<NotificationResponseDto> {
+  }): Promise<{ email: boolean; sms: boolean; whatsapp: boolean }> {
     const body = `HIGHLINK gate code: ${params.plainCode}. Valid until ${params.validUntil.toISOString()}. Site: ${params.siteName}`;
-    return this.enqueue(
-      {
-        channel: NotificationChannel.SMS,
-        recipient: params.visitorPhone,
-        templateCode: 'VISITOR_GATE_CODE',
-        body,
-        resourceType: 'VisitorAppointment',
-        resourceId: params.appointmentId,
-        idempotencyKey: `visitor-code-${params.appointmentId}`,
-      },
-      {
-        id: params.actorId,
-        email: 'system@pssms',
-        organizationId: params.organizationId,
-        fullName: 'System',
-        roles: [],
-        permissions: [],
-        allowedBranchIds: [],
-        allowedSiteIds: [],
-      },
-    );
+    const emailBody = [
+      'Your HIGHLINK visitor gate verification code has been issued.',
+      '',
+      `Code: ${params.plainCode}`,
+      `Site: ${params.siteName}`,
+      `Valid until: ${params.validUntil.toISOString()}`,
+      '',
+      'Present this code once at the gate. Do not share it.',
+    ].join('\n');
+    const actor = {
+      id: params.actorId,
+      email: 'system@pssms',
+      organizationId: params.organizationId,
+      fullName: 'System',
+      roles: [] as string[],
+      permissions: [] as string[],
+      allowedBranchIds: [] as string[],
+      allowedSiteIds: [] as string[],
+    };
+    const delivery = { email: false, sms: false, whatsapp: false };
+    const email = params.visitorEmail?.trim();
+    const phone = params.visitorPhone?.trim();
+
+    if (email) {
+      try {
+        await this.enqueue(
+          {
+            channel: NotificationChannel.EMAIL,
+            recipient: email,
+            templateCode: 'VISITOR_GATE_CODE',
+            subject: `HIGHLINK gate code — ${params.siteName}`,
+            body: emailBody,
+            resourceType: 'VisitorAppointment',
+            resourceId: params.appointmentId,
+            idempotencyKey: `visitor-code-email-${params.appointmentId}`,
+          },
+          actor,
+        );
+        delivery.email = true;
+      } catch {
+        // Channel enqueue must not block other channels
+      }
+    }
+
+    if (phone) {
+      try {
+        await this.enqueue(
+          {
+            channel: NotificationChannel.SMS,
+            recipient: phone,
+            templateCode: 'VISITOR_GATE_CODE',
+            body,
+            resourceType: 'VisitorAppointment',
+            resourceId: params.appointmentId,
+            idempotencyKey: `visitor-code-sms-${params.appointmentId}`,
+          },
+          actor,
+        );
+        delivery.sms = true;
+      } catch {
+        // keep going
+      }
+
+      try {
+        await this.enqueue(
+          {
+            channel: NotificationChannel.WHATSAPP,
+            recipient: phone,
+            templateCode: 'VISITOR_GATE_CODE',
+            body,
+            resourceType: 'VisitorAppointment',
+            resourceId: params.appointmentId,
+            idempotencyKey: `visitor-code-whatsapp-${params.appointmentId}`,
+          },
+          actor,
+        );
+        delivery.whatsapp = true;
+      } catch {
+        // keep going
+      }
+    }
+
+    return delivery;
+  }
+
+  /**
+   * Module 12-E — notify appointment host when gate verify denies a known code.
+   * Idempotency keys are entry+channel so retries never double-queue.
+   */
+  async enqueueVisitorGateDeniedHost(params: {
+    organizationId: string;
+    entryId: string;
+    appointmentId: string;
+    hostPhone?: string | null;
+    hostEmail?: string | null;
+    visitorName: string;
+    result: string;
+    denyReason?: string | null;
+    siteName: string;
+    referenceNumber: string;
+    actorId: string;
+  }): Promise<{ email: boolean; sms: boolean }> {
+    const reason = params.denyReason?.trim() || params.result;
+    const smsBody = `HIGHLINK: visitor ${params.visitorName} denied at ${params.siteName} (${params.result}: ${reason}). Ref ${params.referenceNumber}.`;
+    const emailBody = [
+      'A visitor gate verification was denied at your site.',
+      '',
+      `Visitor: ${params.visitorName}`,
+      `Result: ${params.result}`,
+      `Reason: ${reason}`,
+      `Site: ${params.siteName}`,
+      `Reference: ${params.referenceNumber}`,
+      '',
+      'Contact Branch Ops if this was unexpected.',
+    ].join('\n');
+    const actor = {
+      id: params.actorId,
+      email: 'system@pssms',
+      organizationId: params.organizationId,
+      fullName: 'System',
+      roles: [] as string[],
+      permissions: [] as string[],
+      allowedBranchIds: [] as string[],
+      allowedSiteIds: [] as string[],
+    };
+    const delivery = { email: false, sms: false };
+    const email = params.hostEmail?.trim();
+    const phone = params.hostPhone?.trim();
+
+    if (email) {
+      try {
+        await this.enqueue(
+          {
+            channel: NotificationChannel.EMAIL,
+            recipient: email,
+            templateCode: 'VISITOR_GATE_DENIED_HOST',
+            subject: `HIGHLINK visitor denied — ${params.siteName}`,
+            body: emailBody,
+            resourceType: 'VisitorEntry',
+            resourceId: params.entryId,
+            idempotencyKey: `visitor-deny-host-email-${params.entryId}`,
+          },
+          actor,
+        );
+        delivery.email = true;
+      } catch {
+        // Channel enqueue must not block other channels
+      }
+    }
+
+    if (phone) {
+      try {
+        await this.enqueue(
+          {
+            channel: NotificationChannel.SMS,
+            recipient: phone,
+            templateCode: 'VISITOR_GATE_DENIED_HOST',
+            body: smsBody,
+            resourceType: 'VisitorEntry',
+            resourceId: params.entryId,
+            idempotencyKey: `visitor-deny-host-sms-${params.entryId}`,
+          },
+          actor,
+        );
+        delivery.sms = true;
+      } catch {
+        // keep going
+      }
+    }
+
+    return delivery;
   }
 
   async getById(

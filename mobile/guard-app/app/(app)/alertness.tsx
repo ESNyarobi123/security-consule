@@ -114,6 +114,12 @@ export default function AlertnessScreen() {
               Scheduled {new Date(item.scheduledAt).toLocaleString()}
             </Text>
             <Text style={styles.meta}>Status {item.status}</Text>
+            {item.pastDue ||
+            new Date(item.scheduledAt).getTime() < Date.now() ? (
+              <Text style={styles.warn}>
+                Past due — confirm will record as LATE (§10).
+              </Text>
+            ) : null}
             <Pressable
               style={[styles.btn, busyId === item.id && styles.disabled]}
               onPress={() => void onConfirm(item)}

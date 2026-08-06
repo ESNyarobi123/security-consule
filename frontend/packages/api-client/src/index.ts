@@ -91,14 +91,54 @@ async function parseEnvelope<T>(res: Response): Promise<T> {
   return json.data;
 }
 
-export async function login(email: string, password: string) {
+export async function login(
+  email: string,
+  password: string,
+  mfaCode?: string,
+) {
   const res = await fetch(`${coreUrl()}/api/v1/auth/login`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ email, password }),
+    body: JSON.stringify({
+      email,
+      password,
+      ...(mfaCode ? { mfaCode } : {}),
+    }),
   });
   return parseEnvelope<LoginResult>(res);
 }
+
+/** POST /auth/change-password — clears mustChangePassword, returns fresh tokens (M5-H). */
+export async function changePassword(
+  body: { currentPassword: string; newPassword: string },
+  token: string,
+) {
+  const res = await fetch(`${coreUrl()}/api/v1/auth/change-password`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify(body),
+  });
+  return parseEnvelope<LoginResult>(res);
+}
+
+/** GET /auth/password-policy — resolved org policy for change-password UX (M5-K). */
+export async function getAuthPasswordPolicy(token: string) {
+  const res = await fetch(`${coreUrl()}/api/v1/auth/password-policy`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  return parseEnvelope<{
+    minLength: number;
+    requireUppercase: boolean;
+    requireLowercase: boolean;
+    requireDigit: boolean;
+    requireSymbol: boolean;
+    summary: string;
+  }>(res);
+}
+
 
 /** Exchange refresh token for a new access + refresh pair. */
 export async function refreshSession(refreshToken: string) {
@@ -247,9 +287,13 @@ export * from './finance';
 export * from './customer';
 export * from './supplier';
 export * from './visitor';
+export * from './visitor-contractor';
+export * from './visitor-consultant';
+export * from './visitor-provider';
 export * from './recruitment';
 export * from './recruitment-b2b';
 export * from './parking-ops';
+export * from './parking-owner';
 export * from './developer';
 export * from './compliance';
 export * from './branch-ops';

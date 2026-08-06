@@ -21,12 +21,15 @@ import {
   CurrentUser,
   PermissionsGuard,
   Public,
+  RequireAnyPermissions,
   RequirePermissions,
   resolveCustomerScope,
 } from '@pssms/shared';
 import { VisitorsService } from '../application/visitors.service';
 import {
   CreateVisitorAppointmentDto,
+  GateExitDto,
+  GateExitResponseDto,
   GateVerifyDto,
   GateVerifyResponseDto,
   IssueCodeResponseDto,
@@ -39,6 +42,40 @@ import {
 @Controller('visitors')
 export class VisitorsController {
   constructor(private readonly service: VisitorsService) {}
+
+  @Get('me')
+  @ApiBearerAuth()
+  @UseGuards(PermissionsGuard)
+  @RequireAnyPermissions('visitors.self', 'consultants.self', 'providers.self')
+  @ApiOperation({
+    summary:
+      'Own visit summary (Portal 35.10 · E4 contractor / E5 consultant / E6 provider)',
+  })
+  me(@CurrentUser() user: AuthUser) {
+    return this.service.getContractorMe(user);
+  }
+
+  @Get('me/appointments')
+  @ApiBearerAuth()
+  @UseGuards(PermissionsGuard)
+  @RequireAnyPermissions('visitors.self', 'consultants.self', 'providers.self')
+  @ApiOperation({
+    summary: 'Own visitor appointments (E4/E5/E6 · no gate code)',
+  })
+  @ApiOkResponse({ type: [VisitorAppointmentResponseDto] })
+  myAppointments(@CurrentUser() user: AuthUser) {
+    return this.service.listContractorAppointments(user);
+  }
+
+  @Get('me/entries')
+  @ApiBearerAuth()
+  @UseGuards(PermissionsGuard)
+  @RequireAnyPermissions('visitors.self', 'consultants.self', 'providers.self')
+  @ApiOperation({ summary: 'Own gate verification entries (E4/E5/E6)' })
+  @ApiOkResponse({ type: [VisitorEntryResponseDto] })
+  myEntries(@CurrentUser() user: AuthUser) {
+    return this.service.listContractorEntries(user);
+  }
 
   @Public()
   @Get('public-config')
@@ -116,6 +153,19 @@ export class VisitorsController {
   @ApiOkResponse({ type: GateVerifyResponseDto })
   gateVerify(@Body() dto: GateVerifyDto, @CurrentUser() user: AuthUser) {
     return this.service.gateVerify(dto, user);
+  }
+
+  @Post('gate/exit')
+  @ApiBearerAuth()
+  @UseGuards(PermissionsGuard)
+  @RequirePermissions('visitors.manage')
+  @ApiOperation({
+    summary:
+      'Gate officer records visitor exit punch (Module 12-B · completes visit)',
+  })
+  @ApiOkResponse({ type: GateExitResponseDto })
+  gateExit(@Body() dto: GateExitDto, @CurrentUser() user: AuthUser) {
+    return this.service.gateExit(dto, user);
   }
 
   @Get('entries')

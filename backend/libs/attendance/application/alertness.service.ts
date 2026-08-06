@@ -4,7 +4,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { AlertnessStatus } from '@prisma/client';
+import { AlertnessStatus, GuardStatus } from '@prisma/client';
 import { randomUUID } from 'crypto';
 import {
   PrismaService,
@@ -17,6 +17,13 @@ import {
 import { AuditService } from '@pssms/audit';
 import { GuardsService } from '@pssms/workforce';
 import { OutboxWriterService } from '@pssms/notifications';
+
+/** Module 8-G — no new alertness duty while absent / suspended / terminated. */
+const ALERTNESS_BLOCKED_STATUSES: GuardStatus[] = [
+  GuardStatus.TERMINATED,
+  GuardStatus.SUSPENDED,
+  GuardStatus.ABSENT,
+];
 import {
   ConfirmAlertnessDto,
   ScheduleAlertnessDto,
@@ -50,9 +57,16 @@ export class AlertnessService {
     assertNotGuardSelfScoped(user, 'schedule alertness for others');
     const guard = await this.prisma.guardProfile.findFirst({
       where: { id: dto.guardId, organizationId: user.organizationId },
-      select: { id: true },
+      select: { id: true, status: true },
     });
     if (!guard) throw new NotFoundException('Guard not found');
+    if (ALERTNESS_BLOCKED_STATUSES.includes(guard.status)) {
+      throw new BadRequestException({
+        error: 'GUARD_STATUS_BLOCKS_ALERTNESS',
+        message: `Guard status ${guard.status} cannot schedule alertness`,
+        status: guard.status,
+      });
+    }
 
     const site = await this.prisma.site.findFirst({
       where: { id: dto.siteId, organizationId: user.organizationId },
@@ -99,6 +113,18 @@ export class AlertnessService {
     clockInAt: Date;
   }): Promise<{ scheduled: number; referenceNumbers: string[]; skipped: boolean }> {
     if (process.env.ALERTNESS_AUTO_SCHEDULE_ON_CLOCK_IN === 'false') {
+      return { scheduled: 0, referenceNumbers: [], skipped: true };
+    }
+
+    // Module 8-G — defense in depth if a punch path ever bypasses status guard.
+    const guardRow = await this.prisma.guardProfile.findFirst({
+      where: { id: input.guardId, organizationId: input.organizationId },
+      select: { status: true },
+    });
+    if (
+      !guardRow ||
+      ALERTNESS_BLOCKED_STATUSES.includes(guardRow.status)
+    ) {
       return { scheduled: 0, referenceNumbers: [], skipped: true };
     }
 
@@ -254,7 +280,12 @@ export class AlertnessService {
       const dup = await this.prisma.alertnessCheck.findUnique({
         where: { clientEventId: dto.clientEventId },
       });
-      if (dup?.status === AlertnessStatus.CONFIRMED) return dup;
+      if (
+        dup?.status === AlertnessStatus.CONFIRMED ||
+        dup?.status === AlertnessStatus.LATE
+      ) {
+        return dup;
+      }
     }
 
     const guard = await this.guards.getByUserId(user.id, user.organizationId);
@@ -268,16 +299,39 @@ export class AlertnessService {
       },
     });
     if (!check) throw new NotFoundException('Alertness check not found');
-    if (check.status === AlertnessStatus.CONFIRMED) return check;
+    if (
+      check.status === AlertnessStatus.CONFIRMED ||
+      check.status === AlertnessStatus.LATE
+    ) {
+      return check;
+    }
     if (check.status === AlertnessStatus.MISSED) {
       throw new BadRequestException('Alertness check already marked missed');
     }
+    if (check.status === AlertnessStatus.CANCELLED) {
+      throw new BadRequestException('Alertness check was cancelled (guard ABSENT)');
+    }
+    if (check.status !== AlertnessStatus.SCHEDULED) {
+      throw new BadRequestException(
+        `Only SCHEDULED checks can be confirmed (now ${check.status})`,
+      );
+    }
 
     const serverNow = new Date();
+    // Module 10-A — confirm after due (+ optional grace) records LATE, not CONFIRMED.
+    const graceMin = Number(process.env.ALERTNESS_LATE_GRACE_MINUTES ?? '0');
+    const graceMs =
+      (Number.isFinite(graceMin) && graceMin > 0 ? graceMin : 0) * 60_000;
+    const lateAfter = new Date(check.scheduledAt.getTime() + graceMs);
+    const status =
+      serverNow.getTime() > lateAfter.getTime()
+        ? AlertnessStatus.LATE
+        : AlertnessStatus.CONFIRMED;
+
     const updated = await this.prisma.alertnessCheck.update({
       where: { id: check.id },
       data: {
-        status: AlertnessStatus.CONFIRMED,
+        status,
         confirmedAt: serverNow,
         method: dto.method,
         latitude: dto.gps.latitude,
@@ -294,10 +348,57 @@ export class AlertnessService {
       action: 'alertness.confirmed',
       resourceType: 'AlertnessCheck',
       resourceId: updated.id,
-      after: updated,
+      after: {
+        ...updated,
+        late: status === AlertnessStatus.LATE,
+        lateGraceMinutes: graceMs / 60_000,
+      },
     });
 
     return updated;
+  }
+
+  /**
+   * Module 8-F — cancel outstanding SCHEDULED checks when ops marks guard ABSENT
+   * so scan-missed / mark-missed will not raise FieldAlert for an absent guard.
+   */
+  async cancelScheduledForGuardAbsent(
+    guardId: string,
+    user: AuthUser,
+    meta?: { reason?: string },
+  ): Promise<{ cancelledIds: string[] }> {
+    const open = await this.prisma.alertnessCheck.findMany({
+      where: {
+        organizationId: user.organizationId,
+        guardId,
+        status: AlertnessStatus.SCHEDULED,
+      },
+    });
+    if (open.length === 0) return { cancelledIds: [] };
+
+    const cancelledIds: string[] = [];
+    const reason = meta?.reason?.trim();
+    for (const row of open) {
+      const updated = await this.prisma.alertnessCheck.update({
+        where: { id: row.id },
+        data: { status: AlertnessStatus.CANCELLED },
+      });
+      cancelledIds.push(updated.id);
+      await this.audit.record({
+        organizationId: user.organizationId,
+        actorId: user.id,
+        action: 'alertness.cancelled_for_absent',
+        resourceType: 'AlertnessCheck',
+        resourceId: updated.id,
+        before: row,
+        after: {
+          ...updated,
+          trigger: 'guard.status.ABSENT',
+          ...(reason ? { reason } : {}),
+        },
+      });
+    }
+    return { cancelledIds };
   }
 
   /**
@@ -305,7 +406,11 @@ export class AlertnessService {
    * Supervisor / Field / BOM / Control Room queues (ack on field-alerts).
    * Idempotent if already MISSED.
    */
-  async markMissed(checkId: string, user: AuthUser) {
+  async markMissed(
+    checkId: string,
+    user: AuthUser,
+    supervisorRemarks?: string,
+  ) {
     assertNotGuardSelfScoped(user, 'mark alertness missed');
     const check = await this.prisma.alertnessCheck.findFirst({
       where: { id: checkId, organizationId: user.organizationId },
@@ -322,10 +427,18 @@ export class AlertnessService {
       );
     }
 
+    const remarks = supervisorRemarks?.trim() || undefined;
     const updated = await this.prisma.alertnessCheck.update({
       where: { id: checkId },
-      data: { status: AlertnessStatus.MISSED },
+      data: {
+        status: AlertnessStatus.MISSED,
+        ...(remarks ? { supervisorRemarks: remarks } : {}),
+      },
     });
+
+    const alertMessage = remarks
+      ? `Guard missed alertness check ${check.referenceNumber}: ${remarks}`
+      : `Guard missed alertness check ${check.referenceNumber}`;
 
     await this.prisma.fieldAlert.create({
       data: {
@@ -334,7 +447,7 @@ export class AlertnessService {
         guardId: check.guardId,
         alertType: 'ALERTNESS_MISSED',
         severity: 'HIGH',
-        message: `Guard missed alertness check ${check.referenceNumber}`,
+        message: alertMessage,
         escalationStage: FIELD_ALERT_ESCALATION_INITIAL,
       },
     });
@@ -349,6 +462,7 @@ export class AlertnessService {
         guardId: check.guardId,
         alertType: 'ALERTNESS_MISSED',
         referenceNumber: check.referenceNumber,
+        ...(remarks ? { supervisorRemarks: remarks } : {}),
       },
     });
 
@@ -359,7 +473,10 @@ export class AlertnessService {
       resourceType: 'AlertnessCheck',
       resourceId: checkId,
       before: { status: check.status },
-      after: { status: updated.status },
+      after: {
+        status: updated.status,
+        ...(remarks ? { supervisorRemarks: remarks } : {}),
+      },
     });
 
     return updated;
@@ -431,7 +548,7 @@ export class AlertnessService {
       resolvedGuardId = target.id;
     }
 
-    return this.prisma.alertnessCheck.findMany({
+    const rows = await this.prisma.alertnessCheck.findMany({
       where: {
         organizationId: user.organizationId,
         status: AlertnessStatus.SCHEDULED,
@@ -440,6 +557,157 @@ export class AlertnessService {
       },
       orderBy: { scheduledAt: 'asc' },
       take: 50,
+    });
+    const now = Date.now();
+    // Module 10-A — pastDue hints that confirm will record LATE (until mark-missed).
+    return rows.map((r) => ({
+      ...r,
+      pastDue: r.scheduledAt.getTime() < now,
+    }));
+  }
+
+  /**
+   * Module 10-C — completed alertness roster for audit (CONFIRMED/LATE/MISSED/CANCELLED).
+   * Staff: site-scoped. Guard self: own records only.
+   */
+  async listHistory(
+    user: AuthUser,
+    opts: {
+      guardId?: string;
+      siteId?: string;
+      status?: string;
+      from?: string;
+      to?: string;
+      take?: number;
+    } = {},
+  ) {
+    const manage = canManageAlertness(user);
+    let resolvedGuardId = opts.guardId;
+
+    if (!manage) {
+      const self = await this.guards.getByUserId(
+        user.id,
+        user.organizationId,
+      );
+      if (!self) {
+        throw new ForbiddenException(
+          'Missing permission(s): operations.manage or attendance.manage',
+        );
+      }
+      if (opts.guardId && opts.guardId !== self.id) {
+        throw new ForbiddenException(
+          'Cannot list alertness history for another guard',
+        );
+      }
+      resolvedGuardId = self.id;
+    } else if (opts.guardId) {
+      const target = await this.prisma.guardProfile.findFirst({
+        where: { id: opts.guardId, organizationId: user.organizationId },
+        select: { id: true },
+      });
+      if (!target) throw new NotFoundException('Guard not found');
+      resolvedGuardId = target.id;
+    }
+
+    if (opts.siteId) {
+      const site = await this.prisma.site.findFirst({
+        where: { id: opts.siteId, organizationId: user.organizationId },
+        select: { id: true },
+      });
+      if (!site) throw new NotFoundException('Site not found');
+      if (manage) assertSiteAccess(user, opts.siteId);
+    }
+
+    const defaultStatuses: AlertnessStatus[] = [
+      AlertnessStatus.CONFIRMED,
+      AlertnessStatus.LATE,
+      AlertnessStatus.MISSED,
+      AlertnessStatus.CANCELLED,
+    ];
+    let statuses = defaultStatuses;
+    if (opts.status?.trim()) {
+      const parts = opts.status
+        .split(',')
+        .map((s) => s.trim().toUpperCase())
+        .filter(Boolean);
+      const parsed = parts.filter((p): p is AlertnessStatus =>
+        (Object.values(AlertnessStatus) as string[]).includes(p),
+      );
+      if (parsed.length === 0) {
+        throw new BadRequestException({
+          error: 'INVALID_ALERTNESS_STATUS',
+          message: `status must be one of ${Object.values(AlertnessStatus).join(',')}`,
+        });
+      }
+      statuses = parsed;
+    }
+
+    const takeRaw = opts.take ?? 40;
+    const take = Math.min(Math.max(Number.isFinite(takeRaw) ? takeRaw : 40, 1), 100);
+
+    const from = opts.from ? new Date(opts.from) : undefined;
+    const to = opts.to ? new Date(opts.to) : undefined;
+    if (from && Number.isNaN(from.getTime())) {
+      throw new BadRequestException({ error: 'INVALID_FROM', message: 'Invalid from' });
+    }
+    if (to && Number.isNaN(to.getTime())) {
+      throw new BadRequestException({ error: 'INVALID_TO', message: 'Invalid to' });
+    }
+
+    const rows = await this.prisma.alertnessCheck.findMany({
+      where: {
+        organizationId: user.organizationId,
+        status: { in: statuses },
+        ...(resolvedGuardId ? { guardId: resolvedGuardId } : {}),
+        ...(opts.siteId ? { siteId: opts.siteId } : {}),
+        ...(from || to
+          ? {
+              scheduledAt: {
+                ...(from ? { gte: from } : {}),
+                ...(to ? { lt: to } : {}),
+              },
+            }
+          : {}),
+        ...(manage ? siteScopeWhere(user) : {}),
+      },
+      orderBy: { scheduledAt: 'desc' },
+      take,
+    });
+
+    const guardIds = [...new Set(rows.map((r) => r.guardId))];
+    const siteIds = [...new Set(rows.map((r) => r.siteId))];
+    const [guards, sites] = await Promise.all([
+      guardIds.length
+        ? this.prisma.guardProfile.findMany({
+            where: {
+              organizationId: user.organizationId,
+              id: { in: guardIds },
+            },
+            select: { id: true, employeeNumber: true },
+          })
+        : Promise.resolve([]),
+      siteIds.length
+        ? this.prisma.site.findMany({
+            where: {
+              organizationId: user.organizationId,
+              id: { in: siteIds },
+            },
+            select: { id: true, code: true, name: true },
+          })
+        : Promise.resolve([]),
+    ]);
+    const guardById = new Map(guards.map((g) => [g.id, g]));
+    const siteById = new Map(sites.map((s) => [s.id, s]));
+
+    return rows.map((r) => {
+      const g = guardById.get(r.guardId);
+      const s = siteById.get(r.siteId);
+      return {
+        ...r,
+        employeeNumber: g?.employeeNumber ?? null,
+        siteCode: s?.code ?? null,
+        siteName: s?.name ?? null,
+      };
     });
   }
 }

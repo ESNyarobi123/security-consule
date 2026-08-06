@@ -100,7 +100,7 @@ export default function BranchAlertsPage() {
   return (
     <BranchShell
       title="Field alerts"
-      description="Alertness / field escalations for BOM and supervisors. AL1 ladder: SUPERVISOR → FIELD → BOM → CONTROL. Escalate or acknowledge open alerts (operations.manage or attendance.manage)."
+      description="Alertness, patrol, and visitor gate-deny FieldAlerts (VISITOR_GATE_DENIED · Module 12-A). AL1 ladder: SUPERVISOR → FIELD → BOM → CONTROL. Escalate or acknowledge (operations.manage or attendance.manage)."
       actions={
         <>
           <label className="flex items-center gap-1.5 text-xs text-[#605e5c]">

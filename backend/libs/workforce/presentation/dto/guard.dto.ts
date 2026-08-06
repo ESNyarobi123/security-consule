@@ -5,6 +5,7 @@ import {
   IsEnum,
   IsOptional,
   IsString,
+  MaxLength,
   ValidateIf,
 } from 'class-validator';
 import { GuardStatus } from '@prisma/client';
@@ -51,6 +52,13 @@ export class UpdateGuardStatusDto {
   @IsOptional()
   @IsBoolean()
   deploymentEligible?: boolean;
+
+  /** Module 8-E — optional note when marking ABSENT (stored on closed punch remarks). */
+  @ApiPropertyOptional({ maxLength: 240 })
+  @IsOptional()
+  @IsString()
+  @MaxLength(240)
+  reason?: string;
 }
 
 /** Thin G3 readiness checklist — does not gate deploymentEligible. */
@@ -78,6 +86,38 @@ export class UpdateGuardReadinessDto {
   @IsOptional()
   @IsBoolean()
   clearanceVerified?: boolean;
+
+  /** Module 8-B — medical fitness */
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsBoolean()
+  medicalFitnessVerified?: boolean;
+
+  @ApiPropertyOptional({
+    description: 'ISO date (YYYY-MM-DD); null clears expiry',
+    nullable: true,
+  })
+  @IsOptional()
+  @ValidateIf((_, v) => v !== null && v !== undefined)
+  @IsDateString()
+  medicalFitnessExpiry?: string | null;
+
+  /** Module 8-B — national / work ID reference (not full docs vault) */
+  @ApiPropertyOptional({ nullable: true })
+  @IsOptional()
+  @IsString()
+  nationalIdRef?: string | null;
+
+  /** Module 8-C — kit checklist (asset ledger remains libs/assets) */
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsBoolean()
+  uniformIssued?: boolean;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsBoolean()
+  equipmentIssued?: boolean;
 }
 
 export class GuardEmployeeSummaryDto {
@@ -115,11 +155,22 @@ export class GuardResponseDto {
   @ApiProperty() employeeNumber!: string;
   @ApiProperty({ enum: GuardStatus }) status!: GuardStatus;
   @ApiProperty() deploymentEligible!: boolean;
+  /** Module 8-A — ACTIVE / AVAILABLE may toggle deployable. */
+  @ApiProperty() canToggleDeployable!: boolean;
+  /** Module 8-A — ops status transitions (TERMINATED → []). */
+  @ApiProperty({ enum: GuardStatus, isArray: true })
+  allowedNextStatuses!: GuardStatus[];
   @ApiProperty() trainingCompleted!: boolean;
   @ApiProperty() firearmAuthorized!: boolean;
   @ApiPropertyOptional({ nullable: true, type: String, format: 'date' })
   firearmExpiry!: Date | null;
   @ApiProperty() clearanceVerified!: boolean;
+  @ApiProperty() medicalFitnessVerified!: boolean;
+  @ApiPropertyOptional({ nullable: true, type: String, format: 'date' })
+  medicalFitnessExpiry!: Date | null;
+  @ApiPropertyOptional({ nullable: true }) nationalIdRef!: string | null;
+  @ApiProperty() uniformIssued!: boolean;
+  @ApiProperty() equipmentIssued!: boolean;
   @ApiPropertyOptional({ nullable: true }) phone!: string | null;
   @ApiPropertyOptional({ nullable: true }) photoUrl!: string | null;
   @ApiProperty() createdAt!: Date;
@@ -127,6 +178,12 @@ export class GuardResponseDto {
   employee!: GuardEmployeeSummaryDto | null;
   @ApiPropertyOptional({ type: GuardActiveDeploymentDto, nullable: true })
   activeDeployment!: GuardActiveDeploymentDto | null;
+  /** Module 8-E — open punches closed when status → ABSENT (response-only). */
+  @ApiPropertyOptional({ type: [String] })
+  closedAttendanceIds?: string[];
+  /** Module 8-F — SCHEDULED alertness cancelled when status → ABSENT. */
+  @ApiPropertyOptional({ type: [String] })
+  cancelledAlertnessIds?: string[];
 }
 
 export class LinkableGuardUserDto {

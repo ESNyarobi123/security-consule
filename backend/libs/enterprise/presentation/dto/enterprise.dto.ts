@@ -1,5 +1,5 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { IsOptional, IsString, MinLength } from 'class-validator';
+import { IsBoolean, IsOptional, IsString, MinLength } from 'class-validator';
 
 export class CreateBranchDto {
   @ApiProperty({ example: 'DSM-HQ' })
@@ -85,6 +85,26 @@ export class CreateSiteDto {
   address?: string;
 }
 
+export class UpdateSiteDto {
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  name?: string;
+
+  @ApiPropertyOptional({
+    description: 'Pass empty string or null to clear',
+    nullable: true,
+  })
+  @IsOptional()
+  @IsString()
+  address?: string | null;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsBoolean()
+  isActive?: boolean;
+}
+
 export class SiteResponseDto {
   @ApiProperty() id!: string;
   @ApiProperty() organizationId!: string;
@@ -92,6 +112,7 @@ export class SiteResponseDto {
   @ApiPropertyOptional() customerId?: string | null;
   @ApiProperty() code!: string;
   @ApiProperty() name!: string;
+  @ApiPropertyOptional() address?: string | null;
   @ApiProperty() isActive!: boolean;
 }
 

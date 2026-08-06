@@ -11,7 +11,9 @@ import {
   UserRound,
 } from 'lucide-react';
 import {
+  GUARD_STATUS_OPTIONS,
   WALL,
+  canToggleDeployable,
   guardDisplayName,
   guardInitials,
   guardReadinessOk,
@@ -24,16 +26,19 @@ export function GuardCard({
   busy,
   onOpen,
   onToggleSuspend,
+  onSetStatus,
   onToggleDeployable,
 }: {
   guard: Guard;
   busy?: boolean;
   onOpen: (g: Guard) => void;
   onToggleSuspend: (g: Guard) => void;
+  onSetStatus: (g: Guard, next: string) => void;
   onToggleDeployable: (g: Guard) => void;
 }) {
   const active = guard.status === 'ACTIVE';
-  const ready = active && guard.deploymentEligible;
+  const deployableOk = canToggleDeployable(guard);
+  const ready = deployableOk && guard.deploymentEligible;
   const checklistOk = guardReadinessOk(guard);
   const tone = statusTone(guard.status);
   const rTone = readinessTone(guard);
@@ -42,6 +47,7 @@ export function GuardCard({
     guard.activeDeployment?.siteCode ||
     guard.activeDeployment?.siteName ||
     null;
+  const next = guard.allowedNextStatuses ?? [];
 
   return (
     <article
@@ -54,7 +60,7 @@ export function GuardCard({
       {ready ? (
         <span
           className="absolute right-3 top-3 flex h-2.5 w-2.5"
-          title="Active · deployable"
+          title="Deployable"
         >
           <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-60" />
           <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-emerald-400" />
@@ -125,45 +131,70 @@ export function GuardCard({
       </button>
 
       <div
-        className="flex flex-wrap gap-1.5 px-3 py-2.5"
+        className="flex flex-col gap-1.5 px-3 py-2.5"
         style={{ borderTop: `1px solid ${WALL.border}` }}
       >
-        <button
-          type="button"
-          disabled={busy || guard.status === 'TERMINATED'}
-          onClick={() => onToggleSuspend(guard)}
-          className="inline-flex flex-1 items-center justify-center gap-1 rounded-md px-2 py-1.5 text-[11px] font-semibold transition disabled:opacity-50"
-          style={{
-            background: active ? 'rgba(244, 63, 94, 0.15)' : 'rgba(16, 185, 129, 0.15)',
-            color: active ? '#fda4af' : '#6ee7b7',
-          }}
-        >
-          {active ? (
-            <>
-              <ShieldOff className="h-3.5 w-3.5" />
-              Suspend
-            </>
-          ) : (
-            <>
-              <UserRound className="h-3.5 w-3.5" />
-              Reactivate
-            </>
-          )}
-        </button>
-        <button
-          type="button"
-          disabled={busy || !active}
-          onClick={() => onToggleDeployable(guard)}
-          className="inline-flex flex-1 items-center justify-center gap-1 rounded-md bg-sky-400/15 px-2 py-1.5 text-[11px] font-semibold text-sky-200 transition hover:bg-sky-400/25 disabled:opacity-50"
-          title={
-            active
-              ? 'Toggle deployment eligibility'
-              : 'Only active guards can be deployable'
-          }
-        >
-          <Rocket className="h-3.5 w-3.5" />
-          {guard.deploymentEligible ? 'Unset deploy' : 'Make deployable'}
-        </button>
+        <label className="block">
+          <span className="sr-only">Status</span>
+          <select
+            disabled={busy || next.length === 0}
+            value={guard.status}
+            onChange={(e) => onSetStatus(guard, e.target.value)}
+            className="w-full rounded-md border border-white/15 bg-black/30 px-2 py-1.5 text-[11px] font-semibold text-white outline-none ring-sky-400/40 focus:ring-2 disabled:opacity-50"
+          >
+            <option value={guard.status}>
+              {GUARD_STATUS_OPTIONS.find((o) => o.id === guard.status)?.label ??
+                guard.status}
+            </option>
+            {next.map((s) => (
+              <option key={s} value={s}>
+                {GUARD_STATUS_OPTIONS.find((o) => o.id === s)?.label ?? s}
+              </option>
+            ))}
+          </select>
+        </label>
+        <div className="flex flex-wrap gap-1.5">
+          {active || guard.status === 'SUSPENDED' ? (
+            <button
+              type="button"
+              disabled={busy || guard.status === 'TERMINATED'}
+              onClick={() => onToggleSuspend(guard)}
+              className="inline-flex flex-1 items-center justify-center gap-1 rounded-md px-2 py-1.5 text-[11px] font-semibold transition disabled:opacity-50"
+              style={{
+                background: active
+                  ? 'rgba(244, 63, 94, 0.15)'
+                  : 'rgba(16, 185, 129, 0.15)',
+                color: active ? '#fda4af' : '#6ee7b7',
+              }}
+            >
+              {active ? (
+                <>
+                  <ShieldOff className="h-3.5 w-3.5" />
+                  Suspend
+                </>
+              ) : (
+                <>
+                  <UserRound className="h-3.5 w-3.5" />
+                  Reactivate
+                </>
+              )}
+            </button>
+          ) : null}
+          <button
+            type="button"
+            disabled={busy || !deployableOk}
+            onClick={() => onToggleDeployable(guard)}
+            className="inline-flex flex-1 items-center justify-center gap-1 rounded-md bg-sky-400/15 px-2 py-1.5 text-[11px] font-semibold text-sky-200 transition hover:bg-sky-400/25 disabled:opacity-50"
+            title={
+              deployableOk
+                ? 'Toggle deployment eligibility'
+                : 'Only Active / Available can be deployable'
+            }
+          >
+            <Rocket className="h-3.5 w-3.5" />
+            {guard.deploymentEligible ? 'Unset deploy' : 'Make deployable'}
+          </button>
+        </div>
       </div>
     </article>
   );

@@ -100,6 +100,7 @@ export type CustomerSiteSummary = {
   id: string;
   code: string;
   name: string;
+  address?: string | null;
   isActive: boolean;
 };
 
@@ -194,29 +195,45 @@ export type CreateCustomerBody = {
   saveAsDraft?: boolean;
 };
 
-export type UpdateCustomerBody = Partial<
-  Omit<
-    CreateCustomerBody,
-    | 'code'
-    | 'saveAsDraft'
-    | 'tin'
-    | 'email'
-    | 'phone'
-    | 'address'
-    | 'contactPerson'
-    | 'contactDesignation'
-    | 'city'
-    | 'billingEmail'
-  >
-> & {
+/** Module 6-D — profile + commercial/billing patch (null clears optional strings). */
+export type UpdateCustomerBody = {
+  name?: string;
+  tradingName?: string | null;
+  category?: string | null;
+  industry?: string | null;
+  ranking?: string | null;
+  status?: CustomerLifecycleStatus;
   tin?: string | null;
-  email?: string | null;
-  phone?: string | null;
+  vrn?: string | null;
+  businessLicense?: string | null;
   address?: string | null;
+  postalAddress?: string | null;
+  city?: string | null;
+  region?: string | null;
+  country?: string | null;
   contactPerson?: string | null;
   contactDesignation?: string | null;
-  city?: string | null;
+  phone?: string | null;
+  altPhone?: string | null;
+  email?: string | null;
   billingEmail?: string | null;
+  opsEmail?: string | null;
+  website?: string | null;
+  serviceTypes?: string[];
+  preferredStartDate?: string | null;
+  estimatedGuards?: number | null;
+  specialRequirements?: string | null;
+  slaLevel?: string | null;
+  paymentTerms?: string | null;
+  paymentMethod?: string | null;
+  bankName?: string | null;
+  accountNumber?: string | null;
+  creditLimit?: number | null;
+  currency?: string | null;
+  invoiceFrequency?: string | null;
+  taxExempt?: boolean;
+  accountManagerName?: string | null;
+  branchId?: string | null;
   isActive?: boolean;
 };
 
@@ -225,6 +242,453 @@ export const listCustomers = (token?: string) =>
 
 export const getCustomer = (id: string, token?: string) =>
   coreFetch<Customer>(`/api/v1/customers/${id}`, { token });
+
+/** Module 6-E — CRM-gated site create (forces customerId server-side) */
+export type CustomerSite = {
+  id: string;
+  organizationId: string;
+  branchId: string;
+  customerId?: string | null;
+  code: string;
+  name: string;
+  address?: string | null;
+  isActive: boolean;
+};
+
+export type CreateCustomerSiteBody = {
+  branchId: string;
+  code: string;
+  name: string;
+  address?: string;
+};
+
+export type UpdateCustomerSiteBody = {
+  name?: string;
+  address?: string | null;
+  isActive?: boolean;
+};
+
+export const createCustomerSite = (
+  customerId: string,
+  body: CreateCustomerSiteBody,
+  token?: string,
+) =>
+  coreFetch<CustomerSite>(`/api/v1/customers/${customerId}/sites`, {
+    method: 'POST',
+    body: JSON.stringify(body),
+    token,
+  });
+
+/** Module 6-F — edit/deactivate customer-linked site */
+export const updateCustomerSite = (
+  customerId: string,
+  siteId: string,
+  body: UpdateCustomerSiteBody,
+  token?: string,
+) =>
+  coreFetch<CustomerSite>(
+    `/api/v1/customers/${customerId}/sites/${siteId}`,
+    {
+      method: 'PATCH',
+      body: JSON.stringify(body),
+      token,
+    },
+  );
+
+/** Module 6-G — CRM customer employees (register roster; no portal bind) */
+export type CustomerEmployeeStaff = {
+  id: string;
+  organizationId: string;
+  customerId: string;
+  userId?: string | null;
+  employeeNumber?: string | null;
+  fullName: string;
+  email?: string | null;
+  phone?: string | null;
+  department?: string | null;
+  accessLevel?: 'STANDARD' | 'RESTRICTED' | 'ELEVATED';
+  accessCardRef?: string | null;
+  biometricRef?: string | null;
+  isActive: boolean;
+  createdAt: string;
+};
+
+export type CreateCustomerEmployeeStaffBody = {
+  fullName: string;
+  employeeNumber?: string;
+  email?: string;
+  phone?: string;
+  department?: string;
+  accessLevel?: 'STANDARD' | 'RESTRICTED' | 'ELEVATED';
+  accessCardRef?: string;
+  biometricRef?: string;
+};
+
+export const listCustomerEmployees = (customerId: string, token?: string) =>
+  coreFetch<CustomerEmployeeStaff[]>(
+    `/api/v1/customers/${customerId}/employees`,
+    { token },
+  );
+
+export const createCustomerEmployee = (
+  customerId: string,
+  body: CreateCustomerEmployeeStaffBody,
+  token?: string,
+) =>
+  coreFetch<CustomerEmployeeStaff>(
+    `/api/v1/customers/${customerId}/employees`,
+    {
+      method: 'POST',
+      body: JSON.stringify(body),
+      token,
+    },
+  );
+
+/** Module 6-H — edit/deactivate customer employee */
+export type UpdateCustomerEmployeeStaffBody = {
+  fullName?: string;
+  employeeNumber?: string | null;
+  email?: string | null;
+  phone?: string | null;
+  department?: string | null;
+  accessLevel?: 'STANDARD' | 'RESTRICTED' | 'ELEVATED';
+  accessCardRef?: string | null;
+  biometricRef?: string | null;
+  isActive?: boolean;
+};
+
+export const updateCustomerEmployee = (
+  customerId: string,
+  employeeId: string,
+  body: UpdateCustomerEmployeeStaffBody,
+  token?: string,
+) =>
+  coreFetch<CustomerEmployeeStaff>(
+    `/api/v1/customers/${customerId}/employees/${employeeId}`,
+    {
+      method: 'PATCH',
+      body: JSON.stringify(body),
+      token,
+    },
+  );
+
+/** Module 11-C — site grants (empty siteIds = unrestricted) */
+export type CustomerEmployeeSites = {
+  employeeId: string;
+  customerId: string;
+  unrestricted: boolean;
+  siteIds: string[];
+  sites: { id: string; code: string; name: string; isActive: boolean }[];
+};
+
+export const getCustomerEmployeeSites = (
+  customerId: string,
+  employeeId: string,
+  token?: string,
+) =>
+  coreFetch<CustomerEmployeeSites>(
+    `/api/v1/customers/${customerId}/employees/${employeeId}/sites`,
+    { token },
+  );
+
+export const setCustomerEmployeeSites = (
+  customerId: string,
+  employeeId: string,
+  siteIds: string[],
+  token?: string,
+) =>
+  coreFetch<CustomerEmployeeSites>(
+    `/api/v1/customers/${customerId}/employees/${employeeId}/sites`,
+    {
+      method: 'PUT',
+      body: JSON.stringify({ siteIds }),
+      token,
+    },
+  );
+
+/** Module 6-I — invite CUSTOMER_EMPLOYEE login + bind userId */
+export type InviteCustomerEmployeePortalResult = {
+  employee: CustomerEmployeeStaff;
+  userId: string;
+  email: string;
+  temporaryPassword: string;
+  notificationQueued: boolean;
+};
+
+export const inviteCustomerEmployeePortal = (
+  customerId: string,
+  employeeId: string,
+  token?: string,
+) =>
+  coreFetch<InviteCustomerEmployeePortalResult>(
+    `/api/v1/customers/${customerId}/employees/${employeeId}/invite-portal`,
+    {
+      method: 'POST',
+      body: JSON.stringify({}),
+      token,
+    },
+  );
+
+/** Module 6-A — staff customer 360 overview */
+export type CustomerOverview = {
+  customerId: string;
+  code: string;
+  name: string;
+  counts: {
+    sites: number;
+    contracts: number;
+    employees: number;
+    activeGuards: number;
+    invoices: number;
+    openInvoices: number;
+    overdueInvoices: number;
+    openServiceRequests: number;
+    openComplaints: number;
+    openIncidents: number;
+    vehicles: number;
+    activePermits: number;
+    accessEntries30d: number;
+    pendingAppointments: number;
+  };
+  billing: {
+    currency: string;
+    outstandingAmount: number;
+    paidAmount: number;
+  };
+  contracts: {
+    id: string;
+    contractNumber: string;
+    title: string;
+    status: string;
+    serviceType: string;
+    monthlyFee: number;
+    currency: string;
+  }[];
+  guards: {
+    deploymentId: string;
+    guardId: string;
+    guardNumber: string;
+    fullName: string | null;
+    siteCode: string;
+    siteName: string;
+    status: string;
+  }[];
+  invoices: {
+    id: string;
+    invoiceNumber: string;
+    status: string;
+    totalAmount: number;
+    amountPaid: number;
+    balance: number;
+    currency: string;
+    dueDate: string;
+  }[];
+  incidents: {
+    id: string;
+    incidentNumber: string;
+    title: string;
+    severity: string;
+    status: string;
+    siteCode: string | null;
+    createdAt: string;
+  }[];
+  serviceRequests: {
+    id: string;
+    referenceNumber: string;
+    title: string;
+    category: string;
+    status: string;
+    urgency: string;
+    createdAt: string;
+  }[];
+  complaints: {
+    id: string;
+    referenceNumber: string;
+    title: string;
+    category: string;
+    severity: string;
+    status: string;
+    createdAt: string;
+  }[];
+  employees: {
+    id: string;
+    employeeNumber: string | null;
+    fullName: string;
+    department: string | null;
+    isActive: boolean;
+  }[];
+  vehicles: {
+    id: string;
+    plateNumber: string;
+    vehicleType: string;
+    ownerName: string | null;
+    isActive: boolean;
+  }[];
+};
+
+export const getCustomerOverview = (id: string, token?: string) =>
+  coreFetch<CustomerOverview>(`/api/v1/customers/${id}/overview`, { token });
+
+/** Module 6-L — assigned guards roster (deployments on customer sites) */
+export type CustomerAssignedGuard = {
+  deploymentId: string;
+  guardId: string;
+  guardNumber: string;
+  fullName?: string | null;
+  guardStatus: string;
+  deploymentEligible: boolean;
+  siteId: string;
+  siteCode: string;
+  siteName: string;
+  contractId?: string | null;
+  contractNumber?: string | null;
+  deploymentStatus: string;
+  startDate: string;
+  endDate?: string | null;
+};
+
+export const listCustomerAssignedGuards = (
+  customerId: string,
+  opts?: { status?: 'ACTIVE' | 'ENDED' | 'ALL'; token?: string },
+) => {
+  const q =
+    opts?.status && opts.status !== 'ACTIVE'
+      ? `?status=${encodeURIComponent(opts.status)}`
+      : '';
+  return coreFetch<CustomerAssignedGuard[]>(
+    `/api/v1/customers/${customerId}/guards${q}`,
+    { token: opts?.token },
+  );
+};
+
+/** Module 6-M — customer contacts directory */
+export type CustomerContactRole =
+  | 'GENERAL'
+  | 'BILLING'
+  | 'OPERATIONS'
+  | 'SECURITY'
+  | 'OTHER';
+
+export type CustomerContact = {
+  id: string;
+  organizationId: string;
+  customerId: string;
+  fullName: string;
+  designation?: string | null;
+  role: CustomerContactRole;
+  email?: string | null;
+  phone?: string | null;
+  altPhone?: string | null;
+  isPrimary: boolean;
+  isActive: boolean;
+  notes?: string | null;
+  createdAt: string;
+};
+
+export type CreateCustomerContactBody = {
+  fullName: string;
+  designation?: string;
+  role?: CustomerContactRole;
+  email?: string;
+  phone?: string;
+  altPhone?: string;
+  isPrimary?: boolean;
+  notes?: string;
+};
+
+export type UpdateCustomerContactBody = {
+  fullName?: string;
+  designation?: string | null;
+  role?: CustomerContactRole;
+  email?: string | null;
+  phone?: string | null;
+  altPhone?: string | null;
+  isPrimary?: boolean;
+  isActive?: boolean;
+  notes?: string | null;
+};
+
+export const listCustomerContacts = (customerId: string, token?: string) =>
+  coreFetch<CustomerContact[]>(`/api/v1/customers/${customerId}/contacts`, {
+    token,
+  });
+
+export const createCustomerContact = (
+  customerId: string,
+  body: CreateCustomerContactBody,
+  token?: string,
+) =>
+  coreFetch<CustomerContact>(`/api/v1/customers/${customerId}/contacts`, {
+    method: 'POST',
+    body: JSON.stringify(body),
+    token,
+  });
+
+export const updateCustomerContact = (
+  customerId: string,
+  contactId: string,
+  body: UpdateCustomerContactBody,
+  token?: string,
+) =>
+  coreFetch<CustomerContact>(
+    `/api/v1/customers/${customerId}/contacts/${contactId}`,
+    {
+      method: 'PATCH',
+      body: JSON.stringify(body),
+      token,
+    },
+  );
+
+/** Module 6-C — staff customer report pack */
+export type CustomerReport = {
+  customerId: string;
+  code: string;
+  name: string;
+  period: { from: string; to: string };
+  summary: {
+    sites: number;
+    activeGuards: number;
+    incidentsOpened: number;
+    incidentsStillOpen: number;
+    attendanceClockIns: number;
+    accessEntries: number;
+    visitorAppointments: number;
+    visitorGateEntries: number;
+    parkingEntries: number;
+    complaintsOpened: number;
+    complaintsStillOpen: number;
+    serviceRequestsOpened: number;
+    invoicesIssued: number;
+    invoiceOutstandingAmount: number;
+    currency: string;
+  };
+  bySite: {
+    siteId: string;
+    siteCode: string;
+    siteName: string;
+    incidentsOpened: number;
+    attendanceClockIns: number;
+    accessEntries: number;
+    visitorGateEntries: number;
+    parkingEntries: number;
+  }[];
+  generatedAt: string;
+  notes: string[];
+};
+
+export const getCustomerReport = (
+  id: string,
+  opts?: { from?: string; to?: string; token?: string },
+) => {
+  const qs = new URLSearchParams();
+  if (opts?.from) qs.set('from', opts.from);
+  if (opts?.to) qs.set('to', opts.to);
+  const q = qs.toString();
+  return coreFetch<CustomerReport>(
+    `/api/v1/customers/${id}/reports${q ? `?${q}` : ''}`,
+    { token: opts?.token },
+  );
+};
 
 export const createCustomer = (body: CreateCustomerBody, token?: string) =>
   coreFetch<Customer>('/api/v1/customers', {
@@ -478,16 +942,41 @@ export type GuardActiveDeployment = {
   status?: string;
 };
 
+/** Module 8 / Prisma GuardStatus */
+export type GuardStatus =
+  | 'ACTIVE'
+  | 'ON_LEAVE'
+  | 'ABSENT'
+  | 'SUSPENDED'
+  | 'TRANSFERRED'
+  | 'TERMINATED'
+  | 'AVAILABLE';
+
 export type Guard = {
   id: string;
   employeeNumber: string;
-  status: string;
+  status: GuardStatus | string;
   deploymentEligible: boolean;
+  /** Module 8-A — ACTIVE / AVAILABLE */
+  canToggleDeployable?: boolean;
+  /** Module 8-A — allowed PATCH status targets */
+  allowedNextStatuses?: GuardStatus[];
   /** G3 thin readiness checklist */
   trainingCompleted?: boolean;
   firearmAuthorized?: boolean;
   firearmExpiry?: string | null;
   clearanceVerified?: boolean;
+  /** Module 8-B */
+  medicalFitnessVerified?: boolean;
+  medicalFitnessExpiry?: string | null;
+  nationalIdRef?: string | null;
+  /** Module 8-C */
+  uniformIssued?: boolean;
+  equipmentIssued?: boolean;
+  /** Module 8-E — open punches closed when status → ABSENT */
+  closedAttendanceIds?: string[];
+  /** Module 8-F — SCHEDULED alertness cancelled when status → ABSENT */
+  cancelledAlertnessIds?: string[];
   userId: string;
   /** Present when backend joins employee / profile fields */
   phone?: string | null;
@@ -548,7 +1037,12 @@ export const createGuard = async (body: CreateGuardBody, token?: string) => {
 export const updateGuardStatus = async (
   id: string,
   status: string,
-  options?: { deploymentEligible?: boolean; token?: string },
+  options?: {
+    deploymentEligible?: boolean;
+    /** Module 8-E — optional ABSENT note */
+    reason?: string;
+    token?: string;
+  },
 ) => {
   const row = await coreFetch<GuardApiRow>(`/api/v1/guards/${id}/status`, {
     method: 'PATCH',
@@ -557,6 +1051,7 @@ export const updateGuardStatus = async (
       ...(options?.deploymentEligible !== undefined
         ? { deploymentEligible: options.deploymentEligible }
         : {}),
+      ...(options?.reason?.trim() ? { reason: options.reason.trim() } : {}),
     }),
     token: options?.token,
   });
@@ -569,6 +1064,13 @@ export type UpdateGuardReadinessBody = {
   /** ISO date YYYY-MM-DD, or null to clear */
   firearmExpiry?: string | null;
   clearanceVerified?: boolean;
+  /** Module 8-B */
+  medicalFitnessVerified?: boolean;
+  medicalFitnessExpiry?: string | null;
+  nationalIdRef?: string | null;
+  /** Module 8-C */
+  uniformIssued?: boolean;
+  equipmentIssued?: boolean;
 };
 
 export const updateGuardReadiness = async (
@@ -685,6 +1187,287 @@ export type Branch = {
 
 export const listBranches = (token?: string) =>
   coreFetch<Branch[]>('/api/v1/enterprise/branches', { token });
+
+// ── Identity / Users (Module 5 · Super Admin) ──
+export type AdminUser = {
+  id: string;
+  email: string;
+  fullName: string;
+  phone?: string | null;
+  organizationId: string;
+  isActive: boolean;
+  mustChangePassword?: boolean;
+  mfaEnabled?: boolean;
+  lastLoginAt?: string | null;
+  suspendedAt?: string | null;
+  suspendedReason?: string | null;
+  roles: string[];
+  createdAt: string;
+};
+
+export type AdminRole = {
+  id: string;
+  code: string;
+  name: string;
+  description?: string | null;
+  isSystem: boolean;
+  permissions: string[];
+};
+
+export type CreateAdminUserBody = {
+  email: string;
+  password: string;
+  fullName: string;
+  phone?: string;
+  roleCodes: string[];
+};
+
+export type PasswordPolicy = {
+  minLength: number;
+  requireUppercase: boolean;
+  requireLowercase: boolean;
+  requireDigit: boolean;
+  requireSymbol: boolean;
+  summary?: string;
+};
+
+export const getPasswordPolicy = (token?: string) =>
+  coreFetch<PasswordPolicy>('/api/v1/users/password-policy', { token });
+
+export const setPasswordPolicy = (body: PasswordPolicy, token?: string) =>
+  coreFetch<PasswordPolicy>('/api/v1/users/password-policy', {
+    method: 'PUT',
+    body: JSON.stringify(body),
+    token,
+  });
+
+export const listUsers = (token?: string) =>
+  coreFetch<AdminUser[]>('/api/v1/users', { token });
+
+export const createUser = (body: CreateAdminUserBody, token?: string) =>
+  coreFetch<AdminUser>('/api/v1/users', {
+    method: 'POST',
+    body: JSON.stringify(body),
+    token,
+  });
+
+/** M5-I — admin sets temporary password; target must change on next login. */
+export const resetUserPassword = (
+  id: string,
+  password: string,
+  token?: string,
+) =>
+  coreFetch<AdminUser>(`/api/v1/users/${id}/reset-password`, {
+    method: 'POST',
+    body: JSON.stringify({ password }),
+    token,
+  });
+
+/** M5-J — admin clears another user’s TOTP MFA. */
+export const resetUserMfa = (id: string, token?: string) =>
+  coreFetch<AdminUser>(`/api/v1/users/${id}/mfa/reset`, {
+    method: 'POST',
+    body: JSON.stringify({}),
+    token,
+  });
+
+export const setUserRoles = (
+  id: string,
+  roleCodes: string[],
+  token?: string,
+) =>
+  coreFetch<AdminUser>(`/api/v1/users/${id}/roles`, {
+    method: 'PATCH',
+    body: JSON.stringify({ roleCodes }),
+    token,
+  });
+
+export type IamChangeRequest = {
+  id: string;
+  targetUserId: string;
+  targetEmail?: string;
+  targetFullName?: string;
+  changeType: string;
+  proposedRoleCodes: string[];
+  previousRoleCodes: string[];
+  reason?: string | null;
+  status: string;
+  approvalInstanceId?: string | null;
+  createdBy: string;
+  decidedBy?: string | null;
+  decidedAt?: string | null;
+  rejectReason?: string | null;
+  createdAt: string;
+};
+
+/** M5-E — submit role change for GM approval (IT/CISO). */
+export const submitUserRoleChange = (
+  id: string,
+  roleCodes: string[],
+  token?: string,
+) =>
+  coreFetch<IamChangeRequest>(`/api/v1/users/${id}/roles/submit`, {
+    method: 'POST',
+    body: JSON.stringify({ roleCodes }),
+    token,
+  });
+
+export const listRoleChangeRequests = (
+  status?: string,
+  token?: string,
+) => {
+  const q = status ? `?status=${encodeURIComponent(status)}` : '';
+  return coreFetch<IamChangeRequest[]>(
+    `/api/v1/users/role-change-requests${q}`,
+    { token },
+  );
+};
+
+export const approveRoleChangeRequest = (requestId: string, token?: string) =>
+  coreFetch<IamChangeRequest>(
+    `/api/v1/users/role-change-requests/${requestId}/approve`,
+    { method: 'POST', body: JSON.stringify({}), token },
+  );
+
+export const rejectRoleChangeRequest = (
+  requestId: string,
+  reason?: string,
+  token?: string,
+) =>
+  coreFetch<IamChangeRequest>(
+    `/api/v1/users/role-change-requests/${requestId}/reject`,
+    {
+      method: 'POST',
+      body: JSON.stringify({ reason }),
+      token,
+    },
+  );
+
+export const suspendUser = (id: string, reason?: string, token?: string) =>
+  coreFetch<AdminUser>(`/api/v1/users/${id}/suspend`, {
+    method: 'PATCH',
+    body: JSON.stringify({ reason }),
+    token,
+  });
+
+/** M5-F — submit suspend for GM approval (IT/CISO). */
+export const submitUserSuspend = (
+  id: string,
+  reason?: string,
+  token?: string,
+) =>
+  coreFetch<IamChangeRequest>(`/api/v1/users/${id}/suspend/submit`, {
+    method: 'POST',
+    body: JSON.stringify({ reason }),
+    token,
+  });
+
+export const reactivateUser = (id: string, token?: string) =>
+  coreFetch<AdminUser>(`/api/v1/users/${id}/reactivate`, {
+    method: 'PATCH',
+    body: JSON.stringify({}),
+    token,
+  });
+
+/** M5-G — submit reactivate for GM approval (IT/CISO). */
+export const submitUserReactivate = (
+  id: string,
+  reason?: string,
+  token?: string,
+) =>
+  coreFetch<IamChangeRequest>(`/api/v1/users/${id}/reactivate/submit`, {
+    method: 'POST',
+    body: JSON.stringify({ reason }),
+    token,
+  });
+
+export const listRoles = (token?: string) =>
+  coreFetch<AdminRole[]>('/api/v1/roles', { token });
+
+export type LoginHistoryEntry = {
+  id: string;
+  userId: string;
+  email: string;
+  fullName: string;
+  success: boolean;
+  ipAddress?: string | null;
+  userAgent?: string | null;
+  createdAt: string;
+};
+
+export const listLoginHistory = (
+  params?: { userId?: string; success?: boolean; take?: number },
+  token?: string,
+) => {
+  const q = new URLSearchParams();
+  if (params?.userId) q.set('userId', params.userId);
+  if (params?.success !== undefined) q.set('success', String(params.success));
+  if (params?.take !== undefined) q.set('take', String(params.take));
+  const qs = q.toString();
+  return coreFetch<LoginHistoryEntry[]>(
+    `/api/v1/users/login-history${qs ? `?${qs}` : ''}`,
+    { token },
+  );
+};
+
+export type AccessBranch = { id: string; code: string; name: string };
+export type AccessSite = {
+  id: string;
+  code: string;
+  name: string;
+  branchId: string;
+};
+
+export type UserAccess = {
+  userId: string;
+  branchIds: string[];
+  siteIds: string[];
+  branches: AccessBranch[];
+  sites: AccessSite[];
+  catalog: { branches: AccessBranch[]; sites: AccessSite[] };
+};
+
+export const getUserAccess = (userId: string, token?: string) =>
+  coreFetch<UserAccess>(`/api/v1/users/${userId}/access`, { token });
+
+export const setUserAccess = (
+  userId: string,
+  body: { branchIds: string[]; siteIds: string[] },
+  token?: string,
+) =>
+  coreFetch<UserAccess>(`/api/v1/users/${userId}/access`, {
+    method: 'PUT',
+    body: JSON.stringify(body),
+    token,
+  });
+
+// ── MFA (self · Module 5) ──
+export type MfaStatus = { mfaEnabled: boolean };
+export type MfaSetup = { secret: string; otpauthUri: string };
+
+export const getMfaStatus = (token?: string) =>
+  coreFetch<MfaStatus>('/api/v1/auth/mfa/status', { token });
+
+export const setupMfa = (token?: string) =>
+  coreFetch<MfaSetup>('/api/v1/auth/mfa/setup', {
+    method: 'POST',
+    body: JSON.stringify({}),
+    token,
+  });
+
+export const enableMfa = (code: string, token?: string) =>
+  coreFetch<MfaStatus>('/api/v1/auth/mfa/enable', {
+    method: 'POST',
+    body: JSON.stringify({ code }),
+    token,
+  });
+
+export const disableMfa = (code: string, token?: string) =>
+  coreFetch<MfaStatus>('/api/v1/auth/mfa/disable', {
+    method: 'POST',
+    body: JSON.stringify({ code }),
+    token,
+  });
 
 // ── Audit ──
 export type AuditLog = {
@@ -908,12 +1691,22 @@ export const approvePurchaseOrder = (id: string, token?: string) =>
   );
 
 // ── Visitors / call centre ──
+/** Module 12-D — visitor ID document type */
+export type VisitorIdType =
+  | 'NIDA'
+  | 'PASSPORT'
+  | 'DRIVERS_LICENSE'
+  | 'OTHER';
+
 export type VisitorAppointment = {
   id: string;
   referenceNumber: string;
   visitorName: string;
   hostName?: string | null;
   purpose: string;
+  /** Module 12-D */
+  idType?: VisitorIdType | null;
+  idNumber?: string | null;
   siteId: string;
   siteCode?: string | null;
   siteName?: string | null;
@@ -927,8 +1720,49 @@ export type VisitorEntry = {
   id: string;
   visitorName: string;
   result: string;
+  /** Module 12-B — IN (entry) or OUT (exit) */
+  direction?: 'IN' | 'OUT' | string;
   siteId: string;
   recordedAt: string;
+  denyReason?: string | null;
+  /** Module 12-D — from linked appointment when present */
+  idType?: VisitorIdType | null;
+  idNumber?: string | null;
+};
+
+export type GateExitBody = {
+  siteId: string;
+  gateId?: string;
+  clientEventId?: string;
+  appointmentId?: string;
+  referenceNumber?: string;
+  verificationCode?: string;
+  entryId?: string;
+};
+
+export type GateExitResponse = {
+  allowed: boolean;
+  exited: boolean;
+  result: string;
+  entry: VisitorEntry;
+};
+
+/** Module 12-E — host channels queued on gate deny */
+export type GateDenyHostNotified = {
+  sms?: boolean;
+  email?: boolean;
+};
+
+export type GateVerifyResponse = {
+  allowed: boolean;
+  result: string;
+  entry: VisitorEntry;
+  /** Module 12-A */
+  fieldAlertId?: string | null;
+  /** Module 12-E — null when no appointment / allow / replay */
+  hostNotified?: GateDenyHostNotified | null;
+  idType?: VisitorIdType | null;
+  idNumber?: string | null;
 };
 
 export const listVisitorAppointments = (
@@ -947,6 +1781,14 @@ export const approveVisitorAppointment = (id: string, token?: string) =>
     appointment: VisitorAppointment;
     verificationCode: string;
     validUntil: string;
+    siteId?: string;
+    gateId?: string | null;
+    /** Module 12-C — channels queued (see GateCodeDelivery in customer.ts) */
+    delivery?: {
+      email?: boolean;
+      sms?: boolean;
+      whatsapp?: boolean;
+    };
   }>(`/api/v1/visitors/appointments/${id}/approve`, {
     method: 'POST',
     body: JSON.stringify({}),
@@ -969,6 +1811,14 @@ export const rejectVisitorAppointment = (
 
 export const listVisitorEntries = (token?: string) =>
   coreFetch<VisitorEntry[]>('/api/v1/visitors/entries', { token });
+
+/** Module 12-B — gate exit punch (staff visitors.manage). */
+export const gateExit = (body: GateExitBody, token?: string) =>
+  coreFetch<GateExitResponse>('/api/v1/visitors/gate/exit', {
+    method: 'POST',
+    body: JSON.stringify(body),
+    token,
+  });
 
 // ── Device integration ──
 export const DEVICE_TYPES = [
@@ -1202,6 +2052,58 @@ export const updateStaffServiceRequest = (
 ) =>
   coreFetch<StaffServiceRequest>(`/api/v1/customers/service-requests/${id}`, {
     method: 'PATCH',
+    body: JSON.stringify(body),
+    token,
+  });
+
+/** Module 6-B — staff complaints */
+export type StaffComplaint = {
+  id: string;
+  customerId: string;
+  referenceNumber: string;
+  category: string;
+  severity: string;
+  status: string;
+  title: string;
+  description: string;
+  siteId?: string | null;
+  siteCode?: string | null;
+  siteName?: string | null;
+  callbackPhone?: string | null;
+  resolutionNotes?: string | null;
+  createdAt: string;
+  customerCode?: string | null;
+  customerName?: string | null;
+};
+
+export const listStaffComplaints = (token?: string) =>
+  coreFetch<StaffComplaint[]>('/api/v1/customers/complaints', { token });
+
+export const updateStaffComplaint = (
+  id: string,
+  body: { status: string; resolutionNotes?: string },
+  token?: string,
+) =>
+  coreFetch<StaffComplaint>(`/api/v1/customers/complaints/${id}`, {
+    method: 'PATCH',
+    body: JSON.stringify(body),
+    token,
+  });
+
+export const createStaffComplaint = (
+  body: {
+    customerId: string;
+    category: string;
+    severity?: string;
+    title: string;
+    description: string;
+    siteId?: string;
+    callbackPhone?: string;
+  },
+  token?: string,
+) =>
+  coreFetch<StaffComplaint>('/api/v1/customers/complaints', {
+    method: 'POST',
     body: JSON.stringify(body),
     token,
   });

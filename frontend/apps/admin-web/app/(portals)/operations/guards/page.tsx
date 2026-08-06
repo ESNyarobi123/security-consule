@@ -31,6 +31,7 @@ import {
   FILTER_CHIPS,
   KpiCard,
   WALL,
+  canToggleDeployable,
   guardReadinessOk,
   matchesFilter,
   matchesSearch,
@@ -48,6 +49,7 @@ export default function OperationsGuardsPage() {
   const [view, setView] = useState<RosterView>('cards');
   const [focus, setFocus] = useState<Guard | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
   const [createOpen, setCreateOpen] = useState(false);
 
   const load = useCallback(async () => {
@@ -74,10 +76,22 @@ export default function OperationsGuardsPage() {
   const stats = useMemo(() => {
     const total = rows.length;
     const active = rows.filter((r) => r.status === 'ACTIVE').length;
+    const available = rows.filter((r) => r.status === 'AVAILABLE').length;
+    const onLeave = rows.filter((r) => r.status === 'ON_LEAVE').length;
+    const absent = rows.filter((r) => r.status === 'ABSENT').length;
     const deployable = rows.filter((r) => r.deploymentEligible).length;
     const suspended = rows.filter((r) => r.status === 'SUSPENDED').length;
     const readinessOk = rows.filter((r) => guardReadinessOk(r)).length;
-    return { total, active, deployable, suspended, readinessOk };
+    return {
+      total,
+      active,
+      available,
+      onLeave,
+      absent,
+      deployable,
+      suspended,
+      readinessOk,
+    };
   }, [rows]);
 
   const filtered = useMemo(
@@ -88,12 +102,45 @@ export default function OperationsGuardsPage() {
     [rows, filter, query],
   );
 
-  async function toggleSuspend(guard: Guard) {
-    const next = guard.status === 'ACTIVE' ? 'SUSPENDED' : 'ACTIVE';
+  async function setGuardStatus(guard: Guard, next: string) {
+    if (!next || next === guard.status) return;
+    if (
+      next === 'TERMINATED' &&
+      typeof window !== 'undefined' &&
+      !window.confirm(
+        `Mark ${guard.employeeNumber} as TERMINATED? Active deployments end and this cannot be reversed from ops.`,
+      )
+    ) {
+      return;
+    }
+    let reason: string | undefined;
+    if (next === 'ABSENT' && typeof window !== 'undefined') {
+      const entered = window.prompt(
+        `Mark ${guard.employeeNumber} ABSENT? Optional reason (closes any open clock-in):`,
+        '',
+      );
+      if (entered === null) return;
+      reason = entered.trim() || undefined;
+    }
     setBusyId(guard.id);
     setError(null);
+    setNotice(null);
     try {
-      await updateGuardStatus(guard.id, next);
+      const updated = await updateGuardStatus(guard.id, next, { reason });
+      if (next === 'ABSENT') {
+        const closed = updated.closedAttendanceIds?.length ?? 0;
+        const cancelled = updated.cancelledAlertnessIds?.length ?? 0;
+        const bits: string[] = [];
+        if (closed > 0) {
+          bits.push(`closed ${closed} open punch(es)`);
+        }
+        if (cancelled > 0) {
+          bits.push(`cancelled ${cancelled} alertness check(s)`);
+        }
+        if (bits.length) {
+          setNotice(`${guard.employeeNumber}: ${bits.join('; ')}.`);
+        }
+      }
       await load();
     } catch {
       setError('Status update failed.');
@@ -102,15 +149,20 @@ export default function OperationsGuardsPage() {
     }
   }
 
+  async function toggleSuspend(guard: Guard) {
+    const next = guard.status === 'ACTIVE' ? 'SUSPENDED' : 'ACTIVE';
+    await setGuardStatus(guard, next);
+  }
+
   async function toggleDeployable(guard: Guard) {
-    if (guard.status !== 'ACTIVE') return;
+    if (!canToggleDeployable(guard)) return;
     const makingDeployable = !guard.deploymentEligible;
     if (
       makingDeployable &&
       !guardReadinessOk(guard) &&
       typeof window !== 'undefined' &&
       !window.confirm(
-        'Training and/or clearance are incomplete. Deployable is still allowed (G3 thin checklist does not hard-block). Continue?',
+        'Training, clearance, and/or medical are incomplete. Deployable is still allowed (checklist does not hard-block). Continue?',
       )
     ) {
       return;
@@ -178,7 +230,7 @@ export default function OperationsGuardsPage() {
                 </h1>
                 <p className="mt-1.5 max-w-2xl text-sm leading-relaxed text-slate-300">
                   Ops readiness roster — profile, thin checklist (training /
-                  clearance / firearm), deployment eligibility. Full §8 matrix
+                  clearance / medical / firearm), deployment eligibility. Full §8 matrix
                   and equipment remain HR + Assets.
                 </p>
               </div>
@@ -213,7 +265,7 @@ export default function OperationsGuardsPage() {
             </div>
           </div>
 
-          <div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
+          <div className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-7">
             <KpiCard
               label="Total"
               value={loading ? '…' : stats.total}
@@ -233,18 +285,32 @@ export default function OperationsGuardsPage() {
               icon={<BadgeCheck className="h-4 w-4" />}
             />
             <KpiCard
+              label="Available"
+              value={loading ? '…' : stats.available}
+              hint="Pool for deployment"
+              tone="sky"
+              icon={<Rocket className="h-4 w-4" />}
+            />
+            <KpiCard
               label="Deployable"
               value={loading ? '…' : stats.deployable}
               hint="Eligible for field deployment"
               tone="teal"
-              icon={<Rocket className="h-4 w-4" />}
+              icon={<BadgeCheck className="h-4 w-4" />}
             />
             <KpiCard
-              label="Readiness OK"
-              value={loading ? '…' : stats.readinessOk}
-              hint="Training + clearance verified"
+              label="On leave"
+              value={loading ? '…' : stats.onLeave}
+              hint="Temporarily off duty"
               tone="amber"
               icon={<ClipboardCheck className="h-4 w-4" />}
+            />
+            <KpiCard
+              label="Absent"
+              value={loading ? '…' : stats.absent}
+              hint="Missing from post (§8)"
+              tone="amber"
+              icon={<ShieldOff className="h-4 w-4" />}
             />
             <KpiCard
               label="Suspended"
@@ -360,6 +426,11 @@ export default function OperationsGuardsPage() {
               {error}
             </p>
           ) : null}
+          {notice ? (
+            <p className="rounded-lg bg-teal-500/15 px-3 py-2 text-sm text-teal-100 ring-1 ring-teal-400/30">
+              {notice}
+            </p>
+          ) : null}
 
           {loading && rows.length === 0 ? (
             <div
@@ -434,6 +505,7 @@ export default function OperationsGuardsPage() {
                   busy={busyId === g.id}
                   onOpen={setFocus}
                   onToggleSuspend={(guard) => void toggleSuspend(guard)}
+                  onSetStatus={(guard, next) => void setGuardStatus(guard, next)}
                   onToggleDeployable={(guard) => void toggleDeployable(guard)}
                 />
               ))}
@@ -521,22 +593,31 @@ export default function OperationsGuardsPage() {
                     key: 'id',
                     label: 'Actions',
                     render: (r) => (
-                      <div className="flex flex-wrap gap-2">
-                        <button
-                          type="button"
-                          disabled={busyId === r.id || r.status === 'TERMINATED'}
-                          onClick={() => void toggleSuspend(r)}
-                          className={
-                            r.status === 'ACTIVE'
-                              ? 'text-xs font-medium text-rose-600 hover:underline disabled:opacity-50'
-                              : 'text-xs font-medium text-[#0067b8] hover:underline disabled:opacity-50'
+                      <div className="flex flex-wrap items-center gap-2">
+                        <select
+                          disabled={
+                            busyId === r.id ||
+                            !(r.allowedNextStatuses?.length ?? 0)
                           }
+                          value={r.status}
+                          onChange={(e) =>
+                            void setGuardStatus(r, e.target.value)
+                          }
+                          className="max-w-[9rem] rounded border border-[#e1dfdd] bg-white px-1.5 py-1 text-[11px] font-medium text-[#323130] disabled:opacity-50"
+                          aria-label={`Status for ${r.employeeNumber}`}
                         >
-                          {r.status === 'ACTIVE' ? 'Suspend' : 'Reactivate'}
-                        </button>
+                          <option value={r.status}>{r.status}</option>
+                          {(r.allowedNextStatuses ?? []).map((s) => (
+                            <option key={s} value={s}>
+                              {s}
+                            </option>
+                          ))}
+                        </select>
                         <button
                           type="button"
-                          disabled={busyId === r.id || r.status !== 'ACTIVE'}
+                          disabled={
+                            busyId === r.id || !canToggleDeployable(r)
+                          }
                           onClick={() => void toggleDeployable(r)}
                           className="text-xs font-medium text-[#0078d4] hover:underline disabled:opacity-50"
                         >
@@ -560,9 +641,9 @@ export default function OperationsGuardsPage() {
       </section>
 
       <p className="mt-4 text-center text-[11px] leading-relaxed text-[#605e5c]">
-        Ops slices G1–G3: create, contract deploy, thin readiness checklist.
-        Incomplete checklist does not hard-block deployable. Deferred: full
-        Employment→CEO matrix, rich training records, firearm license CRUD.
+        Module 8-A/D–G: Absent closes punches, cancels alertness, and blocks new
+        duty punches until restored. G1–G3 + readiness (8-B/C) unchanged.
+        Deferred: Employment→CEO, performance, MinIO medical docs.
       </p>
 
       {createOpen ? (
@@ -578,6 +659,7 @@ export default function OperationsGuardsPage() {
           busy={busyId === focus.id}
           onClose={() => setFocus(null)}
           onToggleSuspend={(g) => void toggleSuspend(g)}
+          onSetStatus={(g, next) => void setGuardStatus(g, next)}
           onToggleDeployable={(g) => void toggleDeployable(g)}
           onSaveReadiness={saveReadiness}
         />

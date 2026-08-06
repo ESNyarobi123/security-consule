@@ -163,6 +163,53 @@ export type PendingAlertness = {
   scheduledAt: string;
   status: string;
   referenceNumber?: string | null;
+  /** Module 10-A — due passed; confirm will record LATE until mark-missed */
+  pastDue?: boolean;
+};
+
+/** Module 10-C — completed alertness audit roster */
+export type AlertnessHistoryRow = {
+  id: string;
+  organizationId: string;
+  guardId: string;
+  siteId: string;
+  shiftId?: string | null;
+  scheduledAt: string;
+  confirmedAt?: string | null;
+  status: string;
+  method?: string | null;
+  latitude?: number | null;
+  longitude?: number | null;
+  referenceNumber?: string | null;
+  supervisorRemarks?: string | null;
+  employeeNumber?: string | null;
+  siteCode?: string | null;
+  siteName?: string | null;
+};
+
+export const listAlertnessHistory = (
+  params?: {
+    guardId?: string;
+    siteId?: string;
+    status?: string;
+    from?: string;
+    to?: string;
+    take?: number;
+  },
+  token?: string,
+) => {
+  const sp = new URLSearchParams();
+  if (params?.guardId) sp.set('guardId', params.guardId);
+  if (params?.siteId) sp.set('siteId', params.siteId);
+  if (params?.status) sp.set('status', params.status);
+  if (params?.from) sp.set('from', params.from);
+  if (params?.to) sp.set('to', params.to);
+  if (params?.take !== undefined) sp.set('take', String(params.take));
+  const q = sp.toString() ? `?${sp}` : '';
+  return coreFetch<AlertnessHistoryRow[]>(
+    `/api/v1/attendance/alertness/history${q}`,
+    { token },
+  );
 };
 
 export const listSites = (token?: string) =>
@@ -362,12 +409,22 @@ export const scheduleAlertness = (
     token,
   });
 
-export const markAlertnessMissed = (id: string, token?: string) =>
-  coreFetch<PendingAlertness>(`/api/v1/attendance/alertness/${id}/missed`, {
-    method: 'POST',
-    body: '{}',
-    token,
-  });
+export const markAlertnessMissed = (
+  id: string,
+  options?: { supervisorRemarks?: string; token?: string },
+) =>
+  coreFetch<PendingAlertness & { supervisorRemarks?: string | null }>(
+    `/api/v1/attendance/alertness/${id}/missed`,
+    {
+      method: 'POST',
+      body: JSON.stringify({
+        ...(options?.supervisorRemarks?.trim()
+          ? { supervisorRemarks: options.supervisorRemarks.trim() }
+          : {}),
+      }),
+      token: options?.token,
+    },
+  );
 
 export type AlertnessScanMissedResult = {
   markedMissed: number;

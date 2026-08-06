@@ -114,6 +114,40 @@ model UserSiteAccess {
   @@schema("iam")
 }
 
+/** Module 5-E — pending IAM mutations gated by libs/approvals (creator ≠ approver). */
+enum IamChangeRequestStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  CANCELLED
+
+  @@schema("iam")
+}
+
+model IamChangeRequest {
+  id                 String                 @id @default(uuid())
+  organizationId     String                 @map("organization_id")
+  targetUserId       String                 @map("target_user_id")
+  changeType         String                 @default("ROLE_ASSIGNMENT") @map("change_type")
+  proposedRoleCodes  String[]               @map("proposed_role_codes")
+  previousRoleCodes  String[]               @map("previous_role_codes")
+  /** Suspend justification (M5-F); unused for role assignment. */
+  reason             String?
+  status             IamChangeRequestStatus @default(PENDING)
+  approvalInstanceId String?                @map("approval_instance_id")
+  createdBy          String                 @map("created_by")
+  decidedBy          String?                @map("decided_by")
+  decidedAt          DateTime?              @map("decided_at")
+  rejectReason       String?                @map("reject_reason")
+  createdAt          DateTime               @default(now()) @map("created_at")
+  updatedAt          DateTime               @updatedAt @map("updated_at")
+
+  @@index([organizationId, status])
+  @@index([organizationId, targetUserId])
+  @@map("iam_change_requests")
+  @@schema("iam")
+}
+
 model LoginHistory {
   id        String   @id @default(uuid())
   userId    String   @map("user_id")
@@ -128,22 +162,24 @@ model LoginHistory {
 }
 
 model Organization {
-  id          String       @id @default(uuid())
-  name        String
-  code        String       @unique
-  tin         String?
-  phone       String?
-  email       String?
-  address     String?
-  isActive    Boolean      @default(true) @map("is_active")
-  createdAt   DateTime     @default(now()) @map("created_at")
-  updatedAt   DateTime     @updatedAt @map("updated_at")
-  contracts   Contract[]
-  customers   Customer[]
-  branches    Branch[]
-  departments Department[]
-  sites       Site[]
-  users       User[]
+  id             String       @id @default(uuid())
+  name           String
+  code           String       @unique
+  tin            String?
+  phone          String?
+  email          String?
+  address        String?
+  isActive       Boolean      @default(true) @map("is_active")
+  /// M5-K — optional overlay on DEFAULT_PASSWORD_POLICY (minLength + char classes).
+  passwordPolicy Json?        @map("password_policy")
+  createdAt      DateTime     @default(now()) @map("created_at")
+  updatedAt      DateTime     @updatedAt @map("updated_at")
+  contracts      Contract[]
+  customers      Customer[]
+  branches       Branch[]
+  departments    Department[]
+  sites          Site[]
+  users          User[]
 
   @@map("organizations")
   @@schema("enterprise")
@@ -274,11 +310,70 @@ model Customer {
   version              Int                      @default(1)
   contracts            Contract[]
   serviceRequests      CustomerServiceRequest[]
+  complaints           CustomerComplaint[]
+  contacts             CustomerContact[]
   organization         Organization             @relation(fields: [organizationId], references: [id])
 
   @@unique([organizationId, code])
   @@index([organizationId, tin])
   @@map("customers")
+  @@schema("customers")
+}
+
+/** Module 6-M — multi-contact directory (billing / ops / security beyond scalar contactPerson). */
+model CustomerContact {
+  id             String              @id @default(uuid())
+  organizationId String              @map("organization_id")
+  customerId     String              @map("customer_id")
+  fullName       String              @map("full_name")
+  designation    String?
+  role           CustomerContactRole @default(GENERAL)
+  email          String?
+  phone          String?
+  altPhone       String?             @map("alt_phone")
+  isPrimary      Boolean             @default(false) @map("is_primary")
+  isActive       Boolean             @default(true) @map("is_active")
+  notes          String?
+  createdBy      String?             @map("created_by")
+  createdAt      DateTime            @default(now()) @map("created_at")
+  updatedAt      DateTime            @updatedAt @map("updated_at")
+  customer       Customer            @relation(fields: [customerId], references: [id])
+
+  @@index([organizationId, customerId, isActive])
+  @@index([organizationId, customerId, isPrimary])
+  @@map("contacts")
+  @@schema("customers")
+}
+
+/** Module 6-B — customer complaints (distinct from service-request tickets). */
+model CustomerComplaint {
+  id               String                   @id @default(uuid())
+  organizationId   String                   @map("organization_id")
+  customerId       String                   @map("customer_id")
+  referenceNumber  String                   @map("reference_number")
+  category         ComplaintCategory
+  severity         ComplaintSeverity        @default(MEDIUM)
+  status           ComplaintStatus          @default(OPEN)
+  title            String
+  description      String
+  siteId           String?                  @map("site_id")
+  callbackPhone    String?                  @map("callback_phone")
+  createdBy        String                   @map("created_by")
+  acknowledgedBy   String?                  @map("acknowledged_by")
+  acknowledgedAt   DateTime?                @map("acknowledged_at")
+  resolvedBy       String?                  @map("resolved_by")
+  resolvedAt       DateTime?                @map("resolved_at")
+  closedBy         String?                  @map("closed_by")
+  closedAt         DateTime?                @map("closed_at")
+  resolutionNotes  String?                  @map("resolution_notes")
+  createdAt        DateTime                 @default(now()) @map("created_at")
+  updatedAt        DateTime                 @updatedAt @map("updated_at")
+  customer         Customer                 @relation(fields: [customerId], references: [id])
+
+  @@unique([organizationId, referenceNumber])
+  @@index([organizationId, customerId, status])
+  @@index([organizationId, status, createdAt])
+  @@map("complaints")
   @@schema("customers")
 }
 
@@ -473,6 +568,13 @@ model GuardProfile {
   firearmAuthorized  Boolean           @default(false) @map("firearm_authorized")
   firearmExpiry      DateTime?         @map("firearm_expiry") @db.Date
   clearanceVerified  Boolean           @default(false) @map("clearance_verified")
+  /// Module 8-B — medical fitness + national ID ref (thin; not full document vault)
+  medicalFitnessVerified Boolean       @default(false) @map("medical_fitness_verified")
+  medicalFitnessExpiry   DateTime?     @map("medical_fitness_expiry") @db.Date
+  nationalIdRef          String?       @map("national_id_ref")
+  /// Module 8-C — kit issued checklist (thin; full asset ledger stays libs/assets)
+  uniformIssued          Boolean       @default(false) @map("uniform_issued")
+  equipmentIssued        Boolean       @default(false) @map("equipment_issued")
   photoUrl           String?           @map("photo_url")
   phone              String?
   createdAt          DateTime          @default(now()) @map("created_at")
@@ -621,6 +723,8 @@ model AlertnessCheck {
   serverReceivedAt DateTime?         @map("server_received_at")
   clientEventId    String?           @unique @map("client_event_id")
   referenceNumber  String            @unique @map("reference_number")
+  /// Module 10-B — supervisor note on miss (design §10 record fields)
+  supervisorRemarks String?          @map("supervisor_remarks")
   createdAt        DateTime          @default(now()) @map("created_at")
 
   @@index([guardId, scheduledAt])
@@ -719,26 +823,47 @@ model Incident {
 }
 
 model CustomerEmployee {
-  id             String   @id @default(uuid())
-  organizationId String   @map("organization_id")
-  customerId     String   @map("customer_id")
+  id             String      @id @default(uuid())
+  organizationId String      @map("organization_id")
+  customerId     String      @map("customer_id")
   /** Linked IAM login for Portal 35.9 self-scope (nullable until invited). */
-  userId         String?  @unique @map("user_id")
-  employeeNumber String?  @map("employee_number")
-  fullName       String   @map("full_name")
+  userId         String?     @unique @map("user_id")
+  employeeNumber String?     @map("employee_number")
+  fullName       String      @map("full_name")
   email          String?
   phone          String?
   department     String?
-  accessCardRef  String?  @map("access_card_ref")
-  biometricRef   String?  @map("biometric_ref")
-  isActive       Boolean  @default(true) @map("is_active")
-  createdAt      DateTime @default(now()) @map("created_at")
-  updatedAt      DateTime @updatedAt @map("updated_at")
-  createdBy      String?  @map("created_by")
+  /** Module 11-B — gate/office privilege band (site grants deferred). */
+  accessLevel    AccessLevel @default(STANDARD) @map("access_level")
+  accessCardRef  String?     @map("access_card_ref")
+  biometricRef   String?     @map("biometric_ref")
+  isActive       Boolean     @default(true) @map("is_active")
+  createdAt      DateTime    @default(now()) @map("created_at")
+  updatedAt      DateTime    @updatedAt @map("updated_at")
+  createdBy      String?     @map("created_by")
 
   @@unique([customerId, email])
   @@index([customerId])
   @@map("customer_employees")
+  @@schema("access")
+}
+
+/**
+ * Module 11-C — site grants for a customer employee.
+ * Empty set = unrestricted (all active customer sites). Non-empty = only listed sites.
+ */
+model CustomerEmployeeSiteAccess {
+  id             String   @id @default(uuid())
+  organizationId String   @map("organization_id")
+  customerId     String   @map("customer_id")
+  employeeId     String   @map("employee_id")
+  siteId         String   @map("site_id")
+  createdAt      DateTime @default(now()) @map("created_at")
+  createdBy      String?  @map("created_by")
+
+  @@unique([employeeId, siteId])
+  @@index([organizationId, customerId, employeeId])
+  @@map("customer_employee_site_access")
   @@schema("access")
 }
 
@@ -768,12 +893,17 @@ model VisitorAppointment {
   customerId        String             @map("customer_id")
   siteId            String             @map("site_id")
   gateId            String?            @map("gate_id")
+  /** Approved contractor/consultant/guest login binding (Portal 35.10 · E4/E5) */
+  userId            String?            @map("user_id")
   referenceNumber   String             @map("reference_number")
   visitorName       String             @map("visitor_name")
   visitorEmail      String?            @map("visitor_email")
   visitorPhone      String?            @map("visitor_phone")
   companyName       String?            @map("company_name")
   purpose           String
+  /** Module 12-D — ID document refs (not MinIO scan) */
+  idType            VisitorIdType?     @map("id_type")
+  idNumber          String?            @map("id_number")
   hostUserId        String?            @map("host_user_id")
   hostName          String?            @map("host_name")
   vehiclePlate      String?            @map("vehicle_plate")
@@ -792,6 +922,7 @@ model VisitorAppointment {
   @@unique([organizationId, referenceNumber])
   @@index([customerId, status])
   @@index([siteId, validFrom])
+  @@index([organizationId, userId])
   @@map("visitor_appointments")
   @@schema("visitors")
 }
@@ -817,22 +948,25 @@ model VerificationCode {
 }
 
 model VisitorEntry {
-  id                 String              @id @default(uuid())
-  organizationId     String              @map("organization_id")
-  appointmentId      String?             @map("appointment_id")
-  siteId             String              @map("site_id")
-  gateId             String?             @map("gate_id")
-  visitorName        String              @map("visitor_name")
-  verificationCodeId String?             @map("verification_code_id")
+  id                 String                @id @default(uuid())
+  organizationId     String                @map("organization_id")
+  appointmentId      String?               @map("appointment_id")
+  siteId             String                @map("site_id")
+  gateId             String?               @map("gate_id")
+  visitorName        String                @map("visitor_name")
+  verificationCodeId String?               @map("verification_code_id")
   result             VerificationResult
-  denyReason         String?             @map("deny_reason")
-  verifiedBy         String?             @map("verified_by")
-  clientEventId      String?             @unique @map("client_event_id")
-  recordedAt         DateTime            @default(now()) @map("recorded_at")
-  createdAt          DateTime            @default(now()) @map("created_at")
-  appointment        VisitorAppointment? @relation(fields: [appointmentId], references: [id])
+  /** Module 12-B — entry/exit log; legacy rows default IN */
+  direction          VisitorEntryDirection @default(IN)
+  denyReason         String?               @map("deny_reason")
+  verifiedBy         String?               @map("verified_by")
+  clientEventId      String?               @unique @map("client_event_id")
+  recordedAt         DateTime              @default(now()) @map("recorded_at")
+  createdAt          DateTime              @default(now()) @map("created_at")
+  appointment        VisitorAppointment?   @relation(fields: [appointmentId], references: [id])
 
   @@index([siteId, recordedAt])
+  @@index([appointmentId, direction, recordedAt])
   @@map("visitor_entries")
   @@schema("visitors")
 }
@@ -858,6 +992,8 @@ model Vehicle {
   id             String          @id @default(uuid())
   organizationId String          @map("organization_id")
   customerId     String?         @map("customer_id")
+  /** Approved vehicle owner/driver login binding (Portal external · E3) */
+  userId         String?         @map("user_id")
   plateNumber    String          @map("plate_number")
   vehicleType    VehicleType     @default(CAR) @map("vehicle_type")
   make           String?
@@ -865,13 +1001,17 @@ model Vehicle {
   color          String?
   ownerName      String?         @map("owner_name")
   ownerPhone     String?         @map("owner_phone")
+  /** Module 13-A — RFID / tag reference (barrier ingest later) */
+  rfidTagRef     String?         @map("rfid_tag_ref")
   isActive       Boolean         @default(true) @map("is_active")
   createdAt      DateTime        @default(now()) @map("created_at")
   createdBy      String?         @map("created_by")
   permits        ParkingPermit[]
 
   @@unique([organizationId, plateNumber])
+  @@unique([organizationId, rfidTagRef])
   @@index([customerId])
+  @@index([organizationId, userId])
   @@map("vehicles")
   @@schema("parking")
 }
@@ -886,12 +1026,19 @@ model ParkingPermit {
   status         PermitStatus @default(PENDING)
   validFrom      DateTime     @map("valid_from")
   validUntil     DateTime     @map("valid_until")
+  /** Module 13-B — optional permit fee (DRAFT invoice via finance bill action) */
+  feeAmount      Decimal?     @map("fee_amount") @db.Decimal(14, 2)
+  currency       String?      @default("TZS")
+  /** Soft link to finance.invoices.id (no cross-schema FK) */
+  invoiceId      String?      @map("invoice_id")
+  billedAt       DateTime?    @map("billed_at")
   createdAt      DateTime     @default(now()) @map("created_at")
   createdBy      String?      @map("created_by")
   vehicle        Vehicle      @relation(fields: [vehicleId], references: [id])
 
   @@unique([organizationId, permitNumber])
   @@index([siteId, status])
+  @@index([invoiceId])
   @@map("parking_permits")
   @@schema("parking")
 }
@@ -1989,6 +2136,16 @@ enum CustomerLifecycleStatus {
   @@schema("customers")
 }
 
+enum CustomerContactRole {
+  GENERAL
+  BILLING
+  OPERATIONS
+  SECURITY
+  OTHER
+
+  @@schema("customers")
+}
+
 enum ServiceRequestCategory {
   EXTRA_GUARDS
   COVERAGE
@@ -2012,6 +2169,37 @@ enum ServiceRequestStatus {
   OPEN
   ACKNOWLEDGED
   IN_PROGRESS
+  RESOLVED
+  CLOSED
+  CANCELLED
+
+  @@schema("customers")
+}
+
+enum ComplaintCategory {
+  SERVICE_QUALITY
+  GUARD_CONDUCT
+  BILLING
+  ATTENDANCE
+  SECURITY
+  OTHER
+
+  @@schema("customers")
+}
+
+enum ComplaintSeverity {
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
+
+  @@schema("customers")
+}
+
+enum ComplaintStatus {
+  OPEN
+  ACKNOWLEDGED
+  UNDER_REVIEW
   RESOLVED
   CLOSED
   CANCELLED
@@ -2043,6 +2231,7 @@ enum ApprovalStatus {
 enum GuardStatus {
   ACTIVE
   ON_LEAVE
+  ABSENT
   SUSPENDED
   TRANSFERRED
   TERMINATED
@@ -2101,6 +2290,8 @@ enum AlertnessStatus {
   CONFIRMED
   MISSED
   LATE
+  /// Module 8-F — cancelled when guard marked ABSENT (no miss escalation)
+  CANCELLED
 
   @@schema("attendance")
 }
@@ -2139,6 +2330,15 @@ enum AccessMethod {
   @@schema("access")
 }
 
+/** Module 11-B — customer employee access privilege (thin; not site ACL yet). */
+enum AccessLevel {
+  STANDARD
+  RESTRICTED
+  ELEVATED
+
+  @@schema("access")
+}
+
 enum AppointmentStatus {
   PENDING
   APPROVED
@@ -2159,6 +2359,24 @@ enum VerificationResult {
   DENIED_GATE_MISMATCH
   DENIED_SITE_MISMATCH
   DENIED_BLACKLISTED
+
+  @@schema("visitors")
+}
+
+/** Module 12-B — visitor gate entry/exit direction */
+enum VisitorEntryDirection {
+  IN
+  OUT
+
+  @@schema("visitors")
+}
+
+/** Module 12-D — visitor ID document type (refs only) */
+enum VisitorIdType {
+  NIDA
+  PASSPORT
+  DRIVERS_LICENSE
+  OTHER
 
   @@schema("visitors")
 }

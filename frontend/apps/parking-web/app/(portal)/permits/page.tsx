@@ -2,9 +2,11 @@
 
 import {
   approvePermit,
+  billPermit,
   listPermits,
   listVehicles,
   rejectPermit,
+  updatePermit,
   type ParkingOpsPermit,
   type ParkingOpsVehicle,
 } from '@pssms/api-client';
@@ -13,11 +15,13 @@ import {
   LayoutGrid,
   List,
   MapPin,
+  Receipt,
   RefreshCw,
   Search,
+  Wallet,
   X,
 } from 'lucide-react';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { FormEvent, useCallback, useEffect, useMemo, useState } from 'react';
 import {
   VEHICLE_META,
   VehicleGlyph,
@@ -36,6 +40,23 @@ function formatDate(iso: string): string {
     month: 'short',
     year: 'numeric',
   });
+}
+
+function formatFee(
+  amount?: number | null,
+  currency?: string | null,
+): string | null {
+  if (amount == null || Number.isNaN(amount)) return null;
+  const cur = currency?.trim() || 'TZS';
+  try {
+    return new Intl.NumberFormat(undefined, {
+      style: 'currency',
+      currency: cur.length === 3 ? cur : 'TZS',
+      maximumFractionDigits: 0,
+    }).format(amount);
+  } catch {
+    return `${amount.toLocaleString()} ${cur}`;
+  }
 }
 
 function statusTone(status: string): string {
@@ -79,6 +100,11 @@ export default function PermitsPage() {
   const [typeFilter, setTypeFilter] = useState<VehicleKind | 'ALL'>('ALL');
   const [search, setSearch] = useState('');
   const [view, setView] = useState<ViewMode>('cards');
+  const [feeEdit, setFeeEdit] = useState<ParkingOpsPermit | null>(null);
+  const [feeDraft, setFeeDraft] = useState('');
+  const [currencyDraft, setCurrencyDraft] = useState('TZS');
+  const [savingFee, setSavingFee] = useState(false);
+  const [modalError, setModalError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -97,6 +123,63 @@ export default function PermitsPage() {
   useEffect(() => {
     void load();
   }, [load]);
+
+  function openFeeEdit(p: ParkingOpsPermit) {
+    setFeeEdit(p);
+    setFeeDraft(
+      p.feeAmount != null && !Number.isNaN(p.feeAmount)
+        ? String(p.feeAmount)
+        : '',
+    );
+    setCurrencyDraft(p.currency?.trim() || 'TZS');
+    setModalError(null);
+  }
+
+  async function onSaveFee(e: FormEvent) {
+    e.preventDefault();
+    if (!feeEdit) return;
+    setSavingFee(true);
+    setModalError(null);
+    try {
+      const trimmed = feeDraft.trim();
+      const feeAmount =
+        trimmed === '' ? null : Number(trimmed.replace(/,/g, ''));
+      if (feeAmount != null && (Number.isNaN(feeAmount) || feeAmount < 0)) {
+        setModalError('Enter a valid fee amount (or leave blank to clear)');
+        return;
+      }
+      await updatePermit(feeEdit.id, {
+        feeAmount,
+        currency: currencyDraft.trim() || 'TZS',
+      });
+      setFeeEdit(null);
+      await load();
+    } catch (err) {
+      setModalError(err instanceof Error ? err.message : 'Save failed');
+    } finally {
+      setSavingFee(false);
+    }
+  }
+
+  async function onBill(id: string) {
+    if (!window.confirm('Create a DRAFT finance invoice for this permit fee?')) {
+      return;
+    }
+    setBusyId(id);
+    setError(null);
+    try {
+      const billed = await billPermit(id);
+      await load();
+      if (billed.invoiceNumber) {
+        setError(null);
+        window.alert(`Draft invoice ${billed.invoiceNumber} created.`);
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Bill failed');
+    } finally {
+      setBusyId(null);
+    }
+  }
 
   const vehicleById = useMemo(() => {
     const m = new Map<string, ParkingOpsVehicle>();
@@ -193,7 +276,8 @@ export default function PermitsPage() {
             Permits
           </h1>
           <p className="mt-1 text-sm text-slate-500">
-            Review authorizations — approve pending (creator ≠ approver).
+            Review authorizations — approve pending (creator ≠ approver). Set
+            fee and Bill to create a DRAFT invoice (Module 13-B).
           </p>
         </div>
         <button
@@ -403,6 +487,24 @@ export default function PermitsPage() {
                   {p.owner ? (
                     <p className="text-xs text-slate-500">Owner · {p.owner}</p>
                   ) : null}
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    {formatFee(p.feeAmount, p.currency) ? (
+                      <span className="inline-flex items-center gap-1 rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-bold text-amber-900 ring-1 ring-amber-200">
+                        <Wallet className="h-3 w-3" />
+                        {formatFee(p.feeAmount, p.currency)}
+                      </span>
+                    ) : (
+                      <span className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">
+                        No fee
+                      </span>
+                    )}
+                    {p.invoiceNumber ? (
+                      <span className="inline-flex items-center gap-1 rounded-full bg-teal-50 px-2 py-0.5 font-mono text-[10px] font-bold text-teal-800 ring-1 ring-teal-200">
+                        <Receipt className="h-3 w-3" />
+                        {p.invoiceNumber}
+                      </span>
+                    ) : null}
+                  </div>
                   <div className="mt-1 grid grid-cols-2 gap-2 rounded-xl bg-slate-50 px-3 py-2 text-xs">
                     <div>
                       <p className="font-semibold uppercase tracking-wider text-slate-400">
@@ -419,28 +521,54 @@ export default function PermitsPage() {
                   </div>
                 </div>
 
-                {pending ? (
-                  <div className="flex gap-2 border-t border-slate-100 px-4 py-3">
+                <div className="flex flex-wrap gap-2 border-t border-slate-100 px-4 py-3">
+                  {pending ? (
+                    <>
+                      <button
+                        type="button"
+                        disabled={busyId === p.id}
+                        onClick={() => void onApprove(p.id)}
+                        className="inline-flex flex-1 items-center justify-center gap-1.5 rounded-xl bg-emerald-600 px-3 py-2 text-xs font-bold text-white hover:bg-emerald-500 disabled:opacity-60"
+                      >
+                        <Check className="h-3.5 w-3.5" />
+                        {busyId === p.id ? '…' : 'Approve'}
+                      </button>
+                      <button
+                        type="button"
+                        disabled={busyId === p.id}
+                        onClick={() => void onReject(p.id)}
+                        className="inline-flex flex-1 items-center justify-center gap-1.5 rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-xs font-bold text-rose-700 hover:bg-rose-100 disabled:opacity-60"
+                      >
+                        <X className="h-3.5 w-3.5" />
+                        Reject
+                      </button>
+                    </>
+                  ) : null}
+                  {!p.invoiceId ? (
+                    <button
+                      type="button"
+                      onClick={() => openFeeEdit(p)}
+                      className="inline-flex items-center justify-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-bold text-slate-700 hover:bg-slate-50"
+                    >
+                      <Wallet className="h-3.5 w-3.5" />
+                      Edit fee
+                    </button>
+                  ) : null}
+                  {p.status === 'ACTIVE' &&
+                  p.feeAmount != null &&
+                  p.feeAmount > 0 &&
+                  !p.invoiceId ? (
                     <button
                       type="button"
                       disabled={busyId === p.id}
-                      onClick={() => void onApprove(p.id)}
-                      className="inline-flex flex-1 items-center justify-center gap-1.5 rounded-xl bg-emerald-600 px-3 py-2 text-xs font-bold text-white hover:bg-emerald-500 disabled:opacity-60"
+                      onClick={() => void onBill(p.id)}
+                      className="inline-flex flex-1 items-center justify-center gap-1.5 rounded-xl bg-[#0d9488] px-3 py-2 text-xs font-bold text-white hover:bg-teal-600 disabled:opacity-60"
                     >
-                      <Check className="h-3.5 w-3.5" />
-                      {busyId === p.id ? '…' : 'Approve'}
+                      <Receipt className="h-3.5 w-3.5" />
+                      {busyId === p.id ? '…' : 'Bill'}
                     </button>
-                    <button
-                      type="button"
-                      disabled={busyId === p.id}
-                      onClick={() => void onReject(p.id)}
-                      className="inline-flex flex-1 items-center justify-center gap-1.5 rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-xs font-bold text-rose-700 hover:bg-rose-100 disabled:opacity-60"
-                    >
-                      <X className="h-3.5 w-3.5" />
-                      Reject
-                    </button>
-                  </div>
-                ) : null}
+                  ) : null}
+                </div>
               </article>
             );
           })}
@@ -454,6 +582,7 @@ export default function PermitsPage() {
                 <th className="px-4 py-3">Permit</th>
                 <th className="px-4 py-3">Type</th>
                 <th className="px-4 py-3">Status</th>
+                <th className="px-4 py-3">Fee</th>
                 <th className="px-4 py-3">Site</th>
                 <th className="px-4 py-3">Valid</th>
                 <th className="px-4 py-3">Actions</th>
@@ -462,6 +591,7 @@ export default function PermitsPage() {
             <tbody>
               {filtered.map((p) => {
                 const meta = VEHICLE_META[p.kind];
+                const feeLabel = formatFee(p.feeAmount, p.currency);
                 return (
                   <tr
                     key={p.id}
@@ -500,33 +630,74 @@ export default function PermitsPage() {
                         {p.status}
                       </span>
                     </td>
+                    <td className="px-4 py-3 text-xs">
+                      {feeLabel ? (
+                        <div>
+                          <p className="font-bold text-slate-800">{feeLabel}</p>
+                          {p.invoiceNumber ? (
+                            <p className="font-mono text-[10px] text-teal-700">
+                              {p.invoiceNumber}
+                            </p>
+                          ) : null}
+                        </div>
+                      ) : (
+                        <span className="text-slate-400">—</span>
+                      )}
+                    </td>
                     <td className="px-4 py-3 font-medium text-slate-700">{p.site}</td>
                     <td className="px-4 py-3 text-xs text-slate-600">
                       {formatDate(p.validFrom)} → {formatDate(p.validUntil)}
                     </td>
                     <td className="px-4 py-3">
-                      {p.status === 'PENDING' ? (
-                        <div className="flex gap-1.5">
+                      <div className="flex flex-wrap gap-1.5">
+                        {p.status === 'PENDING' ? (
+                          <>
+                            <button
+                              type="button"
+                              disabled={busyId === p.id}
+                              onClick={() => void onApprove(p.id)}
+                              className="rounded-lg bg-emerald-600 px-2.5 py-1 text-[11px] font-bold text-white hover:bg-emerald-500 disabled:opacity-60"
+                            >
+                              Approve
+                            </button>
+                            <button
+                              type="button"
+                              disabled={busyId === p.id}
+                              onClick={() => void onReject(p.id)}
+                              className="rounded-lg border border-rose-200 bg-rose-50 px-2.5 py-1 text-[11px] font-bold text-rose-700 disabled:opacity-60"
+                            >
+                              Reject
+                            </button>
+                          </>
+                        ) : null}
+                        {!p.invoiceId ? (
+                          <button
+                            type="button"
+                            onClick={() => openFeeEdit(p)}
+                            className="rounded-lg border border-slate-200 bg-white px-2.5 py-1 text-[11px] font-bold text-slate-700"
+                          >
+                            Fee
+                          </button>
+                        ) : null}
+                        {p.status === 'ACTIVE' &&
+                        p.feeAmount != null &&
+                        p.feeAmount > 0 &&
+                        !p.invoiceId ? (
                           <button
                             type="button"
                             disabled={busyId === p.id}
-                            onClick={() => void onApprove(p.id)}
-                            className="rounded-lg bg-emerald-600 px-2.5 py-1 text-[11px] font-bold text-white hover:bg-emerald-500 disabled:opacity-60"
+                            onClick={() => void onBill(p.id)}
+                            className="rounded-lg bg-[#0d9488] px-2.5 py-1 text-[11px] font-bold text-white disabled:opacity-60"
                           >
-                            Approve
+                            Bill
                           </button>
-                          <button
-                            type="button"
-                            disabled={busyId === p.id}
-                            onClick={() => void onReject(p.id)}
-                            className="rounded-lg border border-rose-200 bg-rose-50 px-2.5 py-1 text-[11px] font-bold text-rose-700 disabled:opacity-60"
-                          >
-                            Reject
-                          </button>
-                        </div>
-                      ) : (
-                        <span className="text-slate-300">—</span>
-                      )}
+                        ) : null}
+                        {p.invoiceId ? (
+                          <span className="text-[11px] font-semibold text-teal-700">
+                            Billed
+                          </span>
+                        ) : null}
+                      </div>
                     </td>
                   </tr>
                 );
@@ -535,6 +706,87 @@ export default function PermitsPage() {
           </table>
         </div>
       )}
+
+      {feeEdit ? (
+        <div className="fixed inset-0 z-50 flex items-end justify-center bg-slate-900/40 p-4 sm:items-center">
+          <div
+            role="dialog"
+            aria-modal="true"
+            className="w-full max-w-md rounded-2xl border border-slate-200 bg-white shadow-xl"
+          >
+            <div className="flex items-start justify-between gap-3 border-b border-slate-100 px-5 py-4">
+              <div>
+                <p className="text-xs font-bold uppercase tracking-wider text-slate-400">
+                  Module 13-B
+                </p>
+                <h2 className="mt-0.5 text-lg font-bold text-slate-900">
+                  Edit permit fee
+                </h2>
+                <p className="mt-1 font-mono text-sm text-slate-600">
+                  {feeEdit.permitNumber}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setFeeEdit(null)}
+                className="rounded-lg p-1.5 text-slate-500 hover:bg-slate-100"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+            <form onSubmit={(e) => void onSaveFee(e)} className="space-y-4 px-5 py-4">
+              {modalError ? (
+                <p className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-800">
+                  {modalError}
+                </p>
+              ) : null}
+              <div>
+                <label className="text-xs font-bold uppercase tracking-wider text-slate-500">
+                  Fee amount
+                </label>
+                <input
+                  value={feeDraft}
+                  onChange={(e) => setFeeDraft(e.target.value)}
+                  inputMode="decimal"
+                  placeholder="e.g. 150000"
+                  className="mt-1.5 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 font-mono text-sm outline-none focus:border-[#2563eb] focus:bg-white focus:ring-2 focus:ring-[#2563eb]/15"
+                />
+              </div>
+              <div>
+                <label className="text-xs font-bold uppercase tracking-wider text-slate-500">
+                  Currency
+                </label>
+                <input
+                  value={currencyDraft}
+                  onChange={(e) => setCurrencyDraft(e.target.value.toUpperCase())}
+                  maxLength={3}
+                  className="mt-1.5 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 font-mono text-sm uppercase outline-none focus:border-[#2563eb] focus:bg-white focus:ring-2 focus:ring-[#2563eb]/15"
+                />
+              </div>
+              <p className="text-xs text-slate-500">
+                Approve does not bill. Use Bill on an ACTIVE permit with a fee
+                and vehicle customer to create a DRAFT invoice.
+              </p>
+              <div className="flex justify-end gap-2 pt-1">
+                <button
+                  type="button"
+                  onClick={() => setFeeEdit(null)}
+                  className="rounded-xl border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-700"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={savingFee}
+                  className="rounded-xl bg-[#2563eb] px-4 py-2 text-sm font-bold text-white disabled:opacity-60"
+                >
+                  {savingFee ? 'Saving…' : 'Save fee'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }

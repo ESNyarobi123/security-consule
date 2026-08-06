@@ -36,7 +36,7 @@ export default function AppLayout() {
         }}
       >
         <Stack.Screen name="index" options={{ title: 'Duty' }} />
-        <Stack.Screen name="verify" options={{ title: 'Verify code' }} />
+        <Stack.Screen name="verify" options={{ title: 'Gate punch' }} />
         <Stack.Screen name="result" options={{ title: 'Result', headerBackVisible: false }} />
       </Stack>
     </DutyProvider>

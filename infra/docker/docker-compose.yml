@@ -200,7 +200,7 @@ services:
     command: >
       sh -c "
         npx prisma db execute --file prisma/migrations/0000_schemas/migration.sql --schema prisma/schema.prisma &&
-        npx prisma db push --schema prisma/schema.prisma &&
+        npx prisma db push --schema prisma/schema.prisma --accept-data-loss &&
         npx prisma db execute --file prisma/migrations/0001_reporting_rls/migration.sql --schema prisma/schema.prisma &&
         npx prisma db execute --file prisma/migrations/0002_iam_security/migration.sql --schema prisma/schema.prisma &&
         npx prisma db execute --file prisma/migrations/0003_rls_core/migration.sql --schema prisma/schema.prisma &&
@@ -219,6 +219,24 @@ services:
         npx prisma db execute --file prisma/migrations/0016_patrol_route_sla/migration.sql --schema prisma/schema.prisma &&
         npx prisma db execute --file prisma/migrations/0017_customer_employee_user_id/migration.sql --schema prisma/schema.prisma &&
         npx prisma db execute --file prisma/migrations/0018_b2b_guard_supply/migration.sql --schema prisma/schema.prisma &&
+        npx prisma db execute --file prisma/migrations/0019_vehicle_owner_user_id/migration.sql --schema prisma/schema.prisma &&
+        npx prisma db execute --file prisma/migrations/0020_visitor_appointment_user_id/migration.sql --schema prisma/schema.prisma &&
+        npx prisma db execute --file prisma/migrations/0021_iam_change_request/migration.sql --schema prisma/schema.prisma &&
+        npx prisma db execute --file prisma/migrations/0022_iam_change_request_reason/migration.sql --schema prisma/schema.prisma &&
+        npx prisma db execute --file prisma/migrations/0023_organization_password_policy/migration.sql --schema prisma/schema.prisma &&
+        npx prisma db execute --file prisma/migrations/0024_customer_complaints/migration.sql --schema prisma/schema.prisma &&
+        npx prisma db execute --file prisma/migrations/0025_customer_contacts/migration.sql --schema prisma/schema.prisma &&
+        npx prisma db execute --file prisma/migrations/0026_guard_medical_id/migration.sql --schema prisma/schema.prisma &&
+        npx prisma db execute --file prisma/migrations/0027_guard_uniform_equipment/migration.sql --schema prisma/schema.prisma &&
+        npx prisma db execute --file prisma/migrations/0028_guard_status_absent/migration.sql --schema prisma/schema.prisma &&
+        npx prisma db execute --file prisma/migrations/0029_alertness_status_cancelled/migration.sql --schema prisma/schema.prisma &&
+        npx prisma db execute --file prisma/migrations/0030_alertness_supervisor_remarks/migration.sql --schema prisma/schema.prisma &&
+        npx prisma db execute --file prisma/migrations/0031_customer_employee_access_level/migration.sql --schema prisma/schema.prisma &&
+        npx prisma db execute --file prisma/migrations/0032_customer_employee_site_access/migration.sql --schema prisma/schema.prisma &&
+        npx prisma db execute --file prisma/migrations/0033_visitor_entry_direction/migration.sql --schema prisma/schema.prisma &&
+        npx prisma db execute --file prisma/migrations/0034_visitor_id_document/migration.sql --schema prisma/schema.prisma &&
+        npx prisma db execute --file prisma/migrations/0035_vehicle_rfid_tag/migration.sql --schema prisma/schema.prisma &&
+        npx prisma db execute --file prisma/migrations/0036_parking_permit_billing/migration.sql --schema prisma/schema.prisma &&
         npm run prisma:seed
       "
     depends_on:

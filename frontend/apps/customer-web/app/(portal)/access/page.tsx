@@ -191,11 +191,18 @@ export default function AccessPage() {
                       <p className="mt-0.5 font-mono text-[11px] text-[#8a8886]">
                         {e.employeeNumber ?? e.id.slice(0, 8)}
                       </p>
-                      {e.department ? (
-                        <span className="mt-2 inline-flex rounded-full bg-[#eff6fc] px-2 py-0.5 text-[10px] font-semibold text-[#0078d4] ring-1 ring-sky-200/80">
-                          {e.department}
-                        </span>
-                      ) : null}
+                      <div className="mt-2 flex flex-wrap gap-1">
+                        {e.department ? (
+                          <span className="inline-flex rounded-full bg-[#eff6fc] px-2 py-0.5 text-[10px] font-semibold text-[#0078d4] ring-1 ring-sky-200/80">
+                            {e.department}
+                          </span>
+                        ) : null}
+                        {e.accessLevel ? (
+                          <span className="inline-flex rounded-full bg-[#f3f2f1] px-2 py-0.5 text-[10px] font-semibold text-[#323130] ring-1 ring-[#e1dfdd]">
+                            {e.accessLevel}
+                          </span>
+                        ) : null}
+                      </div>
                       <p className="mt-2 truncate text-xs text-[#605e5c]">
                         {e.email ?? e.phone ?? '—'}
                       </p>

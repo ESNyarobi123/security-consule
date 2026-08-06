@@ -3,8 +3,10 @@
 import {
   actOnApproval,
   approveLeaveRequest,
+  approveRoleChangeRequest,
   listApprovalInstances,
   rejectLeaveRequest,
+  rejectRoleChangeRequest,
   type ApprovalInstance,
 } from '@pssms/api-client';
 import { getSessionUser } from '@pssms/auth';
@@ -114,12 +116,21 @@ export default function ApprovalsPage() {
     setError(null);
     setActing(true);
     try {
-      // Leave must use domain routes so LeaveRequest status syncs on final step.
+      // Domain routes keep Leave / IAM change rows in sync on final step.
       if (row.resourceType === 'LeaveRequest') {
         if (decision === 'APPROVE') {
           await approveLeaveRequest(row.resourceId);
         } else {
           await rejectLeaveRequest(
+            row.resourceId,
+            note?.trim() || 'Rejected from admin queue',
+          );
+        }
+      } else if (row.resourceType === 'IamChangeRequest') {
+        if (decision === 'APPROVE') {
+          await approveRoleChangeRequest(row.resourceId);
+        } else {
+          await rejectRoleChangeRequest(
             row.resourceId,
             note?.trim() || 'Rejected from admin queue',
           );

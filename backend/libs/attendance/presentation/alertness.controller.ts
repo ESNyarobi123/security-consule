@@ -24,6 +24,7 @@ import {
 import { AlertnessService } from '../application/alertness.service';
 import {
   ConfirmAlertnessDto,
+  MarkAlertnessMissedDto,
   ScheduleAlertnessDto,
 } from './dto/attendance.dto';
 
@@ -59,6 +60,42 @@ export class AlertnessController {
     return this.service.listPending(user, guardId);
   }
 
+  @Get('history')
+  @ApiOperation({
+    summary:
+      'Module 10-C — completed alertness history (CONFIRMED/LATE/MISSED/CANCELLED) for audit',
+  })
+  @ApiQuery({ name: 'guardId', required: false })
+  @ApiQuery({ name: 'siteId', required: false })
+  @ApiQuery({
+    name: 'status',
+    required: false,
+    description: 'Comma-separated AlertnessStatus (default: completed set)',
+  })
+  @ApiQuery({ name: 'from', required: false, description: 'ISO scheduledAt ≥' })
+  @ApiQuery({ name: 'to', required: false, description: 'ISO scheduledAt <' })
+  @ApiQuery({ name: 'take', required: false, type: Number })
+  @ApiOkResponse({ description: 'Enriched AlertnessCheck history[]' })
+  history(
+    @CurrentUser() user: AuthUser,
+    @Query('guardId') guardId?: string,
+    @Query('siteId') siteId?: string,
+    @Query('status') status?: string,
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+    @Query('take') take?: string,
+  ) {
+    const n = take ? Number(take) : undefined;
+    return this.service.listHistory(user, {
+      guardId,
+      siteId,
+      status,
+      from,
+      to,
+      take: n !== undefined && Number.isFinite(n) ? n : undefined,
+    });
+  }
+
   @Post('scan-missed')
   @UseGuards(PermissionsGuard)
   @RequireAnyPermissions('operations.manage', 'attendance.manage')
@@ -85,9 +122,14 @@ export class AlertnessController {
   @UseGuards(PermissionsGuard)
   @RequireAnyPermissions('operations.manage', 'attendance.manage')
   @ApiOperation({
-    summary: 'Mark alertness as missed — creates field alert for supervisor',
+    summary:
+      'Mark alertness as missed — creates field alert; optional supervisor remarks (§10-B)',
   })
-  missed(@Param('id') id: string, @CurrentUser() user: AuthUser) {
-    return this.service.markMissed(id, user);
+  missed(
+    @Param('id') id: string,
+    @Body() dto: MarkAlertnessMissedDto,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.service.markMissed(id, user, dto.supervisorRemarks);
   }
 }

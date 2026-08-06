@@ -11,6 +11,8 @@ export type PendingAlertnessCheck = {
   scheduledAt: string;
   status: string;
   referenceNumber?: string | null;
+  /** Module 10-A — confirm after due records LATE */
+  pastDue?: boolean;
 };
 
 export async function fetchPendingAlertness(): Promise<PendingAlertnessCheck[]> {

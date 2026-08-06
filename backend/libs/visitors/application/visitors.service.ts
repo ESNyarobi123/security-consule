@@ -7,7 +7,12 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { AppointmentStatus, VerificationResult } from '@prisma/client';
+import {
+  AppointmentStatus,
+  VerificationResult,
+  VisitorEntryDirection,
+  VisitorIdType,
+} from '@prisma/client';
 import {
   PrismaService,
   AuthUser,
@@ -16,9 +21,15 @@ import {
   getOrgContext,
 } from '@pssms/shared';
 import { AuditService } from '@pssms/audit';
-import { NotificationsService } from '@pssms/notifications';
+import {
+  NotificationsService,
+  OutboxWriterService,
+} from '@pssms/notifications';
 import {
   CreateVisitorAppointmentDto,
+  GateDenyHostNotifiedDto,
+  GateExitDto,
+  GateExitResponseDto,
   GateVerifyDto,
   GateVerifyResponseDto,
   IssueCodeResponseDto,
@@ -31,6 +42,9 @@ import {
 const GATE_VERIFY_RATE_LIMIT = 30;
 const GATE_VERIFY_WINDOW_MS = 60_000;
 
+/** Module 12-A — FieldAlert type for gate deny (branch /ops escalate ladder). */
+const VISITOR_GATE_DENIED_ALERT = 'VISITOR_GATE_DENIED';
+
 @Injectable()
 export class VisitorsService {
   private readonly gateVerifyAttempts = new Map<string, number[]>();
@@ -40,6 +54,7 @@ export class VisitorsService {
     private readonly audit: AuditService,
     private readonly config: ConfigService,
     private readonly notifications: NotificationsService,
+    private readonly outbox: OutboxWriterService,
   ) {}
 
   async publicConfig(): Promise<{
@@ -105,6 +120,8 @@ export class VisitorsService {
   ): Promise<VisitorAppointmentResponseDto> {
     await this.assertCustomerInOrg(dto.customerId, organizationId);
 
+    const idFields = this.resolveVisitorIdFields(dto.idType, dto.idNumber);
+
     const referenceNumber = await this.nextReferenceNumber(organizationId);
     const appointment = await this.prisma.visitorAppointment.create({
       data: {
@@ -118,6 +135,8 @@ export class VisitorsService {
         visitorPhone: dto.visitorPhone,
         companyName: dto.companyName,
         purpose: dto.purpose,
+        idType: idFields.idType,
+        idNumber: idFields.idNumber,
         hostUserId: dto.hostUserId ?? user?.id,
         hostName: dto.hostName,
         vehiclePlate: dto.vehiclePlate,
@@ -137,6 +156,78 @@ export class VisitorsService {
     });
 
     return this.toAppointmentDto(appointment);
+  }
+
+  /** E4/E5/E6 — contractor/consultant/provider: own profile + appointment summary. */
+  async getContractorMe(user: AuthUser): Promise<{
+    userId: string;
+    /** @deprecated use userId — kept for thin UI compat */
+    contractorUserId: string;
+    email: string;
+    fullName: string;
+    appointmentCount: number;
+    appointments: VisitorAppointmentResponseDto[];
+  }> {
+    const appointments = await this.listContractorAppointments(user);
+    return {
+      userId: user.id,
+      contractorUserId: user.id,
+      email: user.email,
+      fullName: user.fullName,
+      appointmentCount: appointments.length,
+      appointments,
+    };
+  }
+
+  async listContractorAppointments(
+    user: AuthUser,
+  ): Promise<VisitorAppointmentResponseDto[]> {
+    const rows = await this.prisma.visitorAppointment.findMany({
+      where: {
+        organizationId: user.organizationId,
+        userId: user.id,
+      },
+      orderBy: { createdAt: 'desc' },
+      take: 100,
+    });
+    if (rows.length === 0) return [];
+
+    const siteIds = [...new Set(rows.map((r) => r.siteId))];
+    const sites = await this.prisma.site.findMany({
+      where: { id: { in: siteIds } },
+      select: { id: true, code: true, name: true },
+    });
+    const siteById = new Map(sites.map((s) => [s.id, s]));
+
+    return rows.map((a) => {
+      const site = siteById.get(a.siteId);
+      return this.toAppointmentDto(a, {
+        siteCode: site?.code ?? null,
+        siteName: site?.name ?? null,
+      });
+    });
+  }
+
+  async listContractorEntries(
+    user: AuthUser,
+  ): Promise<VisitorEntryResponseDto[]> {
+    const rows = await this.prisma.visitorEntry.findMany({
+      where: {
+        organizationId: user.organizationId,
+        appointment: { userId: user.id },
+      },
+      include: {
+        appointment: { select: { idType: true, idNumber: true } },
+      },
+      orderBy: { recordedAt: 'desc' },
+      take: 100,
+    });
+    return rows.map((e) =>
+      this.toEntryDto(e, {
+        idType: e.appointment?.idType ?? null,
+        idNumber: e.appointment?.idNumber ?? null,
+      }),
+    );
   }
 
   async listAppointments(
@@ -224,23 +315,38 @@ export class VisitorsService {
       after: { appointment: updated, codeId: codeRecord.id },
     });
 
-    if (updated.visitorPhone) {
-      try {
-        const site = await this.prisma.site.findFirst({
-          where: { id: updated.siteId },
-        });
-        await this.notifications.enqueueVisitorGateCode({
+    let delivery = { email: false, sms: false, whatsapp: false };
+    try {
+      const site = await this.prisma.site.findFirst({
+        where: { id: updated.siteId },
+      });
+      delivery = await this.notifications.enqueueVisitorGateCode({
+        organizationId: user.organizationId,
+        appointmentId: id,
+        visitorPhone: updated.visitorPhone,
+        visitorEmail: updated.visitorEmail,
+        plainCode,
+        siteName: site?.name ?? updated.siteId,
+        validUntil: updated.validUntil,
+        actorId: user.id,
+      });
+      if (delivery.email || delivery.sms || delivery.whatsapp) {
+        await this.audit.record({
           organizationId: user.organizationId,
-          appointmentId: id,
-          visitorPhone: updated.visitorPhone,
-          plainCode,
-          siteName: site?.name ?? updated.siteId,
-          validUntil: updated.validUntil,
           actorId: user.id,
+          action: 'visitor.code.delivery_queued',
+          resourceType: 'VisitorAppointment',
+          resourceId: id,
+          after: {
+            channels: delivery,
+            hasEmail: !!updated.visitorEmail?.trim(),
+            hasPhone: !!updated.visitorPhone?.trim(),
+          },
         });
-      } catch {
-        // Notification enqueue must not block approval response
       }
+    } catch {
+      // Notification enqueue must not block approval — still return the code
+      delivery = { email: false, sms: false, whatsapp: false };
     }
 
     return {
@@ -249,6 +355,7 @@ export class VisitorsService {
       validUntil: updated.validUntil,
       siteId: updated.siteId,
       gateId: updated.gateId,
+      delivery,
     };
   }
 
@@ -301,12 +408,21 @@ export class VisitorsService {
     if (dto.clientEventId) {
       const existing = await this.prisma.visitorEntry.findUnique({
         where: { clientEventId: dto.clientEventId },
+        include: {
+          appointment: { select: { idType: true, idNumber: true } },
+        },
       });
       if (existing) {
+        const idType = existing.appointment?.idType ?? null;
+        const idNumber = existing.appointment?.idNumber ?? null;
         return {
           allowed: existing.result === VerificationResult.ALLOWED,
           result: existing.result,
-          entry: this.toEntryDto(existing),
+          entry: this.toEntryDto(existing, { idType, idNumber }),
+          fieldAlertId: null,
+          hostNotified: null,
+          idType,
+          idNumber,
         };
       }
     }
@@ -320,11 +436,15 @@ export class VisitorsService {
     let appointmentId: string | undefined;
     let verificationCodeId: string | undefined;
     let visitorName = 'Unknown';
+    let matchedIdType: VisitorIdType | null = null;
+    let matchedIdNumber: string | null = null;
     let allowMatched: {
       id: string;
       appointmentId: string;
       maxUses: number;
       visitorName: string;
+      idType: VisitorIdType | null;
+      idNumber: string | null;
     } | null = null;
 
     const blacklistOr: { visitorPhone?: string; visitorEmail?: string }[] = [];
@@ -365,43 +485,59 @@ export class VisitorsService {
         appointmentId = matched.appointmentId;
         verificationCodeId = matched.id;
         visitorName = matched.appointment.visitorName;
+        matchedIdType = matched.appointment.idType;
+        matchedIdNumber = matched.appointment.idNumber;
       } else if (now < matched.validFrom || now > matched.validUntil) {
         result = VerificationResult.DENIED_EXPIRED;
         denyReason = 'Code expired or not yet valid';
         appointmentId = matched.appointmentId;
         verificationCodeId = matched.id;
         visitorName = matched.appointment.visitorName;
+        matchedIdType = matched.appointment.idType;
+        matchedIdNumber = matched.appointment.idNumber;
       } else if (matched.siteId !== dto.siteId) {
         result = VerificationResult.DENIED_SITE_MISMATCH;
         denyReason = 'Code not valid for this site';
         appointmentId = matched.appointmentId;
         verificationCodeId = matched.id;
         visitorName = matched.appointment.visitorName;
+        matchedIdType = matched.appointment.idType;
+        matchedIdNumber = matched.appointment.idNumber;
       } else if (matched.gateId && dto.gateId && matched.gateId !== dto.gateId) {
         result = VerificationResult.DENIED_GATE_MISMATCH;
         denyReason = 'Code not valid for this gate';
         appointmentId = matched.appointmentId;
         verificationCodeId = matched.id;
         visitorName = matched.appointment.visitorName;
+        matchedIdType = matched.appointment.idType;
+        matchedIdNumber = matched.appointment.idNumber;
       } else if (matched.useCount >= matched.maxUses) {
         result = VerificationResult.DENIED_ALREADY_USED;
         denyReason = 'Code already used';
         appointmentId = matched.appointmentId;
         verificationCodeId = matched.id;
         visitorName = matched.appointment.visitorName;
+        matchedIdType = matched.appointment.idType;
+        matchedIdNumber = matched.appointment.idNumber;
       } else if (matched.appointment.status !== AppointmentStatus.APPROVED) {
         result = VerificationResult.DENIED_INVALID;
         denyReason = 'Appointment not approved';
         appointmentId = matched.appointmentId;
         verificationCodeId = matched.id;
         visitorName = matched.appointment.visitorName;
+        matchedIdType = matched.appointment.idType;
+        matchedIdNumber = matched.appointment.idNumber;
       } else {
         allowMatched = {
           id: matched.id,
           appointmentId: matched.appointmentId,
           maxUses: matched.maxUses,
           visitorName: matched.appointment.visitorName,
+          idType: matched.appointment.idType,
+          idNumber: matched.appointment.idNumber,
         };
+        matchedIdType = matched.appointment.idType;
+        matchedIdNumber = matched.appointment.idNumber;
       }
     }
 
@@ -432,6 +568,7 @@ export class VisitorsService {
               visitorName: code.visitorName,
               verificationCodeId: code.id,
               result: VerificationResult.DENIED_ALREADY_USED,
+              direction: VisitorEntryDirection.IN,
               denyReason: 'Code already used',
               verifiedBy: user.id,
               clientEventId: dto.clientEventId,
@@ -439,11 +576,7 @@ export class VisitorsService {
           });
         }
 
-        await tx.visitorAppointment.update({
-          where: { id: code.appointmentId },
-          data: { status: AppointmentStatus.COMPLETED },
-        });
-
+        // Module 12-B — keep APPROVED until exit punch completes the visit
         return tx.visitorEntry.create({
           data: {
             organizationId: user.organizationId,
@@ -453,6 +586,7 @@ export class VisitorsService {
             visitorName: code.visitorName,
             verificationCodeId: code.id,
             result: VerificationResult.ALLOWED,
+            direction: VisitorEntryDirection.IN,
             denyReason: null,
             verifiedBy: user.id,
             clientEventId: dto.clientEventId,
@@ -469,6 +603,7 @@ export class VisitorsService {
           visitorName,
           verificationCodeId,
           result,
+          direction: VisitorEntryDirection.IN,
           denyReason,
           verifiedBy: user.id,
           clientEventId: dto.clientEventId,
@@ -488,11 +623,403 @@ export class VisitorsService {
       after: entry,
     });
 
+    // Module 12-A — deny → FieldAlert for Supervisor → Field → BOM → Control
+    let fieldAlertId: string | null = null;
+    let hostNotified: GateDenyHostNotifiedDto | null = null;
+    if (entry.result !== VerificationResult.ALLOWED) {
+      fieldAlertId = await this.raiseGateDenyFieldAlert({
+        organizationId: user.organizationId,
+        siteId: dto.siteId,
+        entryId: entry.id,
+        result: entry.result,
+        denyReason: entry.denyReason,
+        visitorName: entry.visitorName,
+        appointmentId: entry.appointmentId,
+        verifiedBy: user.id,
+      });
+      // Module 12-E — host SMS/EMAIL only when appointmentId known (matched code)
+      hostNotified = await this.notifyHostOnGateDeny({
+        organizationId: user.organizationId,
+        siteId: dto.siteId,
+        entryId: entry.id,
+        result: entry.result,
+        denyReason: entry.denyReason,
+        visitorName: entry.visitorName,
+        appointmentId: entry.appointmentId,
+        verifiedBy: user.id,
+      });
+    }
+
     return {
       allowed: entry.result === VerificationResult.ALLOWED,
       result: entry.result,
+      entry: this.toEntryDto(entry, {
+        idType: matchedIdType,
+        idNumber: matchedIdNumber,
+      }),
+      fieldAlertId,
+      hostNotified,
+      idType: matchedIdType,
+      idNumber: matchedIdNumber,
+    };
+  }
+
+  /**
+   * Module 12-B — gate exit punch. Lookup by appointment / reference / used code /
+   * IN entry; creates ALLOWED OUT; marks appointment COMPLETED. No FieldAlert.
+   */
+  async gateExit(
+    dto: GateExitDto,
+    user: AuthUser,
+  ): Promise<GateExitResponseDto> {
+    this.assertGateVerifyRateLimit(user.id, dto.siteId);
+
+    if (dto.clientEventId) {
+      const existing = await this.prisma.visitorEntry.findUnique({
+        where: { clientEventId: dto.clientEventId },
+      });
+      if (existing) {
+        if (existing.direction !== VisitorEntryDirection.OUT) {
+          throw new BadRequestException({
+            error: 'INVALID_IDEMPOTENCY_KEY',
+            message: 'clientEventId already used for a non-exit entry',
+          });
+        }
+        return {
+          allowed: existing.result === VerificationResult.ALLOWED,
+          exited: true,
+          result: existing.result,
+          entry: this.toEntryDto(existing),
+        };
+      }
+    }
+
+    const hasLookup =
+      !!dto.appointmentId ||
+      !!dto.referenceNumber?.trim() ||
+      !!dto.verificationCode?.trim() ||
+      !!dto.entryId;
+    if (!hasLookup) {
+      throw new BadRequestException({
+        error: 'EXIT_LOOKUP_REQUIRED',
+        message:
+          'Provide appointmentId, referenceNumber, verificationCode, or entryId',
+      });
+    }
+
+    await this.assertSiteAndGateForOrg(dto.siteId, dto.gateId, user.organizationId);
+
+    const appointmentId = await this.resolveExitAppointmentId(dto, user);
+    if (!appointmentId) {
+      throw new BadRequestException({
+        error: 'NO_OPEN_VISIT',
+        message: 'No matching open visit found for exit',
+      });
+    }
+
+    const appointment = await this.prisma.visitorAppointment.findFirst({
+      where: {
+        id: appointmentId,
+        organizationId: user.organizationId,
+        siteId: dto.siteId,
+        status: {
+          in: [AppointmentStatus.APPROVED, AppointmentStatus.COMPLETED],
+        },
+      },
+    });
+    if (!appointment) {
+      throw new BadRequestException({
+        error: 'NO_OPEN_VISIT',
+        message: 'No matching open visit found for exit',
+      });
+    }
+
+    const openIn = await this.prisma.visitorEntry.findFirst({
+      where: {
+        organizationId: user.organizationId,
+        appointmentId: appointment.id,
+        siteId: dto.siteId,
+        result: VerificationResult.ALLOWED,
+        direction: VisitorEntryDirection.IN,
+      },
+      orderBy: { recordedAt: 'desc' },
+    });
+    if (!openIn) {
+      throw new BadRequestException({
+        error: 'NO_OPEN_VISIT',
+        message: 'No ALLOWED entry punch found for this visit at site',
+      });
+    }
+
+    const alreadyOut = await this.prisma.visitorEntry.findFirst({
+      where: {
+        organizationId: user.organizationId,
+        appointmentId: appointment.id,
+        siteId: dto.siteId,
+        result: VerificationResult.ALLOWED,
+        direction: VisitorEntryDirection.OUT,
+        recordedAt: { gte: openIn.recordedAt },
+      },
+      orderBy: { recordedAt: 'desc' },
+    });
+    if (alreadyOut) {
+      throw new BadRequestException({
+        error: 'ALREADY_EXITED',
+        message: 'Visitor already has an exit punch for this visit',
+      });
+    }
+
+    const entry = await this.prisma.$transaction(async (tx) => {
+      const out = await tx.visitorEntry.create({
+        data: {
+          organizationId: user.organizationId,
+          appointmentId: appointment.id,
+          siteId: dto.siteId,
+          gateId: dto.gateId,
+          visitorName: appointment.visitorName,
+          verificationCodeId: openIn.verificationCodeId,
+          result: VerificationResult.ALLOWED,
+          direction: VisitorEntryDirection.OUT,
+          denyReason: null,
+          verifiedBy: user.id,
+          clientEventId: dto.clientEventId,
+        },
+      });
+
+      await tx.visitorAppointment.update({
+        where: { id: appointment.id },
+        data: { status: AppointmentStatus.COMPLETED },
+      });
+
+      return out;
+    });
+
+    await this.audit.record({
+      organizationId: user.organizationId,
+      actorId: user.id,
+      action: 'visitor.gate.exited',
+      resourceType: 'VisitorEntry',
+      resourceId: entry.id,
+      after: {
+        entry,
+        appointmentId: appointment.id,
+        inEntryId: openIn.id,
+      },
+    });
+
+    return {
+      allowed: true,
+      exited: true,
+      result: VerificationResult.ALLOWED,
       entry: this.toEntryDto(entry),
     };
+  }
+
+  /** Resolve appointment id from one of the Module 12-B exit lookup keys. */
+  private async resolveExitAppointmentId(
+    dto: GateExitDto,
+    user: AuthUser,
+  ): Promise<string | null> {
+    if (dto.appointmentId) {
+      return dto.appointmentId;
+    }
+
+    if (dto.entryId) {
+      const inEntry = await this.prisma.visitorEntry.findFirst({
+        where: {
+          id: dto.entryId,
+          organizationId: user.organizationId,
+          siteId: dto.siteId,
+          result: VerificationResult.ALLOWED,
+          direction: VisitorEntryDirection.IN,
+        },
+      });
+      return inEntry?.appointmentId ?? null;
+    }
+
+    if (dto.referenceNumber?.trim()) {
+      const appt = await this.prisma.visitorAppointment.findFirst({
+        where: {
+          organizationId: user.organizationId,
+          referenceNumber: dto.referenceNumber.trim(),
+          siteId: dto.siteId,
+        },
+        select: { id: true },
+      });
+      return appt?.id ?? null;
+    }
+
+    if (dto.verificationCode?.trim()) {
+      const secret = this.codeSecret();
+      const code = dto.verificationCode.trim().replace(/\s+/g, '').toUpperCase();
+      const matched = await this.prisma.verificationCode.findFirst({
+        where: {
+          codeHash: hashVerificationCode(code, secret),
+          siteId: dto.siteId,
+          appointment: { organizationId: user.organizationId },
+        },
+        select: { appointmentId: true },
+      });
+      return matched?.appointmentId ?? null;
+    }
+
+    return null;
+  }
+
+  /**
+   * Module 12-A — alert responsible ops officers on gate deny (design §12).
+   * Uses shared FieldAlert ladder (SUPERVISOR initial); no Nest cycle into Attendance.
+   */
+  private async raiseGateDenyFieldAlert(params: {
+    organizationId: string;
+    siteId: string;
+    entryId: string;
+    result: VerificationResult;
+    denyReason: string | null;
+    visitorName: string;
+    appointmentId: string | null;
+    verifiedBy: string;
+  }): Promise<string> {
+    const high = new Set<VerificationResult>([
+      VerificationResult.DENIED_BLACKLISTED,
+      VerificationResult.DENIED_REVOKED,
+      VerificationResult.DENIED_ALREADY_USED,
+    ]);
+    const severity = high.has(params.result) ? 'HIGH' : 'MEDIUM';
+    const reason = params.denyReason?.trim() || params.result;
+    const message = `Visitor gate denied (${params.result}): ${params.visitorName} — ${reason}`;
+
+    const alert = await this.prisma.fieldAlert.create({
+      data: {
+        organizationId: params.organizationId,
+        siteId: params.siteId,
+        alertType: VISITOR_GATE_DENIED_ALERT,
+        severity,
+        message,
+        escalationStage: 'SUPERVISOR',
+      },
+    });
+
+    await this.outbox.write({
+      organizationId: params.organizationId,
+      eventType: 'field.alert.created',
+      aggregateType: 'VisitorEntry',
+      aggregateId: params.entryId,
+      payload: {
+        siteId: params.siteId,
+        alertType: VISITOR_GATE_DENIED_ALERT,
+        fieldAlertId: alert.id,
+        result: params.result,
+        visitorName: params.visitorName,
+        appointmentId: params.appointmentId,
+        verifiedBy: params.verifiedBy,
+      },
+      idempotencyKey: `visitor-gate-deny-${params.entryId}`,
+    });
+
+    await this.audit.record({
+      organizationId: params.organizationId,
+      actorId: params.verifiedBy,
+      action: 'visitor.gate.deny_alerted',
+      resourceType: 'FieldAlert',
+      resourceId: alert.id,
+      after: {
+        entryId: params.entryId,
+        alertType: VISITOR_GATE_DENIED_ALERT,
+        severity,
+        result: params.result,
+      },
+    });
+
+    return alert.id;
+  }
+
+  /**
+   * Module 12-E — notify host (User phone/email) when deny matches a known appointment.
+   * Unknown/invalid codes with no appointmentId → null (FieldAlert only from 12-A).
+   * Blacklist without appointmentId → null.
+   */
+  private async notifyHostOnGateDeny(params: {
+    organizationId: string;
+    siteId: string;
+    entryId: string;
+    result: VerificationResult;
+    denyReason: string | null;
+    visitorName: string;
+    appointmentId: string | null;
+    verifiedBy: string;
+  }): Promise<GateDenyHostNotifiedDto | null> {
+    if (!params.appointmentId) {
+      return null;
+    }
+
+    const appointment = await this.prisma.visitorAppointment.findFirst({
+      where: {
+        id: params.appointmentId,
+        organizationId: params.organizationId,
+      },
+      select: {
+        id: true,
+        hostUserId: true,
+        referenceNumber: true,
+      },
+    });
+    if (!appointment?.hostUserId) {
+      return { sms: false, email: false };
+    }
+
+    const host = await this.prisma.user.findFirst({
+      where: {
+        id: appointment.hostUserId,
+        organizationId: params.organizationId,
+      },
+      select: { id: true, phone: true, email: true },
+    });
+    if (!host) {
+      return { sms: false, email: false };
+    }
+
+    const site = await this.prisma.site.findFirst({
+      where: { id: params.siteId, organizationId: params.organizationId },
+      select: { name: true },
+    });
+
+    let delivery = { sms: false, email: false };
+    try {
+      delivery = await this.notifications.enqueueVisitorGateDeniedHost({
+        organizationId: params.organizationId,
+        entryId: params.entryId,
+        appointmentId: appointment.id,
+        hostPhone: host.phone,
+        hostEmail: host.email,
+        visitorName: params.visitorName,
+        result: params.result,
+        denyReason: params.denyReason,
+        siteName: site?.name ?? params.siteId,
+        referenceNumber: appointment.referenceNumber,
+        actorId: params.verifiedBy,
+      });
+    } catch {
+      return { sms: false, email: false };
+    }
+
+    if (delivery.sms || delivery.email) {
+      await this.audit.record({
+        organizationId: params.organizationId,
+        actorId: params.verifiedBy,
+        action: 'visitor.gate.host_notified',
+        resourceType: 'VisitorEntry',
+        resourceId: params.entryId,
+        after: {
+          appointmentId: appointment.id,
+          hostUserId: host.id,
+          channels: delivery,
+          result: params.result,
+        },
+      });
+    }
+
+    return delivery;
   }
 
   async listEntries(
@@ -504,10 +1031,18 @@ export class VisitorsService {
         organizationId: user.organizationId,
         ...(siteId ? { siteId } : {}),
       },
+      include: {
+        appointment: { select: { idType: true, idNumber: true } },
+      },
       orderBy: { recordedAt: 'desc' },
       take: 100,
     });
-    return rows.map((e) => this.toEntryDto(e));
+    return rows.map((e) =>
+      this.toEntryDto(e, {
+        idType: e.appointment?.idType ?? null,
+        idNumber: e.appointment?.idNumber ?? null,
+      }),
+    );
   }
 
   private assertGateVerifyRateLimit(userId: string, siteId: string): void {
@@ -596,6 +1131,32 @@ export class VisitorsService {
     }
   }
 
+  /** Module 12-D — both idType + idNumber, or neither. */
+  private resolveVisitorIdFields(
+    idType?: VisitorIdType | null,
+    idNumber?: string | null,
+  ): { idType: VisitorIdType | null; idNumber: string | null } {
+    const trimmed = typeof idNumber === 'string' ? idNumber.trim() : '';
+    const hasType = idType != null;
+    const hasNumber = trimmed.length > 0;
+    if (hasType !== hasNumber) {
+      throw new BadRequestException({
+        error: 'ID_INCOMPLETE',
+        message: 'idType and idNumber must both be provided, or neither',
+      });
+    }
+    if (!hasType) {
+      return { idType: null, idNumber: null };
+    }
+    if (trimmed.length > 64) {
+      throw new BadRequestException({
+        error: 'ID_NUMBER_TOO_LONG',
+        message: 'idNumber must be at most 64 characters',
+      });
+    }
+    return { idType, idNumber: trimmed };
+  }
+
   private toAppointmentDto(
     a: {
       id: string;
@@ -609,6 +1170,8 @@ export class VisitorsService {
       visitorPhone: string | null;
       companyName: string | null;
       purpose: string;
+      idType?: VisitorIdType | null;
+      idNumber?: string | null;
       hostUserId: string | null;
       hostName: string | null;
       vehiclePlate: string | null;
@@ -634,6 +1197,8 @@ export class VisitorsService {
       visitorPhone: a.visitorPhone,
       companyName: a.companyName,
       purpose: a.purpose,
+      idType: a.idType ?? null,
+      idNumber: a.idNumber ?? null,
       hostUserId: a.hostUserId,
       hostName: a.hostName,
       vehiclePlate: a.vehiclePlate,
@@ -649,19 +1214,23 @@ export class VisitorsService {
     };
   }
 
-  private toEntryDto(e: {
-    id: string;
-    organizationId: string;
-    appointmentId: string | null;
-    siteId: string;
-    gateId: string | null;
-    visitorName: string;
-    result: VerificationResult;
-    denyReason: string | null;
-    verifiedBy: string | null;
-    recordedAt: Date;
-    createdAt: Date;
-  }): VisitorEntryResponseDto {
+  private toEntryDto(
+    e: {
+      id: string;
+      organizationId: string;
+      appointmentId: string | null;
+      siteId: string;
+      gateId: string | null;
+      visitorName: string;
+      result: VerificationResult;
+      direction?: VisitorEntryDirection | null;
+      denyReason: string | null;
+      verifiedBy: string | null;
+      recordedAt: Date;
+      createdAt: Date;
+    },
+    id?: { idType?: VisitorIdType | null; idNumber?: string | null },
+  ): VisitorEntryResponseDto {
     return {
       id: e.id,
       organizationId: e.organizationId,
@@ -670,10 +1239,13 @@ export class VisitorsService {
       gateId: e.gateId,
       visitorName: e.visitorName,
       result: e.result,
+      direction: e.direction ?? VisitorEntryDirection.IN,
       denyReason: e.denyReason,
       verifiedBy: e.verifiedBy,
       recordedAt: e.recordedAt,
       createdAt: e.createdAt,
+      idType: id?.idType ?? null,
+      idNumber: id?.idNumber ?? null,
     };
   }
 }

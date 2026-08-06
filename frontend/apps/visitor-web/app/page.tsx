@@ -5,6 +5,7 @@ import {
   getVisitorPublicConfig,
   type VisitorPublicConfig,
 } from '@pssms/api-client';
+import Link from 'next/link';
 import { FormEvent, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { VisitorShell } from './_components/VisitorShell';
@@ -41,7 +42,8 @@ export default function VisitorHomePage() {
   const [configError, setConfigError] = useState<string | null>(null);
   const [visitorFullName, setVisitorFullName] = useState('');
   const [visitorPhone, setVisitorPhone] = useState('');
-  const [visitorIdNumber, setVisitorIdNumber] = useState('');
+  const [idType, setIdType] = useState('');
+  const [idNumber, setIdNumber] = useState('');
   const [purpose, setPurpose] = useState('');
   const defaults = defaultWindow();
   const [validFrom, setValidFrom] = useState(defaults.from);
@@ -93,17 +95,26 @@ export default function VisitorHomePage() {
     setLoading(true);
     setError(null);
     try {
-      const purposeWithId = visitorIdNumber.trim()
-        ? `${purpose.trim()} (ID: ${visitorIdNumber.trim()})`
-        : purpose.trim();
+      const trimmedIdType = idType.trim();
+      const trimmedIdNumber = idNumber.trim();
       const appointment = await createPublicVisitorAppointment({
         organizationId: config.organizationId,
         customerId: config.customerId,
         siteId: config.siteId,
         visitorName: visitorFullName.trim(),
         visitorPhone: visitorPhone.trim() || undefined,
-        purpose: purposeWithId,
+        purpose: purpose.trim(),
         hostName: hostName.trim() || undefined,
+        ...(trimmedIdType
+          ? {
+              idType: trimmedIdType as
+                | 'NIDA'
+                | 'PASSPORT'
+                | 'DRIVERS_LICENSE'
+                | 'OTHER',
+            }
+          : {}),
+        ...(trimmedIdNumber ? { idNumber: trimmedIdNumber } : {}),
         validFrom: toIsoLocal(validFrom),
         validUntil: toIsoLocal(validUntil),
       });
@@ -127,6 +138,21 @@ export default function VisitorHomePage() {
       <p className="mt-2 text-sm text-slate-500">
         Pre-register your visit. You receive a reference number only — the gate
         code comes after host approval.
+      </p>
+      <p className="mt-1 text-sm text-slate-500">
+        Already registered?{' '}
+        <Link href="/contractor/login" className="text-blue-700 hover:underline">
+          Contractor
+        </Link>
+        {' · '}
+        <Link href="/consultant/login" className="text-blue-700 hover:underline">
+          Consultant
+        </Link>
+        {' · '}
+        <Link href="/provider/login" className="text-blue-700 hover:underline">
+          Service provider
+        </Link>
+        {' '}sign in
       </p>
 
       <div id="how" className="mt-6 scroll-mt-8 rounded-lg border border-slate-100 bg-slate-50 px-4 py-3 text-sm text-slate-600">
@@ -177,17 +203,36 @@ export default function VisitorHomePage() {
               />
             </div>
             <div>
-              <label className="hl-label" htmlFor="visitorIdNumber">
-                ID number
+              <label className="hl-label" htmlFor="idType">
+                ID type <span className="font-normal text-slate-400">(optional)</span>
+              </label>
+              <select
+                id="idType"
+                name="idType"
+                className="hl-input"
+                value={idType}
+                onChange={(e) => setIdType(e.target.value)}
+              >
+                <option value="">No ID document</option>
+                <option value="NIDA">NIDA</option>
+                <option value="PASSPORT">Passport</option>
+                <option value="DRIVERS_LICENSE">Driver&apos;s licence</option>
+                <option value="OTHER">Other</option>
+              </select>
+            </div>
+            <div>
+              <label className="hl-label" htmlFor="idNumber">
+                ID number <span className="font-normal text-slate-400">(optional)</span>
               </label>
               <input
-                id="visitorIdNumber"
-                name="visitorIdNumber"
+                id="idNumber"
+                name="idNumber"
                 type="text"
                 className="hl-input"
-                placeholder="NIDA / passport"
-                value={visitorIdNumber}
-                onChange={(e) => setVisitorIdNumber(e.target.value)}
+                placeholder="Document number"
+                maxLength={64}
+                value={idNumber}
+                onChange={(e) => setIdNumber(e.target.value)}
               />
             </div>
 

@@ -99,6 +99,18 @@ export default function HomeScreen() {
         </Pressable>
       </Link>
 
+      <Link href={{ pathname: '/(app)/verify', params: { mode: 'exit' } }} asChild>
+        <Pressable
+          style={[
+            styles.secondary,
+            (!selectedGate || !online) && styles.disabled,
+          ]}
+          disabled={!selectedGate || !online}
+        >
+          <Text style={styles.secondaryText}>Record visitor exit</Text>
+        </Pressable>
+      </Link>
+
       <Pressable style={styles.logout} onPress={() => void logout()}>
         <Text style={styles.logoutText}>Sign out</Text>
       </Pressable>
@@ -165,6 +177,15 @@ const styles = StyleSheet.create({
     marginTop: 8,
   },
   primaryText: { color: '#fff', fontWeight: '700', fontSize: 16 },
+  secondary: {
+    backgroundColor: '#fff',
+    borderRadius: 8,
+    paddingVertical: 14,
+    alignItems: 'center',
+    borderWidth: 1.5,
+    borderColor: '#004578',
+  },
+  secondaryText: { color: '#004578', fontWeight: '700', fontSize: 16 },
   logout: { alignItems: 'center', paddingVertical: 12, marginTop: 8 },
   logoutText: { color: '#8899aa' },
   disabled: { opacity: 0.5 },

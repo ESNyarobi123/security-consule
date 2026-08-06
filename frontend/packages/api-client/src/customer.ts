@@ -7,9 +7,12 @@ import {
 import type { LoginResult } from './index';
 import type {
   Contract,
+  CustomerContact,
   Invoice,
   VisitorAppointment,
 } from './admin';
+
+export type { CustomerContact, CustomerContactRole } from './admin';
 
 const coreUrl = () =>
   process.env.NEXT_PUBLIC_CORE_API_URL ??
@@ -146,6 +149,7 @@ export type AccessEmployee = {
   email?: string | null;
   phone?: string | null;
   department?: string | null;
+  accessLevel?: 'STANDARD' | 'RESTRICTED' | 'ELEVATED';
   accessCardRef?: string | null;
   biometricRef?: string | null;
   isActive: boolean;
@@ -167,6 +171,8 @@ export type AccessEntry = {
   employeeNumber?: string | null;
   siteCode?: string | null;
   siteName?: string | null;
+  gateCode?: string | null;
+  gateName?: string | null;
 };
 
 export type ParkingVehicle = {
@@ -179,6 +185,7 @@ export type ParkingVehicle = {
   model?: string | null;
   color?: string | null;
   ownerName?: string | null;
+  rfidTagRef?: string | null;
   isActive: boolean;
   createdAt: string;
 };
@@ -199,12 +206,19 @@ export type ParkingPermit = {
 };
 
 /** Customer portal — sites scoped to the signed-in customer */
+export type PortalSiteGate = {
+  id: string;
+  code: string;
+  name: string;
+};
+
 export type PortalSite = {
   id: string;
   code: string;
   name: string;
   address?: string | null;
   isActive: boolean;
+  gates?: PortalSiteGate[];
 };
 
 /** Assigned guards / deployments at customer sites */
@@ -291,6 +305,13 @@ export const listCustomerVisitors = (token?: string) =>
     token,
   });
 
+/** Module 12-C — channels queued for the plain gate code */
+export type GateCodeDelivery = {
+  email?: boolean;
+  sms?: boolean;
+  whatsapp?: boolean;
+};
+
 /** POST /visitors/appointments/:id/approve — host issues gate code */
 export const approveCustomerVisitor = (id: string, token?: string) =>
   customerFetch<{
@@ -299,6 +320,7 @@ export const approveCustomerVisitor = (id: string, token?: string) =>
     validUntil: string;
     siteId: string;
     gateId?: string | null;
+    delivery?: GateCodeDelivery;
   }>(`/api/v1/visitors/appointments/${id}/approve`, {
     method: 'POST',
     body: JSON.stringify({}),
@@ -331,6 +353,35 @@ export const listCustomerAccessEntries = (token?: string) =>
 /** GET /access/me — Portal 35.9 linked CustomerEmployee */
 export const getMyCustomerAccess = (token?: string) =>
   customerFetch<AccessEmployee>('/api/v1/access/me', { token });
+
+/** GET /access/me/sites — Module 11-C granted (or unrestricted) sites */
+export type MyAccessSites = {
+  employeeId: string;
+  customerId: string;
+  unrestricted: boolean;
+  siteIds: string[];
+  sites: PortalSite[];
+};
+
+export const getMyAccessSites = (token?: string) =>
+  customerFetch<MyAccessSites>('/api/v1/access/me/sites', { token });
+
+/** POST /access/me/entries — Module 11-A self check-in/out */
+export const recordMyAccessEntry = (
+  body: {
+    siteId: string;
+    gateId?: string;
+    entryType?: 'CHECK_IN' | 'CHECK_OUT';
+    accessMethod?: string;
+    clientEventId?: string;
+  },
+  token?: string,
+) =>
+  customerFetch<AccessEntry>('/api/v1/access/me/entries', {
+    method: 'POST',
+    body: JSON.stringify(body),
+    token,
+  });
 
 /** GET /parking/vehicles */
 export const listCustomerParkingVehicles = (token?: string) =>
@@ -412,6 +463,26 @@ export const getCustomerAttachedDocumentUrl = (id: string, token?: string) =>
     fileName: string;
     contentType: string;
   }>(`/api/v1/documents/${id}/download-url`, { token });
+
+/** GET /documents?resourceType=VisitorAppointment&resourceId=… — own-customer ID scans (read-only) */
+export const listCustomerVisitorAppointmentDocuments = (
+  appointmentId: string,
+  token?: string,
+) => {
+  const q = new URLSearchParams({
+    resourceType: 'VisitorAppointment',
+    resourceId: appointmentId,
+  });
+  return customerFetch<
+    Array<{
+      id: string;
+      fileName: string;
+      contentType: string;
+      sizeBytes: number;
+      createdAt: string;
+    }>
+  >(`/api/v1/documents?${q.toString()}`, { token });
+};
 
 /** POST /auth/change-password — clears mustChangePassword, returns fresh tokens */
 export const changeCustomerPassword = (
@@ -498,3 +569,125 @@ export const cancelCustomerServiceRequest = (id: string, token?: string) =>
     `/api/v1/customers/me/service-requests/${id}/cancel`,
     { method: 'POST', body: JSON.stringify({}), token },
   );
+
+/** Module 6-B — customer complaints (distinct from service requests). */
+export type ComplaintCategory =
+  | 'SERVICE_QUALITY'
+  | 'GUARD_CONDUCT'
+  | 'BILLING'
+  | 'ATTENDANCE'
+  | 'SECURITY'
+  | 'OTHER';
+
+export type ComplaintSeverity = 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL';
+
+export type ComplaintStatus =
+  | 'OPEN'
+  | 'ACKNOWLEDGED'
+  | 'UNDER_REVIEW'
+  | 'RESOLVED'
+  | 'CLOSED'
+  | 'CANCELLED';
+
+export type CustomerComplaint = {
+  id: string;
+  organizationId: string;
+  customerId: string;
+  referenceNumber: string;
+  category: ComplaintCategory;
+  severity: ComplaintSeverity;
+  status: ComplaintStatus;
+  title: string;
+  description: string;
+  siteId?: string | null;
+  siteCode?: string | null;
+  siteName?: string | null;
+  callbackPhone?: string | null;
+  resolutionNotes?: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type CreateComplaintBody = {
+  category: ComplaintCategory;
+  severity?: ComplaintSeverity;
+  title: string;
+  description: string;
+  siteId?: string;
+  callbackPhone?: string;
+};
+
+export const listCustomerComplaints = (token?: string) =>
+  customerFetch<CustomerComplaint[]>('/api/v1/customers/me/complaints', {
+    token,
+  });
+
+export const createCustomerComplaint = (
+  body: CreateComplaintBody,
+  token?: string,
+) =>
+  customerFetch<CustomerComplaint>('/api/v1/customers/me/complaints', {
+    method: 'POST',
+    body: JSON.stringify(body),
+    token,
+  });
+
+export const cancelCustomerComplaint = (id: string, token?: string) =>
+  customerFetch<CustomerComplaint>(
+    `/api/v1/customers/me/complaints/${id}/cancel`,
+    { method: 'POST', body: JSON.stringify({}), token },
+  );
+
+/** Module 6-N — portal contacts directory (active only; read-only). */
+export const listCustomerPortalContacts = (token?: string) =>
+  customerFetch<CustomerContact[]>('/api/v1/customers/me/contacts', { token });
+
+/** Module 6-C — portal customer report pack (same shape as staff). */
+export type CustomerPortalReport = {
+  customerId: string;
+  code: string;
+  name: string;
+  period: { from: string; to: string };
+  summary: {
+    sites: number;
+    activeGuards: number;
+    incidentsOpened: number;
+    incidentsStillOpen: number;
+    attendanceClockIns: number;
+    accessEntries: number;
+    visitorAppointments: number;
+    visitorGateEntries: number;
+    parkingEntries: number;
+    complaintsOpened: number;
+    complaintsStillOpen: number;
+    serviceRequestsOpened: number;
+    invoicesIssued: number;
+    invoiceOutstandingAmount: number;
+    currency: string;
+  };
+  bySite: {
+    siteId: string;
+    siteCode: string;
+    siteName: string;
+    incidentsOpened: number;
+    attendanceClockIns: number;
+    accessEntries: number;
+    visitorGateEntries: number;
+    parkingEntries: number;
+  }[];
+  generatedAt: string;
+  notes: string[];
+};
+
+export const getCustomerPortalReport = (
+  opts?: { from?: string; to?: string; token?: string },
+) => {
+  const qs = new URLSearchParams();
+  if (opts?.from) qs.set('from', opts.from);
+  if (opts?.to) qs.set('to', opts.to);
+  const q = qs.toString();
+  return customerFetch<CustomerPortalReport>(
+    `/api/v1/customers/me/reports${q ? `?${q}` : ''}`,
+    { token: opts?.token },
+  );
+};

@@ -7,6 +7,7 @@ import {
 import {
   ApprovalStatus,
   ContractStatus,
+  IamChangeRequestStatus,
   LeaveRequestStatus,
 } from '@prisma/client';
 import { PrismaService, AuthUser } from '@pssms/shared';
@@ -20,6 +21,7 @@ import {
 /** Resource types whose domain status is synced when the instance reaches a terminal state via raw Approvals API. */
 const CONTRACT_RESOURCE = 'Contract';
 const LEAVE_RESOURCE = 'LeaveRequest';
+const IAM_CHANGE_RESOURCE = 'IamChangeRequest';
 
 type StepLike = {
   stepOrder: number;
@@ -212,6 +214,14 @@ export class ApprovalsService {
           user.id,
           dto.remarks,
         );
+      } else if (instance.resourceType === IAM_CHANGE_RESOURCE) {
+        await this.syncIamChangeOnTerminal(
+          instance.organizationId,
+          instance.resourceId,
+          status,
+          user.id,
+          dto.remarks,
+        );
       }
     }
 
@@ -226,6 +236,284 @@ export class ApprovalsService {
     });
 
     return this.toDto(updated, instance.version.steps);
+  }
+
+  /**
+   * M5-E — apply proposed roles (or reject) when IAM change completes via
+   * generic POST /approvals/instances/:id/actions.
+   */
+  private async syncIamChangeOnTerminal(
+    organizationId: string,
+    requestId: string,
+    approvalStatus: ApprovalStatus,
+    actorId: string,
+    remarks?: string,
+  ): Promise<void> {
+    const request = await this.prisma.iamChangeRequest.findFirst({
+      where: {
+        id: requestId,
+        organizationId,
+        status: IamChangeRequestStatus.PENDING,
+      },
+    });
+    if (!request) return;
+
+    if (approvalStatus === ApprovalStatus.APPROVED) {
+      if (request.changeType === 'SUSPEND') {
+        const target = await this.prisma.user.findFirst({
+          where: { id: request.targetUserId, organizationId },
+          select: { id: true, isActive: true },
+        });
+        if (!target || !target.isActive) {
+          await this.prisma.iamChangeRequest.update({
+            where: { id: request.id },
+            data: {
+              status: IamChangeRequestStatus.CANCELLED,
+              decidedBy: actorId,
+              decidedAt: new Date(),
+              rejectReason:
+                'STALE_SUSPEND — user already inactive or missing at approve',
+            },
+          });
+          await this.audit.record({
+            organizationId,
+            actorId,
+            action: 'IDENTITY_SUSPEND_STALE',
+            resourceType: IAM_CHANGE_RESOURCE,
+            resourceId: requestId,
+            after: { via: 'approvals.act' },
+          });
+          return;
+        }
+        await this.prisma.$transaction([
+          this.prisma.user.update({
+            where: { id: request.targetUserId },
+            data: {
+              isActive: false,
+              suspendedAt: new Date(),
+              suspendedReason: request.reason ?? null,
+            },
+          }),
+          this.prisma.iamChangeRequest.update({
+            where: { id: request.id },
+            data: {
+              status: IamChangeRequestStatus.APPROVED,
+              decidedBy: actorId,
+              decidedAt: new Date(),
+            },
+          }),
+        ]);
+        await this.audit.record({
+          organizationId,
+          actorId,
+          action: 'IDENTITY_SUSPEND_APPROVED',
+          resourceType: IAM_CHANGE_RESOURCE,
+          resourceId: requestId,
+          after: {
+            targetUserId: request.targetUserId,
+            reason: request.reason,
+            via: 'approvals.act',
+          },
+        });
+        await this.audit.record({
+          organizationId,
+          actorId,
+          action: 'IDENTITY_USER_SUSPENDED',
+          resourceType: 'User',
+          resourceId: request.targetUserId,
+          after: { reason: request.reason, mode: 'approval' },
+        });
+        return;
+      }
+
+      if (request.changeType === 'REACTIVATE') {
+        const target = await this.prisma.user.findFirst({
+          where: { id: request.targetUserId, organizationId },
+          select: { id: true, isActive: true },
+        });
+        if (!target || target.isActive) {
+          await this.prisma.iamChangeRequest.update({
+            where: { id: request.id },
+            data: {
+              status: IamChangeRequestStatus.CANCELLED,
+              decidedBy: actorId,
+              decidedAt: new Date(),
+              rejectReason:
+                'STALE_REACTIVATE — user already active or missing at approve',
+            },
+          });
+          await this.audit.record({
+            organizationId,
+            actorId,
+            action: 'IDENTITY_REACTIVATE_STALE',
+            resourceType: IAM_CHANGE_RESOURCE,
+            resourceId: requestId,
+            after: { via: 'approvals.act' },
+          });
+          return;
+        }
+        await this.prisma.$transaction([
+          this.prisma.user.update({
+            where: { id: request.targetUserId },
+            data: {
+              isActive: true,
+              suspendedAt: null,
+              suspendedReason: null,
+            },
+          }),
+          this.prisma.iamChangeRequest.update({
+            where: { id: request.id },
+            data: {
+              status: IamChangeRequestStatus.APPROVED,
+              decidedBy: actorId,
+              decidedAt: new Date(),
+            },
+          }),
+        ]);
+        await this.audit.record({
+          organizationId,
+          actorId,
+          action: 'IDENTITY_REACTIVATE_APPROVED',
+          resourceType: IAM_CHANGE_RESOURCE,
+          resourceId: requestId,
+          after: {
+            targetUserId: request.targetUserId,
+            reason: request.reason,
+            via: 'approvals.act',
+          },
+        });
+        await this.audit.record({
+          organizationId,
+          actorId,
+          action: 'IDENTITY_USER_REACTIVATED',
+          resourceType: 'User',
+          resourceId: request.targetUserId,
+          after: { mode: 'approval', via: 'approvals.act' },
+        });
+        return;
+      }
+
+      const live = await this.prisma.userRole.findMany({
+        where: { userId: request.targetUserId },
+        include: { role: { select: { code: true } } },
+      });
+      const liveCodes = live.map((r) => r.role.code).sort();
+      const expected = [...request.previousRoleCodes].sort();
+      const stale =
+        liveCodes.length !== expected.length ||
+        liveCodes.some((c, i) => c !== expected[i]);
+      if (stale) {
+        await this.prisma.iamChangeRequest.update({
+          where: { id: request.id },
+          data: {
+            status: IamChangeRequestStatus.CANCELLED,
+            decidedBy: actorId,
+            decidedAt: new Date(),
+            rejectReason:
+              'STALE_ROLE_CHANGE — live roles no longer match snapshot at submit',
+          },
+        });
+        await this.audit.record({
+          organizationId,
+          actorId,
+          action: 'IDENTITY_ROLE_CHANGE_STALE',
+          resourceType: IAM_CHANGE_RESOURCE,
+          resourceId: requestId,
+          after: {
+            liveCodes,
+            previousRoleCodes: request.previousRoleCodes,
+            via: 'approvals.act',
+          },
+        });
+        return;
+      }
+
+      const roles = await this.prisma.role.findMany({
+        where: {
+          organizationId,
+          code: { in: request.proposedRoleCodes },
+        },
+      });
+      if (roles.length !== request.proposedRoleCodes.length) {
+        await this.prisma.iamChangeRequest.update({
+          where: { id: request.id },
+          data: {
+            status: IamChangeRequestStatus.CANCELLED,
+            decidedBy: actorId,
+            decidedAt: new Date(),
+            rejectReason: 'Proposed roles no longer exist in organization',
+          },
+        });
+        return;
+      }
+
+      await this.prisma.$transaction([
+        this.prisma.userRole.deleteMany({
+          where: { userId: request.targetUserId },
+        }),
+        this.prisma.userRole.createMany({
+          data: roles.map((r) => ({
+            userId: request.targetUserId,
+            roleId: r.id,
+          })),
+        }),
+        this.prisma.iamChangeRequest.update({
+          where: { id: request.id },
+          data: {
+            status: IamChangeRequestStatus.APPROVED,
+            decidedBy: actorId,
+            decidedAt: new Date(),
+          },
+        }),
+      ]);
+      await this.audit.record({
+        organizationId,
+        actorId,
+        action: 'IDENTITY_ROLE_CHANGE_APPROVED',
+        resourceType: IAM_CHANGE_RESOURCE,
+        resourceId: requestId,
+        after: {
+          targetUserId: request.targetUserId,
+          proposedRoleCodes: request.proposedRoleCodes,
+          via: 'approvals.act',
+        },
+      });
+      await this.audit.record({
+        organizationId,
+        actorId,
+        action: 'IDENTITY_USER_ROLES_CHANGED',
+        resourceType: 'User',
+        resourceId: request.targetUserId,
+        before: { roles: request.previousRoleCodes },
+        after: { roles: request.proposedRoleCodes, mode: 'approval' },
+      });
+      return;
+    }
+
+    if (approvalStatus === ApprovalStatus.REJECTED) {
+      await this.prisma.iamChangeRequest.update({
+        where: { id: request.id },
+        data: {
+          status: IamChangeRequestStatus.REJECTED,
+          decidedBy: actorId,
+          decidedAt: new Date(),
+          rejectReason: remarks?.trim() || 'Rejected via approvals queue',
+        },
+      });
+      await this.audit.record({
+        organizationId,
+        actorId,
+        action:
+          request.changeType === 'SUSPEND'
+            ? 'IDENTITY_SUSPEND_REJECTED'
+            : request.changeType === 'REACTIVATE'
+              ? 'IDENTITY_REACTIVATE_REJECTED'
+              : 'IDENTITY_ROLE_CHANGE_REJECTED',
+        resourceType: IAM_CHANGE_RESOURCE,
+        resourceId: requestId,
+        after: { via: 'approvals.act', changeType: request.changeType },
+      });
+    }
   }
 
   /**

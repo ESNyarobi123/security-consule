@@ -4,6 +4,7 @@ import {
   acknowledgeFieldAlert,
   approveAttendance,
   escalateFieldAlert,
+  listAlertnessHistory,
   listAttendance,
   listFieldAlerts,
   listGuards,
@@ -13,6 +14,7 @@ import {
   scanMissedAlertness,
   scheduleAlertness,
   supervisorClockIn,
+  type AlertnessHistoryRow,
   type AttendanceRecord,
   type FieldAlert,
   type Guard,
@@ -75,6 +77,7 @@ function dutyStatus(row: AttendanceRecord) {
 export default function BranchAttendancePage() {
   const [rows, setRows] = useState<AttendanceRow[]>([]);
   const [pending, setPending] = useState<PendingAlertness[]>([]);
+  const [history, setHistory] = useState<AlertnessHistoryRow[]>([]);
   const [alerts, setAlerts] = useState<FieldAlert[]>([]);
   const [guards, setGuards] = useState<Guard[]>([]);
   const [sites, setSites] = useState<Site[]>([]);
@@ -82,6 +85,8 @@ export default function BranchAttendancePage() {
   /** '' = all · 'false' = pending · 'true' = approved */
   const [approvedFilter, setApprovedFilter] = useState('');
   const [geofenceFilter, setGeofenceFilter] = useState(false);
+  /** Module 10-C — history status filter (empty = completed set) */
+  const [historyStatus, setHistoryStatus] = useState('');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [info, setInfo] = useState<string | null>(null);
@@ -121,15 +126,27 @@ export default function BranchAttendancePage() {
       };
       if (siteId) alertParams.siteId = siteId;
 
-      const [att, pend, openAlerts, g, s] = await Promise.all([
+      const histParams: {
+        siteId?: string;
+        status?: string;
+        from: string;
+        to: string;
+        take: number;
+      } = { from, to, take: 40 };
+      if (siteId) histParams.siteId = siteId;
+      if (historyStatus) histParams.status = historyStatus;
+
+      const [att, pend, hist, openAlerts, g, s] = await Promise.all([
         listAttendance(attParams),
         listPendingAlertness(),
+        listAlertnessHistory(histParams),
         listFieldAlerts(alertParams),
         listGuards(),
         listSites(),
       ]);
       setRows(att.map((r) => ({ ...r, dutyStatus: dutyStatus(r) })));
       setPending(siteId ? pend.filter((p) => p.siteId === siteId) : pend);
+      setHistory(hist);
       setAlerts(openAlerts);
       setGuards(g);
       setSites(s);
@@ -138,7 +155,7 @@ export default function BranchAttendancePage() {
     } finally {
       setLoading(false);
     }
-  }, [siteId, approvedFilter]);
+  }, [siteId, approvedFilter, historyStatus]);
 
   useEffect(() => {
     void refresh();
@@ -200,12 +217,25 @@ export default function BranchAttendancePage() {
   }
 
   async function onMarkMissed(id: string) {
+    let supervisorRemarks: string | undefined;
+    if (typeof window !== 'undefined') {
+      const entered = window.prompt(
+        'Mark this alertness check missed? Optional supervisor remarks:',
+        '',
+      );
+      if (entered === null) return;
+      supervisorRemarks = entered.trim() || undefined;
+    }
     setBusyId(id);
     setError(null);
     setInfo(null);
     try {
-      await markAlertnessMissed(id);
-      setInfo('Marked missed — FieldAlert ALERTNESS_MISSED raised for ops queue.');
+      await markAlertnessMissed(id, { supervisorRemarks });
+      setInfo(
+        supervisorRemarks
+          ? 'Marked missed with remarks — FieldAlert ALERTNESS_MISSED raised.'
+          : 'Marked missed — FieldAlert ALERTNESS_MISSED raised for ops queue.',
+      );
       await refresh();
     } catch (err) {
       setError(formatApiError(err));
@@ -392,15 +422,10 @@ export default function BranchAttendancePage() {
       }
     >
       <p className="mb-4 rounded border border-[#e1dfdd] bg-[#faf9f8] px-3 py-2 text-xs text-[#605e5c]">
-        Attendance (§9): supervisor Approve verifies today&apos;s punches (SoD —
-        cannot approve own guard clock). Supervisor clock-in (A2) records
-        SUPERVISOR method when mobile punch fails. A3 list enrichment shows
-        clock-in method, geofence/NO_GPS warnings, and compute-only late/OT vs
-        linked shift (no payroll yet). Alertness (§10): clock-in auto-schedules
-        checks; Scan / Mark missed → HIGH FieldAlert. AL1 escalation ladder:
-        SUPERVISOR → FIELD → BOM → CONTROL (stage-gated Escalate: Supervisor /
-        Field / BOM+). Bio
-        face/QR deferred.
+        Attendance (§9): supervisor Approve (SoD). Supervisor clock-in (A2).
+        ABSENT / SUSPENDED / TERMINATED cannot start duty (8-G). Alertness
+        (§10): auto-schedule; LATE confirm (10-A); miss remarks (10-B);
+        today&apos;s history roster (10-C). Bio face/QR/selfie/payroll deferred.
       </p>
 
       {error ? (
@@ -592,7 +617,9 @@ export default function BranchAttendancePage() {
                     }
                   >
                     {formatDateTime(r.scheduledAt)}
-                    {overduePending.has(r.id) ? ' · overdue' : ''}
+                    {r.pastDue || overduePending.has(r.id)
+                      ? ' · overdue → LATE if confirmed'
+                      : ''}
                   </span>
                 ),
               },
@@ -613,6 +640,101 @@ export default function BranchAttendancePage() {
                   >
                     {busyId === r.id ? '…' : 'Mark missed'}
                   </button>
+                ),
+              },
+            ]}
+          />
+        )}
+      </GlassCard>
+
+      <SectionTitle>Alertness history (today)</SectionTitle>
+      <div className="mb-2 flex flex-wrap gap-2">
+        {(
+          [
+            ['', 'Completed'],
+            ['CONFIRMED', 'Confirmed'],
+            ['LATE', 'Late'],
+            ['MISSED', 'Missed'],
+            ['CANCELLED', 'Cancelled'],
+          ] as const
+        ).map(([id, label]) => (
+          <button
+            key={id || 'all'}
+            type="button"
+            className={
+              historyStatus === id
+                ? btnPrimary
+                : `${btnSecondary} !text-xs`
+            }
+            onClick={() => setHistoryStatus(id)}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+      <GlassCard className="mb-6 !p-0 overflow-hidden">
+        {history.length === 0 && !loading ? (
+          <div className="px-4 py-8 text-center text-sm text-[#605e5c]">
+            No completed alertness checks for today in this site filter.
+          </div>
+        ) : (
+          <DataTable<AlertnessHistoryRow>
+            loading={loading}
+            keyField="id"
+            rows={history}
+            emptyMessage="No alertness history"
+            columns={[
+              {
+                key: 'referenceNumber',
+                label: 'Ref',
+                render: (r) => (
+                  <span className="font-mono text-sm">
+                    {r.referenceNumber ?? shortId(r.id)}
+                  </span>
+                ),
+              },
+              {
+                key: 'employeeNumber',
+                label: 'Guard',
+                render: (r) => (
+                  <span className="font-mono text-sm">
+                    {r.employeeNumber ?? guardLabel(r.guardId)}
+                  </span>
+                ),
+              },
+              {
+                key: 'siteCode',
+                label: 'Site',
+                render: (r) => r.siteCode ?? siteLabel(r.siteId),
+              },
+              {
+                key: 'scheduledAt',
+                label: 'Due',
+                render: (r) => formatDateTime(r.scheduledAt),
+              },
+              {
+                key: 'confirmedAt',
+                label: 'Confirmed',
+                render: (r) =>
+                  r.confirmedAt ? formatDateTime(r.confirmedAt) : '—',
+              },
+              {
+                key: 'status',
+                label: 'Status',
+                render: (r) => <StatusBadge status={r.status} />,
+              },
+              {
+                key: 'method',
+                label: 'Method',
+                render: (r) => r.method ?? '—',
+              },
+              {
+                key: 'supervisorRemarks',
+                label: 'Remarks',
+                render: (r) => (
+                  <span className="line-clamp-2 max-w-[12rem] text-xs text-[#605e5c]">
+                    {r.supervisorRemarks ?? '—'}
+                  </span>
                 ),
               },
             ]}
@@ -726,7 +848,12 @@ export default function BranchAttendancePage() {
               >
                 <option value="">Select guard…</option>
                 {guards
-                  .filter((g) => !g.status || g.status === 'ACTIVE')
+                  .filter(
+                    (g) =>
+                      !g.status ||
+                      g.status === 'ACTIVE' ||
+                      g.status === 'AVAILABLE',
+                  )
                   .map((g) => (
                   <option key={g.id} value={g.id}>
                     {g.employeeNumber}
@@ -798,7 +925,14 @@ export default function BranchAttendancePage() {
                 required
               >
                 <option value="">Select guard…</option>
-                {guards.map((g) => (
+                {guards
+                  .filter(
+                    (g) =>
+                      g.status !== 'ABSENT' &&
+                      g.status !== 'SUSPENDED' &&
+                      g.status !== 'TERMINATED',
+                  )
+                  .map((g) => (
                   <option key={g.id} value={g.id}>
                     {g.employeeNumber}
                     {g.fullName ? ` — ${g.fullName}` : ''}

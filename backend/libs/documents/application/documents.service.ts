@@ -29,6 +29,8 @@ const PARENT_PERMISSION_BY_RESOURCE: Record<string, string> = {
   PettyCashVoucher: 'finance.manage',
   Customer: 'customers.manage',
   Contract: 'contracts.manage',
+  /** §12 Module 12-F — visitor ID scan / appointment attachments */
+  VisitorAppointment: 'visitors.manage',
 };
 
 const SUPPORTED_RESOURCE_TYPES = new Set(
@@ -100,12 +102,25 @@ async function assertResourceOwned(
     if (!contract) {
       throw new BadRequestException('Contract not found in your organization');
     }
+    return;
+  }
+  if (resourceType === 'VisitorAppointment') {
+    const appointment = await prisma.visitorAppointment.findFirst({
+      where: { id: resourceId, organizationId },
+      select: { id: true },
+    });
+    if (!appointment) {
+      throw new NotFoundException(
+        'VisitorAppointment not found in your organization',
+      );
+    }
   }
 }
 
 /**
  * Org ownership of the parent resource + authz:
- * - CUSTOMER_PORTAL (JWT customerId): read-only on own Customer + own Contract attachments
+ * - CUSTOMER_PORTAL (JWT customerId): read-only on own Customer, Contract, or
+ *   VisitorAppointment (same customerId) attachments — no portal upload
  * - Staff: documents.manage + parent domain permission (+ SUPER_ADMIN bypass)
  */
 async function assertDocumentAccess(
@@ -143,6 +158,19 @@ async function assertDocumentAccess(
           error: 'FORBIDDEN',
           message: 'Customer portal can only access own contract documents',
         });
+      }
+      return;
+    } else if (resourceType === 'VisitorAppointment') {
+      const appointment = await prisma.visitorAppointment.findFirst({
+        where: {
+          id: resourceId,
+          organizationId: user.organizationId,
+          customerId: user.customerId,
+        },
+        select: { id: true },
+      });
+      if (!appointment) {
+        throw new NotFoundException('VisitorAppointment not found');
       }
       return;
     } else {

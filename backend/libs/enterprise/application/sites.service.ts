@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   ConflictException,
   Injectable,
   NotFoundException,
@@ -7,10 +8,26 @@ import {
   PrismaService,
   AuthUser,
   assertBranchAccess,
+  assertSiteAccess,
   resolveSiteIdFilter,
 } from '@pssms/shared';
 import { AuditService } from '@pssms/audit';
-import { CreateSiteDto, SiteResponseDto } from '../presentation/dto/enterprise.dto';
+import {
+  CreateSiteDto,
+  SiteResponseDto,
+  UpdateSiteDto,
+} from '../presentation/dto/enterprise.dto';
+
+type SiteRow = {
+  id: string;
+  organizationId: string;
+  branchId: string;
+  customerId: string | null;
+  code: string;
+  name: string;
+  address: string | null;
+  isActive: boolean;
+};
 
 @Injectable()
 export class SitesService {
@@ -18,6 +35,19 @@ export class SitesService {
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
   ) {}
+
+  private toDto(site: SiteRow): SiteResponseDto {
+    return {
+      id: site.id,
+      organizationId: site.organizationId,
+      branchId: site.branchId,
+      customerId: site.customerId,
+      code: site.code,
+      name: site.name,
+      address: site.address,
+      isActive: site.isActive,
+    };
+  }
 
   async create(dto: CreateSiteDto, user: AuthUser): Promise<SiteResponseDto> {
     const branch = await this.prisma.branch.findFirst({
@@ -62,15 +92,72 @@ export class SitesService {
       after: site,
     });
 
-    return {
-      id: site.id,
-      organizationId: site.organizationId,
-      branchId: site.branchId,
-      customerId: site.customerId,
-      code: site.code,
-      name: site.name,
-      isActive: site.isActive,
-    };
+    return this.toDto(site);
+  }
+
+  /**
+   * Module 6-F — update name/address/isActive.
+   * When `requiredCustomerId` is set, site must belong to that customer (CRM wrapper).
+   */
+  async update(
+    siteId: string,
+    dto: UpdateSiteDto,
+    user: AuthUser,
+    opts?: { requiredCustomerId?: string },
+  ): Promise<SiteResponseDto> {
+    const existing = await this.prisma.site.findFirst({
+      where: { id: siteId, organizationId: user.organizationId },
+    });
+    if (!existing) throw new NotFoundException('Site not found');
+
+    if (
+      opts?.requiredCustomerId &&
+      existing.customerId !== opts.requiredCustomerId
+    ) {
+      throw new NotFoundException('Site not found for this customer');
+    }
+
+    assertSiteAccess(user, existing.id);
+    assertBranchAccess(user, existing.branchId);
+
+    const name =
+      dto.name !== undefined
+        ? dto.name.trim()
+        : undefined;
+    if (name !== undefined && name.length < 2) {
+      throw new BadRequestException({
+        error: 'INVALID_SITE_NAME',
+        message: 'Site name must be at least 2 characters',
+      });
+    }
+
+    const address =
+      dto.address === undefined
+        ? undefined
+        : dto.address === null || !String(dto.address).trim()
+          ? null
+          : String(dto.address).trim();
+
+    const site = await this.prisma.site.update({
+      where: { id: existing.id },
+      data: {
+        ...(name !== undefined ? { name } : {}),
+        ...(address !== undefined ? { address } : {}),
+        ...(dto.isActive !== undefined ? { isActive: dto.isActive } : {}),
+      },
+    });
+
+    await this.audit.record({
+      organizationId: user.organizationId,
+      actorId: user.id,
+      action: 'site.updated',
+      resourceType: 'Site',
+      resourceId: site.id,
+      before: existing,
+      after: site,
+    });
+
+    return this.toDto(site);
   }
 
   async list(
@@ -85,14 +172,6 @@ export class SitesService {
       },
       orderBy: { name: 'asc' },
     });
-    return rows.map((s) => ({
-      id: s.id,
-      organizationId: s.organizationId,
-      branchId: s.branchId,
-      customerId: s.customerId,
-      code: s.code,
-      name: s.name,
-      isActive: s.isActive,
-    }));
+    return rows.map((s) => this.toDto(s));
   }
 }

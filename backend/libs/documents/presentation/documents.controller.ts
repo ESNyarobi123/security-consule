@@ -51,7 +51,7 @@ export class DocumentsController {
   @ApiOperation({
     summary: 'Upload document to MinIO and store metadata',
     description:
-      'Multipart: file + resourceType + resourceId. Max 10MB; pdf/png/jpeg/webp. Requires documents.manage plus parent domain permission (OccurrenceEntry → operations.manage, PettyCashVoucher → finance.manage, Customer → customers.manage, Contract → contracts.manage) and org ownership of the parent resource.',
+      'Multipart: file + resourceType + resourceId. Max 10MB; pdf/png/jpeg/webp. Requires documents.manage plus parent domain permission (OccurrenceEntry → operations.manage, PettyCashVoucher → finance.manage, Customer → customers.manage, Contract → contracts.manage, VisitorAppointment → visitors.manage) and org ownership of the parent resource. Customer portal cannot upload (read-only list/presign).',
   })
   @ApiConsumes('multipart/form-data')
   @ApiBody({
@@ -62,12 +62,13 @@ export class DocumentsController {
         file: { type: 'string', format: 'binary' },
         resourceType: {
           type: 'string',
-          example: 'Contract',
+          example: 'VisitorAppointment',
           enum: [
             'OccurrenceEntry',
             'PettyCashVoucher',
             'Customer',
             'Contract',
+            'VisitorAppointment',
           ],
         },
         resourceId: { type: 'string', format: 'uuid' },
@@ -124,7 +125,7 @@ export class DocumentsController {
   @ApiOperation({
     summary: 'List document metadata for a resource',
     description:
-      'Staff: documents.manage + parent permission. Customer portal: read-only on own Customer or Contract resourceId.',
+      'Staff: documents.manage + parent permission. Customer portal: read-only on own Customer, Contract, or VisitorAppointment (same customerId) resourceId.',
   })
   @ApiOkResponse({ type: [DocumentObjectResponseDto] })
   list(
@@ -138,7 +139,7 @@ export class DocumentsController {
   @ApiOperation({
     summary: 'Short-lived presigned GET URL for object',
     description:
-      'Same ownership + authz as list (portal: own Customer / Contract attachments).',
+      'Same ownership + authz as list (portal: own Customer / Contract / VisitorAppointment attachments).',
   })
   @ApiOkResponse({ type: DocumentDownloadUrlResponseDto })
   downloadUrl(@Param('id') id: string, @CurrentUser() user: AuthUser) {

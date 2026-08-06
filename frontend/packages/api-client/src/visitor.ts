@@ -31,6 +31,9 @@ export type CreatePublicAppointmentInput = {
   visitorPhone?: string;
   purpose: string;
   hostName?: string;
+  /** Module 12-D — both or neither */
+  idType?: 'NIDA' | 'PASSPORT' | 'DRIVERS_LICENSE' | 'OTHER';
+  idNumber?: string;
   validFrom: string;
   validUntil: string;
 };

@@ -13,7 +13,9 @@ import {
 } from 'lucide-react';
 import { useEffect, useState, type ReactNode } from 'react';
 import {
+  GUARD_STATUS_OPTIONS,
   WALL,
+  canToggleDeployable,
   firearmExpiryLabel,
   formatWhen,
   guardDisplayName,
@@ -28,6 +30,11 @@ export type GuardReadinessPatch = {
   clearanceVerified?: boolean;
   firearmAuthorized?: boolean;
   firearmExpiry?: string | null;
+  medicalFitnessVerified?: boolean;
+  medicalFitnessExpiry?: string | null;
+  nationalIdRef?: string | null;
+  uniformIssued?: boolean;
+  equipmentIssued?: boolean;
 };
 
 export function GuardDetailDrawer({
@@ -35,6 +42,7 @@ export function GuardDetailDrawer({
   busy,
   onClose,
   onToggleSuspend,
+  onSetStatus,
   onToggleDeployable,
   onSaveReadiness,
 }: {
@@ -42,11 +50,14 @@ export function GuardDetailDrawer({
   busy?: boolean;
   onClose: () => void;
   onToggleSuspend: (g: Guard) => void;
+  onSetStatus: (g: Guard, next: string) => void;
   onToggleDeployable: (g: Guard) => void;
   onSaveReadiness: (g: Guard, patch: GuardReadinessPatch) => Promise<void>;
 }) {
   const active = guard.status === 'ACTIVE';
-  const ready = active && guard.deploymentEligible;
+  const deployableOk = canToggleDeployable(guard);
+  const ready = deployableOk && guard.deploymentEligible;
+  const nextStatuses = guard.allowedNextStatuses ?? [];
   const checklistOk = guardReadinessOk(guard);
   const tone = statusTone(guard.status);
   const rTone = readinessTone(guard);
@@ -64,6 +75,23 @@ export function GuardDetailDrawer({
   const [firearmExpiry, setFirearmExpiry] = useState(
     guard.firearmExpiry ? String(guard.firearmExpiry).slice(0, 10) : '',
   );
+  const [medicalFitnessVerified, setMedicalFitnessVerified] = useState(
+    Boolean(guard.medicalFitnessVerified),
+  );
+  const [medicalFitnessExpiry, setMedicalFitnessExpiry] = useState(
+    guard.medicalFitnessExpiry
+      ? String(guard.medicalFitnessExpiry).slice(0, 10)
+      : '',
+  );
+  const [nationalIdRef, setNationalIdRef] = useState(
+    guard.nationalIdRef ?? '',
+  );
+  const [uniformIssued, setUniformIssued] = useState(
+    Boolean(guard.uniformIssued),
+  );
+  const [equipmentIssued, setEquipmentIssued] = useState(
+    Boolean(guard.equipmentIssued),
+  );
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
@@ -73,12 +101,26 @@ export function GuardDetailDrawer({
     setFirearmExpiry(
       guard.firearmExpiry ? String(guard.firearmExpiry).slice(0, 10) : '',
     );
+    setMedicalFitnessVerified(Boolean(guard.medicalFitnessVerified));
+    setMedicalFitnessExpiry(
+      guard.medicalFitnessExpiry
+        ? String(guard.medicalFitnessExpiry).slice(0, 10)
+        : '',
+    );
+    setNationalIdRef(guard.nationalIdRef ?? '');
+    setUniformIssued(Boolean(guard.uniformIssued));
+    setEquipmentIssued(Boolean(guard.equipmentIssued));
   }, [
     guard.id,
     guard.trainingCompleted,
     guard.clearanceVerified,
     guard.firearmAuthorized,
     guard.firearmExpiry,
+    guard.medicalFitnessVerified,
+    guard.medicalFitnessExpiry,
+    guard.nationalIdRef,
+    guard.uniformIssued,
+    guard.equipmentIssued,
   ]);
 
   useEffect(() => {
@@ -94,7 +136,15 @@ export function GuardDetailDrawer({
     clearanceVerified !== Boolean(guard.clearanceVerified) ||
     firearmAuthorized !== Boolean(guard.firearmAuthorized) ||
     (firearmExpiry || '') !==
-      (guard.firearmExpiry ? String(guard.firearmExpiry).slice(0, 10) : '');
+      (guard.firearmExpiry ? String(guard.firearmExpiry).slice(0, 10) : '') ||
+    medicalFitnessVerified !== Boolean(guard.medicalFitnessVerified) ||
+    (medicalFitnessExpiry || '') !==
+      (guard.medicalFitnessExpiry
+        ? String(guard.medicalFitnessExpiry).slice(0, 10)
+        : '') ||
+    (nationalIdRef || '') !== (guard.nationalIdRef ?? '') ||
+    uniformIssued !== Boolean(guard.uniformIssued) ||
+    equipmentIssued !== Boolean(guard.equipmentIssued);
 
   async function saveReadiness() {
     setSaving(true);
@@ -104,6 +154,13 @@ export function GuardDetailDrawer({
         clearanceVerified,
         firearmAuthorized,
         firearmExpiry: firearmExpiry.trim() ? firearmExpiry.trim() : null,
+        medicalFitnessVerified,
+        medicalFitnessExpiry: medicalFitnessExpiry.trim()
+          ? medicalFitnessExpiry.trim()
+          : null,
+        nationalIdRef: nationalIdRef.trim() ? nationalIdRef.trim() : null,
+        uniformIssued,
+        equipmentIssued,
       });
     } finally {
       setSaving(false);
@@ -225,7 +282,24 @@ export function GuardDetailDrawer({
               </span>
             </Row>
             <Row label="phone">{guard.phone?.trim() || '—'}</Row>
-            <Row label="status">{guard.status}</Row>
+            <Row label="status">
+              <select
+                disabled={busy || nextStatuses.length === 0}
+                value={guard.status}
+                onChange={(e) => onSetStatus(guard, e.target.value)}
+                className="rounded-md border border-white/15 bg-black/30 px-2 py-1 text-xs font-semibold text-white outline-none ring-sky-400/40 focus:ring-2 disabled:opacity-50"
+              >
+                <option value={guard.status}>
+                  {GUARD_STATUS_OPTIONS.find((o) => o.id === guard.status)
+                    ?.label ?? guard.status}
+                </option>
+                {nextStatuses.map((s) => (
+                  <option key={s} value={s}>
+                    {GUARD_STATUS_OPTIONS.find((o) => o.id === s)?.label ?? s}
+                  </option>
+                ))}
+              </select>
+            </Row>
             <Row label="deployable">
               {guard.deploymentEligible ? 'Yes' : 'No'}
             </Row>
@@ -266,7 +340,7 @@ export function GuardDetailDrawer({
                 className="text-[10px] font-semibold uppercase tracking-[0.16em]"
                 style={{ color: WALL.muted }}
               >
-                Readiness checklist · G3
+                Readiness · G3 + medical/ID (8-B) + kit (8-C)
               </p>
               {!checklistOk ? (
                 <span className="text-[10px] font-medium text-amber-200/90">
@@ -295,6 +369,80 @@ export function GuardDetailDrawer({
               />
               Clearance verified
             </label>
+            <label className="flex cursor-pointer items-center gap-2.5 text-sm text-slate-100">
+              <input
+                type="checkbox"
+                checked={medicalFitnessVerified}
+                disabled={busy || saving}
+                onChange={(e) => setMedicalFitnessVerified(e.target.checked)}
+                className="h-4 w-4 rounded border-slate-500 bg-slate-800 text-sky-400 focus:ring-sky-400/40"
+              />
+              Medical fitness verified
+            </label>
+            <label className="block text-sm text-slate-100">
+              <span
+                className="mb-1 block text-[11px] font-semibold uppercase tracking-wide"
+                style={{ color: WALL.muted }}
+              >
+                Medical fitness expiry
+              </span>
+              <input
+                type="date"
+                value={medicalFitnessExpiry}
+                disabled={busy || saving}
+                onChange={(e) => setMedicalFitnessExpiry(e.target.value)}
+                className="w-full rounded-md border border-white/15 bg-black/30 px-2.5 py-1.5 text-sm text-white outline-none ring-sky-400/40 focus:ring-2 disabled:opacity-50"
+              />
+              <span
+                className="mt-1 block text-[11px]"
+                style={{ color: WALL.muted }}
+              >
+                On file: {firearmExpiryLabel(guard.medicalFitnessExpiry)}
+              </span>
+            </label>
+            <label className="block text-sm text-slate-100">
+              <span
+                className="mb-1 block text-[11px] font-semibold uppercase tracking-wide"
+                style={{ color: WALL.muted }}
+              >
+                National / work ID ref
+              </span>
+              <input
+                type="text"
+                value={nationalIdRef}
+                disabled={busy || saving}
+                onChange={(e) => setNationalIdRef(e.target.value)}
+                placeholder="NIDA-…"
+                className="w-full rounded-md border border-white/15 bg-black/30 px-2.5 py-1.5 text-sm text-white outline-none ring-sky-400/40 focus:ring-2 disabled:opacity-50"
+              />
+            </label>
+            <label className="flex cursor-pointer items-center gap-2.5 text-sm text-slate-100">
+              <input
+                type="checkbox"
+                checked={uniformIssued}
+                disabled={busy || saving}
+                onChange={(e) => setUniformIssued(e.target.checked)}
+                className="h-4 w-4 rounded border-slate-500 bg-slate-800 text-sky-400 focus:ring-sky-400/40"
+              />
+              Uniform issued
+            </label>
+            <label className="flex cursor-pointer items-center gap-2.5 text-sm text-slate-100">
+              <input
+                type="checkbox"
+                checked={equipmentIssued}
+                disabled={busy || saving}
+                onChange={(e) => setEquipmentIssued(e.target.checked)}
+                className="h-4 w-4 rounded border-slate-500 bg-slate-800 text-sky-400 focus:ring-sky-400/40"
+              />
+              Equipment issued
+            </label>
+            <p className="text-[11px]" style={{ color: WALL.muted }}>
+              Kit flags are a checklist only — tag-level inventory stays in{' '}
+              <a href="/assets" className="font-semibold text-sky-300 hover:underline">
+                Assets
+              </a>
+              .
+            </p>
             <label className="flex cursor-pointer items-center gap-2.5 text-sm text-slate-100">
               <input
                 type="checkbox"
@@ -397,7 +545,7 @@ export function GuardDetailDrawer({
           </button>
           <button
             type="button"
-            disabled={busy || !active}
+            disabled={busy || !deployableOk}
             onClick={() => onToggleDeployable(guard)}
             className="inline-flex flex-1 items-center justify-center gap-1.5 rounded-lg bg-sky-400/20 px-3 py-2.5 text-sm font-semibold text-sky-100 transition hover:bg-sky-400/30 disabled:opacity-50"
           >

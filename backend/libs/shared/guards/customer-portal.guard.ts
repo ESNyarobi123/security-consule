@@ -31,8 +31,10 @@ const PORTAL_ALLOWED_GET_PREFIXES = [
 /** Exact paths only — do not open /customers/me/* ops slices to staff logins. */
 const EMPLOYEE_ALLOWED_GET_EXACT = [
   '/api/v1/access/me',
+  '/api/v1/access/me/sites',
   '/api/v1/access/entries',
   '/api/v1/customers/me',
+  '/api/v1/customers/me/sites',
   '/api/v1/auth/me',
 ];
 
@@ -46,10 +48,13 @@ const PORTAL_ALLOWED_POST_PATHS = [
   /^\/api\/v1\/auth\/change-password$/,
   /^\/api\/v1\/customers\/me\/service-requests$/,
   /^\/api\/v1\/customers\/me\/service-requests\/[^/]+\/cancel$/,
+  /^\/api\/v1\/customers\/me\/complaints$/,
+  /^\/api\/v1\/customers\/me\/complaints\/[^/]+\/cancel$/,
 ];
 
 const EMPLOYEE_ALLOWED_POST_PATHS = [
   /^\/api\/v1\/auth\/change-password$/,
+  /^\/api\/v1\/access\/me\/entries$/,
 ];
 
 @Injectable()

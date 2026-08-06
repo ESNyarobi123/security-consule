@@ -13,6 +13,7 @@ import {
   AuthUser,
   PrismaService,
   evaluatePasswordPolicy,
+  normalizePasswordPolicy,
 } from '@pssms/shared';
 import {
   InviteCustomerPortalUserDto,
@@ -91,7 +92,12 @@ export class CustomerPortalUsersService {
     }
 
     const temporaryPassword = generateTempPassword();
-    const policyFailures = evaluatePasswordPolicy(temporaryPassword);
+    const org = await this.prisma.organization.findUnique({
+      where: { id: actor.organizationId },
+      select: { passwordPolicy: true },
+    });
+    const policy = normalizePasswordPolicy(org?.passwordPolicy);
+    const policyFailures = evaluatePasswordPolicy(temporaryPassword, policy);
     if (policyFailures.length > 0) {
       throw new BadRequestException({
         error: 'WEAK_PASSWORD',

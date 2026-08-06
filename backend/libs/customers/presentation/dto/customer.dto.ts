@@ -441,6 +441,7 @@ export class CustomerSiteSummaryDto {
   @ApiProperty() id!: string;
   @ApiProperty() code!: string;
   @ApiProperty() name!: string;
+  @ApiPropertyOptional() address?: string | null;
   @ApiProperty() isActive!: boolean;
 }
 

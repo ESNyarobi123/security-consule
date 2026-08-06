@@ -84,6 +84,7 @@ export class GuardsController {
       dto.status,
       dto.deploymentEligible,
       user,
+      dto.reason,
     );
   }
 

@@ -7,6 +7,7 @@ import { AlertnessService } from './application/alertness.service';
 import { PatrolService } from './application/patrol.service';
 import { FieldSyncService } from './application/field-sync.service';
 import { FieldAlertsService } from './application/field-alerts.service';
+import { GuardAbsentAttendanceBridge } from './application/guard-absent-attendance.bridge';
 import { AttendanceController } from './presentation/attendance.controller';
 import { AlertnessController } from './presentation/alertness.controller';
 import { PatrolController } from './presentation/patrol.controller';
@@ -28,6 +29,7 @@ import { FieldAlertsController } from './presentation/field-alerts.controller';
     PatrolService,
     FieldSyncService,
     FieldAlertsService,
+    GuardAbsentAttendanceBridge,
   ],
   exports: [
     AttendanceService,

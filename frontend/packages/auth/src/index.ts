@@ -18,6 +18,22 @@ export const PARTNER_TOKEN_COOKIE = 'pssms_partner_token';
 export const PARTNER_USER_COOKIE = 'pssms_partner_user';
 export const PARTNER_REFRESH_COOKIE = 'pssms_partner_refresh';
 
+export const OWNER_TOKEN_COOKIE = 'pssms_owner_token';
+export const OWNER_USER_COOKIE = 'pssms_owner_user';
+export const OWNER_REFRESH_COOKIE = 'pssms_owner_refresh';
+
+export const CONTRACTOR_TOKEN_COOKIE = 'pssms_contractor_token';
+export const CONTRACTOR_USER_COOKIE = 'pssms_contractor_user';
+export const CONTRACTOR_REFRESH_COOKIE = 'pssms_contractor_refresh';
+
+export const CONSULTANT_TOKEN_COOKIE = 'pssms_consultant_token';
+export const CONSULTANT_USER_COOKIE = 'pssms_consultant_user';
+export const CONSULTANT_REFRESH_COOKIE = 'pssms_consultant_refresh';
+
+export const PROVIDER_TOKEN_COOKIE = 'pssms_provider_token';
+export const PROVIDER_USER_COOKIE = 'pssms_provider_user';
+export const PROVIDER_REFRESH_COOKIE = 'pssms_provider_refresh';
+
 export type SessionUser = {
   id: string;
   email: string;
@@ -124,6 +140,30 @@ const partnerAuth = createAuthStore({
   tokenCookie: PARTNER_TOKEN_COOKIE,
   userCookie: PARTNER_USER_COOKIE,
   refreshCookie: PARTNER_REFRESH_COOKIE,
+});
+
+const ownerAuth = createAuthStore({
+  tokenCookie: OWNER_TOKEN_COOKIE,
+  userCookie: OWNER_USER_COOKIE,
+  refreshCookie: OWNER_REFRESH_COOKIE,
+});
+
+const contractorAuth = createAuthStore({
+  tokenCookie: CONTRACTOR_TOKEN_COOKIE,
+  userCookie: CONTRACTOR_USER_COOKIE,
+  refreshCookie: CONTRACTOR_REFRESH_COOKIE,
+});
+
+const consultantAuth = createAuthStore({
+  tokenCookie: CONSULTANT_TOKEN_COOKIE,
+  userCookie: CONSULTANT_USER_COOKIE,
+  refreshCookie: CONSULTANT_REFRESH_COOKIE,
+});
+
+const providerAuth = createAuthStore({
+  tokenCookie: PROVIDER_TOKEN_COOKIE,
+  userCookie: PROVIDER_USER_COOKIE,
+  refreshCookie: PROVIDER_REFRESH_COOKIE,
 });
 
 export function getToken(): string | null {
@@ -241,6 +281,86 @@ export function clearPartnerSession() {
   partnerAuth.clearSession();
 }
 
+export function getOwnerToken(): string | null {
+  return ownerAuth.getToken();
+}
+
+export function getOwnerSessionUser(): SessionUser | null {
+  return ownerAuth.getSessionUser();
+}
+
+export function setOwnerSession(
+  token: string,
+  user: SessionUser,
+  refreshToken?: string,
+) {
+  ownerAuth.setSession(token, user, refreshToken);
+}
+
+export function clearOwnerSession() {
+  ownerAuth.clearSession();
+}
+
+export function getContractorToken(): string | null {
+  return contractorAuth.getToken();
+}
+
+export function getContractorSessionUser(): SessionUser | null {
+  return contractorAuth.getSessionUser();
+}
+
+export function setContractorSession(
+  token: string,
+  user: SessionUser,
+  refreshToken?: string,
+) {
+  contractorAuth.setSession(token, user, refreshToken);
+}
+
+export function clearContractorSession() {
+  contractorAuth.clearSession();
+}
+
+export function getConsultantToken(): string | null {
+  return consultantAuth.getToken();
+}
+
+export function getConsultantSessionUser(): SessionUser | null {
+  return consultantAuth.getSessionUser();
+}
+
+export function setConsultantSession(
+  token: string,
+  user: SessionUser,
+  refreshToken?: string,
+) {
+  consultantAuth.setSession(token, user, refreshToken);
+}
+
+export function clearConsultantSession() {
+  consultantAuth.clearSession();
+}
+
+export function getProviderToken(): string | null {
+  return providerAuth.getToken();
+}
+
+export function getProviderSessionUser(): SessionUser | null {
+  return providerAuth.getSessionUser();
+}
+
+export function setProviderSession(
+  token: string,
+  user: SessionUser,
+  refreshToken?: string,
+) {
+  providerAuth.setSession(token, user, refreshToken);
+}
+
+export function clearProviderSession() {
+  providerAuth.clearSession();
+}
+
 export function authHeaders(token?: string | null): HeadersInit {
   const t = token ?? getToken();
   return t ? { Authorization: `Bearer ${t}` } : {};
@@ -263,6 +383,26 @@ export function parkingAuthHeaders(token?: string | null): HeadersInit {
 
 export function partnerAuthHeaders(token?: string | null): HeadersInit {
   const t = token ?? getPartnerToken();
+  return t ? { Authorization: `Bearer ${t}` } : {};
+}
+
+export function ownerAuthHeaders(token?: string | null): HeadersInit {
+  const t = token ?? getOwnerToken();
+  return t ? { Authorization: `Bearer ${t}` } : {};
+}
+
+export function contractorAuthHeaders(token?: string | null): HeadersInit {
+  const t = token ?? getContractorToken();
+  return t ? { Authorization: `Bearer ${t}` } : {};
+}
+
+export function consultantAuthHeaders(token?: string | null): HeadersInit {
+  const t = token ?? getConsultantToken();
+  return t ? { Authorization: `Bearer ${t}` } : {};
+}
+
+export function providerAuthHeaders(token?: string | null): HeadersInit {
+  const t = token ?? getProviderToken();
   return t ? { Authorization: `Bearer ${t}` } : {};
 }
 

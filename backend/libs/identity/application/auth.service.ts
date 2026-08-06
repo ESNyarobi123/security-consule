@@ -11,6 +11,9 @@ import {
   PrismaService,
   verifyTotp,
   evaluatePasswordPolicy,
+  normalizePasswordPolicy,
+  describePasswordPolicy,
+  type ResolvedPasswordPolicy,
 } from '@pssms/shared';
 import { AuthUser } from '@pssms/shared';
 import {
@@ -119,6 +122,18 @@ export class AuthService {
     return { tokens, user: profile };
   }
 
+  /** M5-K — resolved org password policy for the authenticated user. */
+  async getPasswordPolicy(
+    actor: AuthUser,
+  ): Promise<ResolvedPasswordPolicy & { summary: string }> {
+    const org = await this.prisma.organization.findUnique({
+      where: { id: actor.organizationId },
+      select: { passwordPolicy: true },
+    });
+    const policy = normalizePasswordPolicy(org?.passwordPolicy);
+    return { ...policy, summary: describePasswordPolicy(policy) };
+  }
+
   async changePassword(
     userId: string,
     dto: ChangePasswordDto,
@@ -146,7 +161,12 @@ export class AuthService {
       });
     }
 
-    const policyFailures = evaluatePasswordPolicy(dto.newPassword);
+    const org = await this.prisma.organization.findUnique({
+      where: { id: user.organizationId },
+      select: { passwordPolicy: true },
+    });
+    const policy = normalizePasswordPolicy(org?.passwordPolicy);
+    const policyFailures = evaluatePasswordPolicy(dto.newPassword, policy);
     if (policyFailures.length > 0) {
       throw new BadRequestException({
         error: 'WEAK_PASSWORD',

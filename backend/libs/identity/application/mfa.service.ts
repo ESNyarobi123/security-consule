@@ -25,12 +25,44 @@ export class MfaService {
     private readonly audit: AuditService,
   ) {}
 
+  /** Current MFA flag for the actor (no secret leaked). */
+  async status(actor: AuthUser): Promise<MfaStatusDto> {
+    const user = await this.prisma.user.findUnique({
+      where: { id: actor.id },
+      select: { mfaEnabled: true },
+    });
+    if (!user) {
+      throw new NotFoundException({ error: 'NOT_FOUND', message: 'User not found' });
+    }
+    return { mfaEnabled: user.mfaEnabled };
+  }
+
   /** Step 1: generate a secret and return the provisioning URI. Not yet enabled. */
   async setup(actor: AuthUser): Promise<MfaSetupResponseDto> {
+    const existing = await this.prisma.user.findUnique({
+      where: { id: actor.id },
+      select: { mfaEnabled: true },
+    });
+    if (!existing) {
+      throw new NotFoundException({ error: 'NOT_FOUND', message: 'User not found' });
+    }
+    if (existing.mfaEnabled) {
+      throw new BadRequestException({
+        error: 'MFA_ALREADY_ENABLED',
+        message: 'Disable MFA before starting a new enrollment',
+      });
+    }
     const secret = generateTotpSecret();
     await this.prisma.user.update({
       where: { id: actor.id },
       data: { mfaSecret: secret },
+    });
+    await this.audit.record({
+      organizationId: actor.organizationId,
+      actorId: actor.id,
+      action: 'IDENTITY_MFA_SETUP',
+      resourceType: 'User',
+      resourceId: actor.id,
     });
     const issuer = this.config.get<string>('MFA_ISSUER', 'HIGHLINK PSSMS');
     return {

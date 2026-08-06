@@ -12,6 +12,7 @@ import {
   ParkingCircle,
   ShieldAlert,
 } from 'lucide-react';
+import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { FormEvent, useState } from 'react';
 
@@ -221,6 +222,12 @@ export default function LoginPage() {
           <p className="mt-5 text-center text-[11px] leading-relaxed text-slate-400">
             Authorized parking officers only · ANPR = plate metadata · Video on
             NVR
+          </p>
+          <p className="mt-2 text-center text-[11px] text-slate-400">
+            Vehicle owner?{' '}
+            <Link href="/owner/login" className="text-teal-700 hover:underline">
+              Owner sign in
+            </Link>
           </p>
         </form>
       </div>

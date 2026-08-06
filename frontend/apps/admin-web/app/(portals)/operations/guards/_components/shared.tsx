@@ -18,14 +18,39 @@ export const WALL = {
   accent: '#0078d4',
 } as const;
 
-export type RosterFilter = 'all' | 'active' | 'deployable' | 'suspended';
+export type RosterFilter =
+  | 'all'
+  | 'active'
+  | 'available'
+  | 'deployable'
+  | 'on_leave'
+  | 'absent'
+  | 'suspended'
+  | 'transferred'
+  | 'terminated';
 export type RosterView = 'cards' | 'list';
 
 export const FILTER_CHIPS: { id: RosterFilter; label: string }[] = [
   { id: 'all', label: 'All' },
   { id: 'active', label: 'Active' },
+  { id: 'available', label: 'Available' },
   { id: 'deployable', label: 'Deployable' },
+  { id: 'on_leave', label: 'On leave' },
+  { id: 'absent', label: 'Absent' },
   { id: 'suspended', label: 'Suspended' },
+  { id: 'transferred', label: 'Transferred' },
+  { id: 'terminated', label: 'Terminated' },
+];
+
+/** Module 8-A/D — ops status labels for select / badges */
+export const GUARD_STATUS_OPTIONS: { id: string; label: string }[] = [
+  { id: 'ACTIVE', label: 'Active' },
+  { id: 'AVAILABLE', label: 'Available' },
+  { id: 'ON_LEAVE', label: 'On leave' },
+  { id: 'ABSENT', label: 'Absent' },
+  { id: 'SUSPENDED', label: 'Suspended' },
+  { id: 'TRANSFERRED', label: 'Transferred' },
+  { id: 'TERMINATED', label: 'Terminated' },
 ];
 
 export const KPI_TONES = {
@@ -88,7 +113,11 @@ export function guardInitials(g: Guard): string {
 }
 
 export function guardReadinessOk(g: Guard): boolean {
-  return Boolean(g.trainingCompleted) && Boolean(g.clearanceVerified);
+  return (
+    Boolean(g.trainingCompleted) &&
+    Boolean(g.clearanceVerified) &&
+    Boolean(g.medicalFitnessVerified)
+  );
 }
 
 export function firearmExpiryLabel(iso?: string | null): string {
@@ -114,17 +143,46 @@ export function readinessTone(g: Guard): {
   };
 }
 
+/** Module 8-B — medical chip (separate from full readiness). */
+export function medicalTone(g: Guard): { label: string; className: string } {
+  if (g.medicalFitnessVerified) {
+    return {
+      label: 'Medical OK',
+      className: 'bg-teal-400/15 text-teal-200 ring-teal-400/25',
+    };
+  }
+  return {
+    label: 'No medical',
+    className: 'bg-slate-400/10 text-slate-400 ring-slate-400/20',
+  };
+}
+
 export function matchesFilter(g: Guard, filter: RosterFilter): boolean {
   switch (filter) {
     case 'active':
       return g.status === 'ACTIVE';
+    case 'available':
+      return g.status === 'AVAILABLE';
     case 'deployable':
       return g.deploymentEligible;
+    case 'on_leave':
+      return g.status === 'ON_LEAVE';
+    case 'absent':
+      return g.status === 'ABSENT';
     case 'suspended':
       return g.status === 'SUSPENDED';
+    case 'transferred':
+      return g.status === 'TRANSFERRED';
+    case 'terminated':
+      return g.status === 'TERMINATED';
     default:
       return true;
   }
+}
+
+export function canToggleDeployable(g: Guard): boolean {
+  if (typeof g.canToggleDeployable === 'boolean') return g.canToggleDeployable;
+  return g.status === 'ACTIVE' || g.status === 'AVAILABLE';
 }
 
 export function matchesSearch(g: Guard, q: string): boolean {
@@ -166,10 +224,30 @@ export function statusTone(status: string): {
         label: 'Active',
         className: 'bg-emerald-400/20 text-emerald-200 ring-emerald-400/30',
       };
+    case 'AVAILABLE':
+      return {
+        label: 'Available',
+        className: 'bg-sky-400/20 text-sky-200 ring-sky-400/30',
+      };
+    case 'ON_LEAVE':
+      return {
+        label: 'On leave',
+        className: 'bg-amber-400/20 text-amber-200 ring-amber-400/30',
+      };
+    case 'ABSENT':
+      return {
+        label: 'Absent',
+        className: 'bg-orange-400/20 text-orange-200 ring-orange-400/30',
+      };
     case 'SUSPENDED':
       return {
         label: 'Suspended',
         className: 'bg-rose-400/20 text-rose-200 ring-rose-400/30',
+      };
+    case 'TRANSFERRED':
+      return {
+        label: 'Transferred',
+        className: 'bg-teal-400/20 text-teal-200 ring-teal-400/30',
       };
     case 'TERMINATED':
       return {

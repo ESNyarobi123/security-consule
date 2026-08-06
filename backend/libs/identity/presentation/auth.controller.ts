@@ -85,6 +85,17 @@ export class AuthController {
     return this.authService.me(user.id);
   }
 
+  @Get('password-policy')
+  @ApiBearerAuth()
+  @ApiOperation({
+    summary: 'Get organization password policy (Module 5-K)',
+    description:
+      'Resolved policy for the actor organization — used by change-password UX.',
+  })
+  getPasswordPolicy(@CurrentUser() user: AuthUser) {
+    return this.authService.getPasswordPolicy(user);
+  }
+
   @Post('change-password')
   @ApiBearerAuth()
   @ApiOperation({
@@ -98,6 +109,14 @@ export class AuthController {
     @Body() dto: ChangePasswordDto,
   ) {
     return this.authService.changePassword(user.id, dto);
+  }
+
+  @Get('mfa/status')
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Whether MFA is enabled for the current user' })
+  @ApiOkResponse({ type: MfaStatusDto })
+  mfaStatus(@CurrentUser() user: AuthUser) {
+    return this.mfaService.status(user);
   }
 
   @Post('mfa/setup')

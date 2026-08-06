@@ -53,6 +53,7 @@ const MODULES = [
   { href: '/parking', label: 'Parking', desc: 'Vehicles & permits', icon: Car },
   { href: '/incidents', label: 'Incidents', desc: 'Site events', icon: ShieldAlert },
   { href: '/sla', label: 'SLA', desc: 'Service levels', icon: FileText },
+  { href: '/reports', label: 'Reports', desc: 'Ops & billing period pack', icon: FileText },
   { href: '/requests', label: 'Requests', desc: 'How to ask', icon: ClipboardList },
 ] as const;
 

@@ -50,8 +50,22 @@ export type ParkingOpsVehicle = {
   model?: string | null;
   color?: string | null;
   ownerName?: string | null;
+  ownerPhone?: string | null;
+  /** Module 13-A */
+  rfidTagRef?: string | null;
   isActive: boolean;
   createdAt: string;
+};
+
+export type UpdateParkingVehicleBody = {
+  vehicleType?: string;
+  make?: string | null;
+  model?: string | null;
+  color?: string | null;
+  ownerName?: string | null;
+  ownerPhone?: string | null;
+  rfidTagRef?: string | null;
+  isActive?: boolean;
 };
 
 export type ParkingOpsPermit = {
@@ -65,9 +79,20 @@ export type ParkingOpsPermit = {
   validFrom: string;
   validUntil: string;
   createdAt: string;
+  /** Module 13-B */
+  feeAmount?: number | null;
+  currency?: string | null;
+  invoiceId?: string | null;
+  invoiceNumber?: string | null;
+  billedAt?: string | null;
   plateNumber?: string | null;
   siteCode?: string | null;
   siteName?: string | null;
+};
+
+export type UpdateParkingPermitBody = {
+  feeAmount?: number | null;
+  currency?: string;
 };
 
 export type ParkingOpsEntry = {
@@ -144,6 +169,18 @@ export async function parkingLogin(email: string, password: string) {
 export const listVehicles = (token?: string) =>
   parkingOpsFetch<ParkingOpsVehicle[]>('/api/v1/parking/vehicles', { token });
 
+/** PATCH /parking/vehicles/:id — Module 13-A RFID + basic fields */
+export const updateVehicle = (
+  id: string,
+  body: UpdateParkingVehicleBody,
+  token?: string,
+) =>
+  parkingOpsFetch<ParkingOpsVehicle>(`/api/v1/parking/vehicles/${id}`, {
+    method: 'PATCH',
+    body: JSON.stringify(body),
+    token,
+  });
+
 /** GET /parking/permits?status= */
 export const listPermits = (status?: string, token?: string) => {
   const q = status ? `?status=${encodeURIComponent(status)}` : '';
@@ -151,6 +188,25 @@ export const listPermits = (status?: string, token?: string) => {
     token,
   });
 };
+
+/** PATCH /parking/permits/:id — Module 13-B fee / currency */
+export const updatePermit = (
+  id: string,
+  body: UpdateParkingPermitBody,
+  token?: string,
+) =>
+  parkingOpsFetch<ParkingOpsPermit>(`/api/v1/parking/permits/${id}`, {
+    method: 'PATCH',
+    body: JSON.stringify(body),
+    token,
+  });
+
+/** POST /parking/permits/:id/bill — Module 13-B DRAFT invoice */
+export const billPermit = (id: string, token?: string) =>
+  parkingOpsFetch<ParkingOpsPermit>(`/api/v1/parking/permits/${id}/bill`, {
+    method: 'POST',
+    token,
+  });
 
 /** POST /parking/permits/:id/approve */
 export const approvePermit = (id: string, token?: string) =>

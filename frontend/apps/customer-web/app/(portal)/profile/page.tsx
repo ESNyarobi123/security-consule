@@ -14,6 +14,7 @@ import {
   ShieldCheck,
   UserRound,
 } from 'lucide-react';
+import Link from 'next/link';
 import { useCallback, useEffect, useState } from 'react';
 import {
   PortalDeferral,
@@ -149,6 +150,14 @@ export default function ProfilePage() {
                 <dd className="text-[#323130]">{me.contactPerson ?? '—'}</dd>
                 <dd className="text-[#323130]">{me.email ?? '—'}</dd>
                 <dd className="text-[#323130]">{me.phone ?? '—'}</dd>
+                <dd className="mt-2">
+                  <Link
+                    href="/contacts"
+                    className="text-xs font-semibold text-[#0078d4] hover:underline"
+                  >
+                    View contacts directory →
+                  </Link>
+                </dd>
               </div>
               <div>
                 <dt className="text-[11px] uppercase text-[#605e5c]">Address</dt>

@@ -32,17 +32,32 @@ export class HttpExceptionFilter implements ExceptionFilter {
       } else if (typeof body === 'object' && body !== null) {
         const obj = body as Record<string, unknown>;
         message = (obj.message as string) ?? message;
-        code = (obj.error as string) ?? code;
+        const rawError = obj.error;
+        // Prefer app codes (e.g. MFA_REQUIRED). Nest defaults are prose titles.
+        if (
+          typeof rawError === 'string' &&
+          /^[A-Z][A-Z0-9_]+$/.test(rawError)
+        ) {
+          code = rawError;
+        } else if (typeof rawError === 'string') {
+          code = rawError;
+        }
         if (Array.isArray(obj.message)) {
           details = obj.message;
           message = 'Validation failed';
           code = 'VALIDATION_ERROR';
         }
       }
-      // Nest often returns error: "Unauthorized" — normalize to stable codes.
-      if (status === HttpStatus.UNAUTHORIZED) {
+      // Nest often returns error: "Unauthorized" — normalize only generic titles.
+      if (
+        status === HttpStatus.UNAUTHORIZED &&
+        !/^[A-Z][A-Z0-9_]+$/.test(code)
+      ) {
         code = 'UNAUTHORIZED';
-      } else if (status === HttpStatus.FORBIDDEN) {
+      } else if (
+        status === HttpStatus.FORBIDDEN &&
+        !/^[A-Z][A-Z0-9_]+$/.test(code)
+      ) {
         code = 'FORBIDDEN';
       }
     } else if (exception instanceof Error) {

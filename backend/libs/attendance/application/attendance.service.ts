@@ -5,7 +5,7 @@ import {
   BadRequestException,
   ConflictException,
 } from '@nestjs/common';
-import { ShiftStatus, AttendanceMethod } from '@prisma/client';
+import { ShiftStatus, AttendanceMethod, GuardStatus } from '@prisma/client';
 import {
   PrismaService,
   AuthUser,
@@ -15,6 +15,23 @@ import {
   isGuardSelfScoped,
   siteScopeWhere,
 } from '@pssms/shared';
+
+/** Module 8-G — cannot start a new duty punch / alertness duty window. */
+const DUTY_BLOCKED_STATUSES: GuardStatus[] = [
+  GuardStatus.TERMINATED,
+  GuardStatus.SUSPENDED,
+  GuardStatus.ABSENT,
+];
+
+function assertGuardCanStartDuty(status: GuardStatus): void {
+  if (DUTY_BLOCKED_STATUSES.includes(status)) {
+    throw new BadRequestException({
+      error: 'GUARD_STATUS_BLOCKS_DUTY',
+      message: `Guard status ${status} cannot clock in`,
+      status,
+    });
+  }
+}
 
 /** Device-normalized guard punch resolved inside the attendance domain. */
 export interface DevicePunchInput {
@@ -91,11 +108,7 @@ export class AttendanceService {
 
     const guard = await this.guards.getByUserId(user.id, user.organizationId);
     if (!guard) throw new BadRequestException('User is not a registered guard');
-    if (guard.status === 'TERMINATED' || guard.status === 'SUSPENDED') {
-      throw new BadRequestException(
-        `Guard status ${guard.status} cannot clock in`,
-      );
-    }
+    assertGuardCanStartDuty(guard.status);
 
     const site = await this.prisma.site.findFirst({
       where: { id: dto.siteId, organizationId: user.organizationId },
@@ -172,11 +185,7 @@ export class AttendanceService {
       where: { id: dto.guardId, organizationId: user.organizationId },
     });
     if (!guard) throw new NotFoundException('Guard not found');
-    if (guard.status === 'TERMINATED' || guard.status === 'SUSPENDED') {
-      throw new BadRequestException(
-        `Guard status ${guard.status} cannot clock in`,
-      );
-    }
+    assertGuardCanStartDuty(guard.status);
 
     const site = await this.prisma.site.findFirst({
       where: { id: dto.siteId, organizationId: user.organizationId },
@@ -333,6 +342,61 @@ export class AttendanceService {
   }
 
   /**
+   * Module 8-E — when ops marks a guard ABSENT, close any open punch so the
+   * roster is not left "on duty". Uses SUPERVISOR clock-out + STATUS_ABSENT remark.
+   */
+  async closeOpenForGuardAbsent(
+    guardId: string,
+    user: AuthUser,
+    meta?: { reason?: string },
+  ): Promise<{ closedIds: string[] }> {
+    const open = await this.prisma.guardAttendance.findMany({
+      where: {
+        organizationId: user.organizationId,
+        guardId,
+        clockOutAt: null,
+      },
+    });
+    if (open.length === 0) return { closedIds: [] };
+
+    const serverNow = new Date();
+    const reason = meta?.reason?.trim();
+    const closedIds: string[] = [];
+
+    for (const row of open) {
+      const remarkParts = [row.remarks, 'STATUS_ABSENT'];
+      if (reason) remarkParts.push(reason);
+      const updated = await this.prisma.guardAttendance.update({
+        where: { id: row.id },
+        data: {
+          clockOutAt: serverNow,
+          clockOutMethod: AttendanceMethod.SUPERVISOR,
+          clockOutLatitude: row.clockInLatitude,
+          clockOutLongitude: row.clockInLongitude,
+          deviceClockOutAt: serverNow,
+          remarks: remarkParts.filter(Boolean).join('; '),
+        },
+      });
+      closedIds.push(updated.id);
+      await this.audit.record({
+        organizationId: user.organizationId,
+        actorId: user.id,
+        action: 'attendance.closed_for_absent',
+        resourceType: 'GuardAttendance',
+        resourceId: updated.id,
+        before: row,
+        after: {
+          ...updated,
+          guardId,
+          trigger: 'guard.status.ABSENT',
+        },
+      });
+    }
+
+    return { closedIds };
+  }
+
+  /**
    * Ingest a guard attendance punch from a biometric/card terminal. The device
    * identifies the guard by employee number (not a logged-in user) and has no
    * GPS, so this bypasses the geofence path. It toggles clock-in ↔ clock-out
@@ -398,6 +462,11 @@ export class AttendanceService {
         after: { ...updated, via: 'device' },
       });
       return { id: updated.id, action: 'clock-out' };
+    }
+
+    // Module 8-G — allow clock-out while ABSENT; block new clock-in (store-only).
+    if (DUTY_BLOCKED_STATUSES.includes(guard.status)) {
+      return null;
     }
 
     const created = await this.prisma.guardAttendance.create({

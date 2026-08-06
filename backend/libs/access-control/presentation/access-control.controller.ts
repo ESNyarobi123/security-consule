@@ -19,9 +19,11 @@ import {
 import { AccessControlService } from '../application/access-control.service';
 import {
   CreateAccessEntryDto,
+  CreateSelfAccessEntryDto,
   CreateCustomerEmployeeDto,
   CustomerEmployeeResponseDto,
   AccessEntryResponseDto,
+  SelfAccessSitesResponseDto,
 } from './dto/access.dto';
 
 @ApiTags('Access Control')
@@ -39,6 +41,31 @@ export class AccessControlController {
   @ApiOkResponse({ type: CustomerEmployeeResponseDto })
   me(@CurrentUser() user: AuthUser) {
     return this.service.getMyEmployee(user);
+  }
+
+  @Post('me/entries')
+  @RequirePermissions('access.self')
+  @ApiOperation({
+    summary:
+      'Self check-in/out (Portal 35.9) — bound employee + own customer sites only',
+  })
+  @ApiCreatedResponse({ type: AccessEntryResponseDto })
+  recordSelfEntry(
+    @Body() dto: CreateSelfAccessEntryDto,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.service.recordSelfEntry(dto, user);
+  }
+
+  @Get('me/sites')
+  @RequirePermissions('access.self')
+  @ApiOperation({
+    summary:
+      'Sites allowed for self check-in (Module 11-C). Empty grants = all customer sites.',
+  })
+  @ApiOkResponse({ type: SelfAccessSitesResponseDto })
+  mySites(@CurrentUser() user: AuthUser) {
+    return this.service.listMySites(user);
   }
 
   @Post('employees')

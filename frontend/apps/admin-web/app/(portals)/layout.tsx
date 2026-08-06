@@ -29,6 +29,10 @@ export default function PortalsLayout({
       router.replace('/login');
       return;
     }
+    if (user.mustChangePassword) {
+      router.replace('/change-password');
+      return;
+    }
     setUserName(user.fullName);
     setUserEmail(user.email);
     setUserRole(
