@@ -1,5 +1,6 @@
 import { PrismaClient, ContractStatus } from '@prisma/client';
 import * as bcrypt from 'bcryptjs';
+import { seedDemoVolume } from './demo-volume';
 
 const prisma = new PrismaClient();
 
@@ -4467,6 +4468,25 @@ async function main() {
     });
   }
 
+  // Large idempotent VOL-* demo volume (~20/entity) after core demos exist
+  await seedDemoVolume(prisma, {
+    organizationId: org.id,
+    customerId: customer.id,
+    siteWarehouseId: site.id,
+    siteOfficeId: siteOffice.id,
+    branchId: branch.id,
+    contractGuardId: guardDemoContract?.id ?? null,
+    adminUserId: admin.id,
+    supervisorUserId: supervisorUser.id,
+    opsUserId:
+      (await prisma.user.findUnique({ where: { email: 'ops1@highlink.co.tz' } }))
+        ?.id ?? admin.id,
+    portalUserId: portalUser.id,
+    gateMainId: gate.id,
+    passwordHash,
+    guardRoleId: guardRole.id,
+  });
+
   const kpiDefs = [
     { code: 'GUARD_HEADCOUNT_ACTIVE', name: 'Active guards', category: 'OPS', unit: 'COUNT' },
     { code: 'GUARD_ON_DUTY', name: 'Guards on duty', category: 'OPS', unit: 'COUNT' },
@@ -4502,6 +4522,7 @@ async function main() {
   }
 
   console.log('Seed complete');
+  console.log('  Demo volume: VOL-* (~20 rows/entity) — see summary above');
   console.log('  admin@highlink.co.tz / ChangeMe123!');
   console.log('  gm@highlink.co.tz / ChangeMe123!');
   console.log('  portal@demo-mfg.co.tz / ChangeMe123! (CUSTOMER_PORTAL → CUST-DEMO)');
