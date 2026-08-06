@@ -1,43 +1,25 @@
 import type { Metadata } from 'next';
-import Link from 'next/link';
+import { Outfit } from 'next/font/google';
 import './globals.css';
+
+const outfit = Outfit({
+  subsets: ['latin'],
+  variable: '--font-outfit',
+  display: 'swap',
+});
 
 export const metadata: Metadata = {
   title: 'HIGHLINK Careers',
-  description: 'Browse open roles and apply at HIGHLINK Security',
+  description:
+    'Browse open roles, apply online, and check application status — HIGHLINK Security',
 };
 
 export default function RootLayout({
   children,
 }: Readonly<{ children: React.ReactNode }>) {
   return (
-    <html lang="en">
-      <body>
-        <div className="min-h-screen">
-          <nav className="border-b border-slate-200 bg-white">
-            <div className="mx-auto flex max-w-3xl items-center justify-between px-4 py-3">
-              <Link href="/" className="text-sm font-semibold text-slate-900">
-                HIGHLINK Careers
-              </Link>
-              <div className="flex items-center gap-4">
-                <Link
-                  href="/partner/login"
-                  className="text-sm text-slate-600 hover:text-sky-700"
-                >
-                  Partner portal
-                </Link>
-                <Link
-                  href="/status"
-                  className="text-sm text-slate-600 hover:text-sky-700"
-                >
-                  Check application status
-                </Link>
-              </div>
-            </div>
-          </nav>
-          {children}
-        </div>
-      </body>
+    <html lang="en" className={outfit.variable}>
+      <body className={outfit.className}>{children}</body>
     </html>
   );
 }

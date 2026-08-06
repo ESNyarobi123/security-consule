@@ -12,9 +12,17 @@ import {
   getPartnerSessionUser,
   getPartnerToken,
 } from '@pssms/auth';
-import Link from 'next/link';
+import { LogOut, Plus, RefreshCw } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { FormEvent, useCallback, useEffect, useState } from 'react';
+import {
+  CareersHero,
+  CareersShell,
+  Field,
+  StatusPill,
+  formatDate,
+  inputClass,
+} from '../../_components/careers-ui';
 
 export default function PartnerRequestsPage() {
   const router = useRouter();
@@ -84,157 +92,152 @@ export default function PartnerRequestsPage() {
   const session = getPartnerSessionUser();
 
   return (
-    <div className="mx-auto max-w-3xl px-4 py-8">
-      <header className="mb-6 flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">
-            Other security company
-          </p>
-          <h1 className="mt-1 text-2xl font-semibold text-slate-900">
-            Guard supply requests
-          </h1>
-          <p className="mt-1 text-sm text-slate-600">
-            {partner
-              ? `${partner.name} (${partner.code}) · ${partner.status}`
-              : session?.email ?? 'Partner portal'}
-          </p>
-        </div>
-        <div className="flex gap-2">
-          <button
-            type="button"
-            onClick={() => void refresh()}
-            className="rounded-md border border-slate-300 px-3 py-1.5 text-sm text-slate-700 hover:bg-slate-50"
-          >
-            Refresh
-          </button>
-          <button
-            type="button"
-            onClick={signOut}
-            className="rounded-md border border-slate-300 px-3 py-1.5 text-sm text-slate-700 hover:bg-slate-50"
-          >
-            Sign out
-          </button>
-        </div>
-      </header>
+    <CareersShell active="partner">
+      <CareersHero
+        eyebrow="Portal 35.14 · B2B"
+        title={partner ? partner.name : 'Guard supply requests'}
+        subtitle={
+          partner
+            ? `${partner.code} · ${partner.status} — submit criteria and track HIGHLINK triage.`
+            : (session?.email ?? 'Partner portal')
+        }
+        actions={
+          <>
+            <button
+              type="button"
+              onClick={() => void refresh()}
+              className="inline-flex items-center gap-2 rounded-xl border border-white/25 bg-white/10 px-3 py-2 text-sm font-medium text-white backdrop-blur hover:bg-white/20"
+            >
+              <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
+              Refresh
+            </button>
+            <button
+              type="button"
+              onClick={signOut}
+              className="inline-flex items-center gap-2 rounded-xl bg-white px-3 py-2 text-sm font-semibold text-[#312e81]"
+            >
+              <LogOut className="h-4 w-4" /> Sign out
+            </button>
+          </>
+        }
+      />
 
       {error ? (
-        <p className="mb-4 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">
+        <p className="mb-4 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800">
           {error}
         </p>
       ) : null}
 
-      <form
-        onSubmit={onCreate}
-        className="mb-8 rounded-xl border border-slate-200 bg-white p-5"
-      >
-        <h2 className="text-sm font-semibold text-slate-900">New request</h2>
-        <div className="mt-3 grid gap-3 sm:grid-cols-2">
-          <label className="text-sm text-slate-600">
-            Guard count
-            <input
-              type="number"
-              min={1}
-              max={500}
-              value={guardCount}
-              onChange={(e) => setGuardCount(Number(e.target.value))}
-              className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2"
-              required
-            />
-          </label>
-          <label className="text-sm text-slate-600">
-            Site / location
-            <input
-              value={siteLocation}
-              onChange={(e) => setSiteLocation(e.target.value)}
-              className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2"
-              placeholder="City / site description"
-            />
-          </label>
-          <label className="text-sm text-slate-600">
-            Start date
-            <input
-              type="date"
-              value={startDate}
-              onChange={(e) => setStartDate(e.target.value)}
-              className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2"
-            />
-          </label>
-          <label className="text-sm text-slate-600">
-            End date
-            <input
-              type="date"
-              value={endDate}
-              onChange={(e) => setEndDate(e.target.value)}
-              className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2"
-            />
-          </label>
-        </div>
-        <label className="mt-3 block text-sm text-slate-600">
-          Criteria / notes
-          <textarea
-            value={criteriaNotes}
-            onChange={(e) => setCriteriaNotes(e.target.value)}
-            rows={3}
-            className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2"
-            placeholder="Shift, firearms, language, …"
-          />
-        </label>
-        <button
-          type="submit"
-          disabled={busy}
-          className="mt-4 rounded-md bg-sky-700 px-4 py-2 text-sm font-semibold text-white hover:bg-sky-800 disabled:opacity-60"
+      <div className="grid gap-4 lg:grid-cols-5">
+        <form
+          onSubmit={onCreate}
+          className="rounded-2xl border border-[#e1dfdd] bg-white p-5 shadow-sm lg:col-span-2"
         >
-          {busy ? 'Submitting…' : 'Submit request'}
-        </button>
-      </form>
+          <h2 className="flex items-center gap-2 text-sm font-bold text-[#1b1a19]">
+            <Plus className="h-4 w-4 text-[#4f46e5]" /> New request
+          </h2>
+          <div className="mt-4 space-y-3">
+            <Field label="Guard count">
+              <input
+                type="number"
+                min={1}
+                max={500}
+                value={guardCount}
+                onChange={(e) => setGuardCount(Number(e.target.value))}
+                className={inputClass}
+                required
+              />
+            </Field>
+            <Field label="Site / location" hint="optional">
+              <input
+                value={siteLocation}
+                onChange={(e) => setSiteLocation(e.target.value)}
+                className={inputClass}
+                placeholder="City / site description"
+              />
+            </Field>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <Field label="Start date">
+                <input
+                  type="date"
+                  value={startDate}
+                  onChange={(e) => setStartDate(e.target.value)}
+                  className={inputClass}
+                />
+              </Field>
+              <Field label="End date">
+                <input
+                  type="date"
+                  value={endDate}
+                  onChange={(e) => setEndDate(e.target.value)}
+                  className={inputClass}
+                />
+              </Field>
+            </div>
+            <Field label="Criteria / notes" hint="optional">
+              <textarea
+                value={criteriaNotes}
+                onChange={(e) => setCriteriaNotes(e.target.value)}
+                rows={3}
+                className={inputClass}
+                placeholder="Shift, firearms, language, …"
+              />
+            </Field>
+          </div>
+          <button
+            type="submit"
+            disabled={busy}
+            className="mt-4 w-full rounded-xl bg-gradient-to-r from-[#4f46e5] to-[#312e81] px-4 py-2.5 text-sm font-semibold text-white shadow disabled:opacity-60"
+          >
+            {busy ? 'Submitting…' : 'Submit request'}
+          </button>
+        </form>
 
-      <section>
-        <h2 className="mb-3 text-sm font-semibold text-slate-900">
-          Your requests
-        </h2>
-        {loading ? (
-          <p className="text-sm text-slate-500">Loading…</p>
-        ) : rows.length === 0 ? (
-          <p className="text-sm text-slate-500">No requests yet.</p>
-        ) : (
-          <ul className="space-y-3">
-            {rows.map((r) => (
-              <li
-                key={r.id}
-                className="rounded-xl border border-slate-200 bg-white px-4 py-3"
-              >
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <p className="font-medium text-slate-900">
-                    {r.referenceNumber}
+        <section className="lg:col-span-3">
+          <h2 className="mb-3 text-sm font-bold text-[#1b1a19]">
+            Your requests ({rows.length})
+          </h2>
+          {loading ? (
+            <p className="text-sm text-[#605e5c]">Loading…</p>
+          ) : rows.length === 0 ? (
+            <div className="rounded-2xl border border-dashed border-indigo-200 bg-indigo-50/40 px-6 py-10 text-center text-sm text-[#605e5c]">
+              No requests yet. Submit your first guard supply request.
+            </div>
+          ) : (
+            <ul className="space-y-3">
+              {rows.map((r) => (
+                <li
+                  key={r.id}
+                  className="rounded-2xl border border-[#e1dfdd] bg-white px-4 py-4 shadow-sm"
+                >
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <p className="font-mono text-sm font-bold text-[#1b1a19]">
+                      {r.referenceNumber}
+                    </p>
+                    <StatusPill status={r.status} />
+                  </div>
+                  <p className="mt-2 text-sm text-[#605e5c]">
+                    {r.guardCount} guards
+                    {r.siteLocation ? ` · ${r.siteLocation}` : ''}
+                    {r.startDate ? ` · from ${r.startDate}` : ''}
+                    {` · ${formatDate(r.createdAt) ?? ''}`}
                   </p>
-                  <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-700">
-                    {r.status}
-                  </span>
-                </div>
-                <p className="mt-1 text-sm text-slate-600">
-                  {r.guardCount} guards
-                  {r.siteLocation ? ` · ${r.siteLocation}` : ''}
-                  {r.startDate ? ` · from ${r.startDate}` : ''}
-                </p>
-                {r.criteriaNotes ? (
-                  <p className="mt-1 text-xs text-slate-500">{r.criteriaNotes}</p>
-                ) : null}
-                {r.staffNotes ? (
-                  <p className="mt-2 text-xs text-amber-800">
-                    HR note: {r.staffNotes}
-                  </p>
-                ) : null}
-              </li>
-            ))}
-          </ul>
-        )}
-      </section>
-
-      <p className="mt-8 text-center text-xs text-slate-500">
-        <Link href="/" className="text-sky-700 hover:underline">
-          ← Public careers
-        </Link>
-      </p>
-    </div>
+                  {r.criteriaNotes ? (
+                    <p className="mt-2 text-xs text-[#323130]">
+                      {r.criteriaNotes}
+                    </p>
+                  ) : null}
+                  {r.staffNotes ? (
+                    <p className="mt-2 rounded-lg bg-amber-50 px-2 py-1.5 text-xs text-amber-900">
+                      HR note: {r.staffNotes}
+                    </p>
+                  ) : null}
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
+      </div>
+    </CareersShell>
   );
 }

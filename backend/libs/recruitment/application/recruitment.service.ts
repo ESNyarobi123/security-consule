@@ -8,7 +8,7 @@ import {
   EmploymentType,
   JobPostingStatus,
 } from '@prisma/client';
-import { PrismaService, AuthUser } from '@pssms/shared';
+import { AuthUser, getOrgContext, PrismaService } from '@pssms/shared';
 import { AuditService } from '@pssms/audit';
 import { EmployeesService } from '@pssms/workforce';
 import {
@@ -30,50 +30,66 @@ export class RecruitmentService {
     private readonly employees: EmployeesService,
   ) {}
 
-  async publicConfig(): Promise<RecruitmentPublicConfigDto> {
+  /** Public careers routes have no JWT — bind HIGHLINK RLS org (never bypass). */
+  private async withPublicOrg<T>(fn: () => Promise<T>): Promise<T> {
+    if (getOrgContext()?.organizationId) return fn();
     const org = await this.prisma.organization.findFirst({
       where: { code: 'HIGHLINK' },
     });
     if (!org) throw new NotFoundException('Demo organization not found');
+    return this.prisma.runInRequestContext({ organizationId: org.id }, fn);
+  }
 
-    const posting = await this.prisma.jobPosting.findFirst({
-      where: {
+  async publicConfig(): Promise<RecruitmentPublicConfigDto> {
+    return this.withPublicOrg(async () => {
+      const org = await this.prisma.organization.findFirst({
+        where: { code: 'HIGHLINK' },
+      });
+      if (!org) throw new NotFoundException('Demo organization not found');
+
+      const posting = await this.prisma.jobPosting.findFirst({
+        where: {
+          organizationId: org.id,
+          id: '00000000-0000-4000-8000-000000000101',
+          status: JobPostingStatus.OPEN,
+        },
+      });
+
+      return {
         organizationId: org.id,
-        id: '00000000-0000-4000-8000-000000000101',
-        status: JobPostingStatus.OPEN,
-      },
+        seedPostingId: posting?.id ?? null,
+      };
     });
-
-    return {
-      organizationId: org.id,
-      seedPostingId: posting?.id ?? null,
-    };
   }
 
   async listOpenPostings(): Promise<JobPostingPublicDto[]> {
-    const now = new Date();
-    const rows = await this.prisma.jobPosting.findMany({
-      where: {
-        status: JobPostingStatus.OPEN,
-        OR: [{ closesAt: null }, { closesAt: { gt: now } }],
-      },
-      orderBy: { publishedAt: 'desc' },
-      take: 100,
+    return this.withPublicOrg(async () => {
+      const now = new Date();
+      const rows = await this.prisma.jobPosting.findMany({
+        where: {
+          status: JobPostingStatus.OPEN,
+          OR: [{ closesAt: null }, { closesAt: { gt: now } }],
+        },
+        orderBy: { publishedAt: 'desc' },
+        take: 100,
+      });
+      return rows.map((p) => this.toPublicPostingDto(p));
     });
-    return rows.map((p) => this.toPublicPostingDto(p));
   }
 
   async getOpenPosting(id: string): Promise<JobPostingPublicDto> {
-    const now = new Date();
-    const posting = await this.prisma.jobPosting.findFirst({
-      where: {
-        id,
-        status: JobPostingStatus.OPEN,
-        OR: [{ closesAt: null }, { closesAt: { gt: now } }],
-      },
+    return this.withPublicOrg(async () => {
+      const now = new Date();
+      const posting = await this.prisma.jobPosting.findFirst({
+        where: {
+          id,
+          status: JobPostingStatus.OPEN,
+          OR: [{ closesAt: null }, { closesAt: { gt: now } }],
+        },
+      });
+      if (!posting) throw new NotFoundException('Job posting not found');
+      return this.toPublicPostingDto(posting);
     });
-    if (!posting) throw new NotFoundException('Job posting not found');
-    return this.toPublicPostingDto(posting);
   }
 
   async createPosting(
@@ -125,72 +141,80 @@ export class RecruitmentService {
     dto: CreateJobApplicationDto,
     actorOrganizationId?: string,
   ): Promise<JobApplicationResponseDto> {
-    const now = new Date();
-    const posting = await this.prisma.jobPosting.findFirst({
-      where: {
-        id: dto.postingId,
-        status: JobPostingStatus.OPEN,
-        OR: [{ closesAt: null }, { closesAt: { gt: now } }],
-        ...(actorOrganizationId
-          ? { organizationId: actorOrganizationId }
-          : {}),
-      },
-    });
-    if (!posting) throw new NotFoundException('Job posting not open');
+    const run = async () => {
+      const now = new Date();
+      const posting = await this.prisma.jobPosting.findFirst({
+        where: {
+          id: dto.postingId,
+          status: JobPostingStatus.OPEN,
+          OR: [{ closesAt: null }, { closesAt: { gt: now } }],
+          ...(actorOrganizationId
+            ? { organizationId: actorOrganizationId }
+            : {}),
+        },
+      });
+      if (!posting) throw new NotFoundException('Job posting not open');
 
-    // Public apply: trust posting org, ignore spoofed body organizationId
-    const organizationId = posting.organizationId;
-    const referenceNumber = await this.nextReferenceNumber(organizationId);
+      // Public apply: trust posting org, ignore spoofed body organizationId
+      const organizationId = posting.organizationId;
+      const referenceNumber = await this.nextReferenceNumber(organizationId);
 
-    const app = await this.prisma.jobApplication.create({
-      data: {
+      const app = await this.prisma.jobApplication.create({
+        data: {
+          organizationId,
+          postingId: dto.postingId,
+          referenceNumber,
+          applicantName: dto.applicantName,
+          email: dto.email.toLowerCase().trim(),
+          phone: dto.phone,
+          resumeUrl: dto.resumeUrl,
+          coverLetter: dto.coverLetter,
+        },
+      });
+
+      await this.audit.record({
         organizationId,
-        postingId: dto.postingId,
-        referenceNumber,
-        applicantName: dto.applicantName,
-        email: dto.email.toLowerCase().trim(),
-        phone: dto.phone,
-        resumeUrl: dto.resumeUrl,
-        coverLetter: dto.coverLetter,
-      },
-    });
+        actorId: actorOrganizationId ? 'staff' : 'public',
+        action: 'recruitment.application.submitted',
+        resourceType: 'JobApplication',
+        resourceId: app.id,
+        after: {
+          id: app.id,
+          referenceNumber: app.referenceNumber,
+          postingId: app.postingId,
+          status: app.status,
+        },
+      });
 
-    await this.audit.record({
-      organizationId,
-      actorId: actorOrganizationId ? 'staff' : 'public',
-      action: 'recruitment.application.submitted',
-      resourceType: 'JobApplication',
-      resourceId: app.id,
-      after: {
-        id: app.id,
-        referenceNumber: app.referenceNumber,
-        postingId: app.postingId,
-        status: app.status,
-      },
-    });
+      return this.toApplicationDto(app);
+    };
 
-    return this.toApplicationDto(app);
+    return actorOrganizationId || getOrgContext()?.organizationId
+      ? run()
+      : this.withPublicOrg(run);
   }
 
   async applicationStatus(
     reference: string,
     email: string,
   ): Promise<JobApplicationPublicStatusDto> {
-    const app = await this.prisma.jobApplication.findFirst({
-      where: {
-        referenceNumber: reference.trim().toUpperCase(),
-        email: email.toLowerCase().trim(),
-      },
-      include: { posting: true },
-    });
-    if (!app) throw new NotFoundException('Application not found');
+    return this.withPublicOrg(async () => {
+      const app = await this.prisma.jobApplication.findFirst({
+        where: {
+          referenceNumber: reference.trim().toUpperCase(),
+          email: email.toLowerCase().trim(),
+        },
+        include: { posting: true },
+      });
+      if (!app) throw new NotFoundException('Application not found');
 
-    return {
-      referenceNumber: app.referenceNumber,
-      status: app.status,
-      postingTitle: app.posting.title,
-      submittedAt: app.createdAt,
-    };
+      return {
+        referenceNumber: app.referenceNumber,
+        status: app.status,
+        postingTitle: app.posting.title,
+        submittedAt: app.createdAt,
+      };
+    });
   }
 
   async updateApplicationStatus(

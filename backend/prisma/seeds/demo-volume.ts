@@ -1590,44 +1590,246 @@ export async function seedDemoVolume(
     bump('devices');
   }
 
-  // ── Job postings + applications (pad apps to ~20) ──────────────────────
+  // ── Job postings + applications (~20 real-looking OPEN roles) ──────────
+  const careerRoles: Array<{
+    title: string;
+    department: string;
+    location: string;
+    description: string;
+    requirements: string;
+  }> = [
+    {
+      title: 'Security Guard — Warehouse Night Shift',
+      department: 'Operations',
+      location: 'Dar es Salaam',
+      description:
+        'Protect client warehouse premises overnight. Patrol, access control, and incident reporting via the HIGHLINK guard app.',
+      requirements:
+        'Valid guard licence, physical fitness, smartphone, basic English/Swahili',
+    },
+    {
+      title: 'Site Supervisor — Industrial Clients',
+      department: 'Operations',
+      location: 'Dar es Salaam',
+      description:
+        'Lead a team of guards across industrial sites. Verify attendance, escalate field alerts, and brief Branch Ops.',
+      requirements:
+        '2+ years supervisory experience, driver licence preferred, radio protocol',
+    },
+    {
+      title: 'Gate Officer — Visitor & Vehicle Control',
+      department: 'Access Control',
+      location: 'Dar es Salaam',
+      description:
+        'Verify visitor codes, staff cards, and parking permits at main gates. Deny invalid entries and log outcomes.',
+      requirements:
+        'Customer service mindset, attention to detail, smartphone or tablet literacy',
+    },
+    {
+      title: 'CCTV Monitoring Officer',
+      department: 'Control Room',
+      location: 'Dar es Salaam HQ',
+      description:
+        'Monitor camera walls, triage AI/ANPR alerts, and escalate incidents to Field Officers and Branch Ops.',
+      requirements:
+        'Prior CCTV experience preferred, calm under pressure, shift flexibility',
+    },
+    {
+      title: 'Field Officer — Branch Coverage',
+      department: 'Branch Operations',
+      location: 'Dar es Salaam / Coast',
+      description:
+        'Inspect sites, verify alertness, support replacements, and escalate missed patrols or attendance gaps.',
+      requirements:
+        'Operations background, motorcycle/car licence, strong reporting skills',
+    },
+    {
+      title: 'Control Room Dispatcher',
+      department: 'Control Room',
+      location: 'Dar es Salaam HQ',
+      description:
+        'Coordinate field alerts, radio traffic, and escalation stages from Supervisor through BOM to Control.',
+      requirements:
+        'Clear communication, multi-tasking, willingness to work rotating shifts',
+    },
+    {
+      title: 'HR Officer — Guard Onboarding',
+      department: 'Human Resources',
+      location: 'Dar es Salaam HQ',
+      description:
+        'Screen applicants, schedule interviews, and support onboarding of guards into PSSMS workforce records.',
+      requirements:
+        'HR diploma or equivalent, organised filing, confidentiality',
+    },
+    {
+      title: 'Payroll Assistant',
+      department: 'Payroll',
+      location: 'Dar es Salaam HQ',
+      description:
+        'Support payroll cycles, attendance inputs, and payslip distribution under Payroll Officer guidance.',
+      requirements:
+        'Basic accounting, Excel literacy, attention to statutory deductions',
+    },
+    {
+      title: 'Procurement Storekeeper',
+      department: 'Procurement',
+      location: 'DSM Stores',
+      description:
+        'Receive uniforms and equipment, confirm asset returns, and keep stock movements accurate.',
+      requirements:
+        'Inventory experience, integrity, basic computer skills',
+    },
+    {
+      title: 'Accounts Officer — Supplier Payments',
+      department: 'Finance',
+      location: 'Dar es Salaam HQ',
+      description:
+        'Process supplier invoices linked to purchase orders and support payment voucher workflows.',
+      requirements:
+        'Accounting diploma, Tally/Excel, familiarity with approvals',
+    },
+    {
+      title: 'Call Centre Support Agent',
+      department: 'Customer Support',
+      location: 'Dar es Salaam HQ',
+      description:
+        'Handle customer complaints and service tickets, escalate visitor issues, and update Call Centre queues.',
+      requirements:
+        'Clear phone etiquette, Swahili + English, CRM comfort',
+    },
+    {
+      title: 'IT Support Technician',
+      department: 'ICT',
+      location: 'Dar es Salaam HQ',
+      description:
+        'Support portal users, password resets (via approval where required), and device registry hygiene.',
+      requirements:
+        'IT certificate, helpdesk experience, security awareness',
+    },
+    {
+      title: 'Driver — Operations Pool',
+      department: 'Operations',
+      location: 'Dar es Salaam',
+      description:
+        'Transport supervisors and equipment between sites. Maintain vehicle logs and fuel accountability.',
+      requirements:
+        'Valid Class C licence, clean record, knowledge of DSM routes',
+    },
+    {
+      title: 'Dog Handler — K9 Unit',
+      department: 'Operations',
+      location: 'Dar es Salaam',
+      description:
+        'Deploy with trained dogs for high-risk site patrols and event coverage under Field Officer direction.',
+      requirements:
+        'K9 handling experience or willingness to train, physical fitness',
+    },
+    {
+      title: 'Firearms-Authorised Guard',
+      department: 'Operations',
+      location: 'Dar es Salaam',
+      description:
+        'Armed posts at high-value client sites. Strict adherence to firearm readiness and site SOPs.',
+      requirements:
+        'Current firearm authorisation, clean background, advanced guard licence',
+    },
+    {
+      title: 'Female Security Guard — Corporate Offices',
+      department: 'Operations',
+      location: 'Dar es Salaam CBD',
+      description:
+        'Day-shift coverage for corporate lobbies, visitor escort, and access desk support.',
+      requirements:
+        'Guard licence, professional presentation, customer service',
+    },
+    {
+      title: 'Training Instructor — Guard Academy',
+      department: 'Training',
+      location: 'Dar es Salaam',
+      description:
+        'Deliver induction and refresher training on attendance, alertness, and occurrence book standards.',
+      requirements:
+        'Training or senior guard background, facilitation skills',
+    },
+    {
+      title: 'Compliance Assistant',
+      department: 'Compliance',
+      location: 'Dar es Salaam HQ',
+      description:
+        'Support policy registers, audit evidence packs, and DPO breach documentation under Compliance Officer.',
+      requirements:
+        'Attention to detail, document control, confidentiality',
+    },
+    {
+      title: 'Marketing & BD Associate',
+      department: 'Marketing',
+      location: 'Dar es Salaam',
+      description:
+        'Support customer surveys, quote follow-ups, and pipeline tracking for security service contracts.',
+      requirements:
+        'Sales or marketing diploma, CRM tools, driving licence a plus',
+    },
+    {
+      title: 'Intern — Administration',
+      department: 'Administration',
+      location: 'Dar es Salaam HQ',
+      description:
+        'Assist branch records, filing, and office coordination for a 3–6 month internship.',
+      requirements:
+        'Diploma student or recent graduate, MS Office, reliable attendance',
+    },
+  ];
   let posting = await prisma.jobPosting.findFirst({
     where: { organizationId: orgId, status: 'OPEN' },
     orderBy: { createdAt: 'asc' },
   });
+  for (let i = 1; i <= careerRoles.length; i++) {
+    const role = careerRoles[i - 1]!;
+    const id = `00000000-0000-4000-8000-0000000003${pad(i)}`;
+    const closesAt = daysFromNow(30 + i);
+    const row = await prisma.jobPosting.upsert({
+      where: { id },
+      update: {
+        status: 'OPEN',
+        title: role.title,
+        department: role.department,
+        location: role.location,
+        description: role.description,
+        requirements: role.requirements,
+        publishedAt: new Date(),
+        closesAt,
+      },
+      create: {
+        id,
+        organizationId: orgId,
+        title: role.title,
+        department: role.department,
+        location: role.location,
+        description: role.description,
+        requirements: role.requirements,
+        status: 'OPEN',
+        publishedAt: new Date(),
+        closesAt,
+        createdBy: ctx.adminUserId,
+      },
+    });
+    if (!posting) posting = row;
+    bump('jobPostings');
+  }
   if (!posting) {
     posting = await prisma.jobPosting.create({
       data: {
         organizationId: orgId,
-        title: 'Volume Guard — Multi-site',
+        title: 'Security Guard — Multi-site',
         department: 'Operations',
         location: 'Dar es Salaam',
-        description: 'Volume seed job posting',
+        description: 'Protect client sites under HIGHLINK deployment.',
+        requirements: 'Valid guard licence',
         status: 'OPEN',
         publishedAt: new Date(),
         createdBy: ctx.adminUserId,
       },
     });
-  }
-  // Extra postings for list fullness
-  for (let i = 1; i <= 5; i++) {
-    const id = `00000000-0000-4000-8000-00000000021${i}`;
-    await prisma.jobPosting.upsert({
-      where: { id },
-      update: { status: 'OPEN', title: `Volume posting ${pad(i)}` },
-      create: {
-        id,
-        organizationId: orgId,
-        title: `Volume posting ${pad(i)}`,
-        department: 'Operations',
-        location: 'Dar es Salaam',
-        description: `Volume seed posting ${pad(i)}`,
-        status: i === 5 ? 'CLOSED' : 'OPEN',
-        publishedAt: new Date(),
-        createdBy: ctx.adminUserId,
-      },
-    });
-    bump('jobPostings');
   }
   const appStatuses: ApplicationStatus[] = [
     'SUBMITTED',

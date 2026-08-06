@@ -5,9 +5,16 @@ import {
   submitJobApplication,
   type OpenJobPosting,
 } from '@pssms/api-client';
+import { ArrowLeft } from 'lucide-react';
 import Link from 'next/link';
 import { useParams, useRouter } from 'next/navigation';
 import { FormEvent, useEffect, useState } from 'react';
+import {
+  CareersHero,
+  CareersShell,
+  Field,
+  inputClass,
+} from '../../../_components/careers-ui';
 
 export default function ApplyPage() {
   const params = useParams();
@@ -71,104 +78,81 @@ export default function ApplyPage() {
   }
 
   return (
-    <div className="mx-auto max-w-lg px-4 py-10">
+    <CareersShell active="careers">
       <Link
         href={id ? `/jobs/${id}` : '/'}
-        className="text-sm font-medium text-sky-700 hover:text-sky-600"
+        className="mb-4 inline-flex items-center gap-1.5 text-sm font-semibold text-[#4f46e5] hover:underline"
       >
-        ← Back to job
+        <ArrowLeft className="h-4 w-4" /> Back to job
       </Link>
 
-      <header className="mb-8 mt-6">
-        <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">
-          HIGHLINK PSSMS
-        </p>
-        <h1 className="mt-2 text-2xl font-semibold text-slate-900">
-          Apply
-        </h1>
-        {job ? (
-          <p className="mt-1 text-sm text-slate-600">{job.title}</p>
-        ) : null}
-      </header>
+      <CareersHero
+        eyebrow="Apply"
+        title={job ? job.title : 'Submit application'}
+        subtitle="No account needed. You will get a reference number to track your status."
+      />
 
       {jobLoading ? (
-        <p className="text-sm text-slate-500">Loading…</p>
+        <p className="text-sm text-[#605e5c]">Loading…</p>
       ) : loadError ? (
-        <p className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+        <p className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
           {loadError}
         </p>
       ) : (
         <form
           onSubmit={onSubmit}
-          className="space-y-4 rounded-xl border border-slate-200 bg-white p-6 shadow-sm"
+          className="mx-auto max-w-xl space-y-4 rounded-2xl border border-[#e1dfdd] bg-white p-6 shadow-sm sm:p-8"
         >
-          <label className="block text-sm font-medium text-slate-700">
-            Full name
+          <Field label="Full name">
             <input
               type="text"
-              name="name"
               value={applicantName}
               onChange={(e) => setApplicantName(e.target.value)}
-              className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-slate-900 outline-none ring-sky-500 focus:ring-2"
+              className={inputClass}
               required
               minLength={2}
               autoComplete="name"
             />
-          </label>
-
-          <label className="block text-sm font-medium text-slate-700">
-            Email
+          </Field>
+          <Field label="Email">
             <input
               type="email"
-              name="email"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-slate-900 outline-none ring-sky-500 focus:ring-2"
+              className={inputClass}
               required
               autoComplete="email"
             />
-          </label>
-
-          <label className="block text-sm font-medium text-slate-700">
-            Phone{' '}
-            <span className="font-normal text-slate-400">(optional)</span>
+          </Field>
+          <Field label="Phone" hint="optional">
             <input
               type="tel"
-              name="phone"
               value={phone}
               onChange={(e) => setPhone(e.target.value)}
-              className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-slate-900 outline-none ring-sky-500 focus:ring-2"
+              className={inputClass}
               autoComplete="tel"
             />
-          </label>
-
-          <label className="block text-sm font-medium text-slate-700">
-            Resume URL{' '}
-            <span className="font-normal text-slate-400">(optional)</span>
+          </Field>
+          <Field label="Resume URL" hint="optional">
             <input
               type="url"
-              name="resumeUrl"
               value={resumeUrl}
               onChange={(e) => setResumeUrl(e.target.value)}
               placeholder="https://"
-              className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-slate-900 outline-none ring-sky-500 focus:ring-2"
+              className={inputClass}
             />
-          </label>
-
-          <label className="block text-sm font-medium text-slate-700">
-            Cover letter{' '}
-            <span className="font-normal text-slate-400">(optional)</span>
+          </Field>
+          <Field label="Cover letter" hint="optional">
             <textarea
-              name="coverLetter"
               value={coverLetter}
               onChange={(e) => setCoverLetter(e.target.value)}
-              className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-slate-900 outline-none ring-sky-500 focus:ring-2"
+              className={inputClass}
               rows={5}
             />
-          </label>
+          </Field>
 
           {error ? (
-            <p className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">
+            <p className="rounded-xl bg-rose-50 px-3 py-2 text-sm text-rose-700 ring-1 ring-rose-200">
               {error}
             </p>
           ) : null}
@@ -176,12 +160,12 @@ export default function ApplyPage() {
           <button
             type="submit"
             disabled={loading}
-            className="w-full rounded-lg bg-sky-600 px-4 py-2.5 font-medium text-white hover:bg-sky-500 disabled:opacity-60"
+            className="w-full rounded-xl bg-gradient-to-r from-[#4f46e5] to-[#312e81] px-4 py-3 font-semibold text-white shadow hover:brightness-105 disabled:opacity-60"
           >
             {loading ? 'Submitting…' : 'Submit application'}
           </button>
         </form>
       )}
-    </div>
+    </CareersShell>
   );
 }
