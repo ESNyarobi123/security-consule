@@ -3,7 +3,7 @@ name: pssms-prod
 # HIGHLINK PSSMS — Production stack (Caddy TLS).
 # Public entrypoints:
 #   https://web.hisgc.co.tz         -> admin-web
-#   https://api.hisgc.co.tz         -> core-api
+#   https://api.hisgc.co.tz         -> core-api (+ /api/v1/reporting* -> reporting-service)
 #   https://customer.hisgc.co.tz    -> customer-web
 #   https://executive.hisgc.co.tz   -> executive-web
 #   https://supplier.hisgc.co.tz    -> supplier-web
@@ -173,6 +173,32 @@ services:
       minio:
         condition: service_started
 
+  # Executive KPIs / exports (JWT from core-api). Public via Caddy path on api.hisgc.co.tz.
+  # analytics-ai omitted on small VPS — dashboard still works; /reporting/health may be degraded.
+  reporting-service:
+    build:
+      context: ../../backend
+      dockerfile: Dockerfile
+    image: pssms-reporting-service:prod
+    container_name: pssms-reporting-service
+    restart: unless-stopped
+    mem_limit: 384m
+    environment:
+      <<: *backend-env
+      REPORTING_SERVICE_PORT: "4005"
+      DATABASE_URL: postgresql://pssms_app:${PSSMS_APP_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      ANALYTICS_AI_URL: ${ANALYTICS_AI_URL:-http://127.0.0.1:9}
+    command: ["node", "dist/apps/reporting-service/main.js"]
+    depends_on:
+      db-migrate:
+        condition: service_completed_successfully
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      core-api:
+        condition: service_started
+
   admin-web:
     build:
       context: ../../frontend
@@ -322,6 +348,7 @@ services:
       - caddy_config:/config
     depends_on:
       - core-api
+      - reporting-service
       - admin-web
       - customer-web
       - executive-web

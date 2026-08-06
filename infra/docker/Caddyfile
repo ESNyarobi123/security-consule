@@ -4,7 +4,7 @@
 
 # Port map (container:port) — must match each Next APP_PORT / core-api:
 #   web         -> admin-web:3000
-#   api         -> core-api:4001
+#   api         -> core-api:4001  (/api/v1/reporting* -> reporting-service:4005)
 #   customer    -> customer-web:3002
 #   executive   -> executive-web:3001
 #   supplier    -> supplier-web:3003
@@ -19,7 +19,12 @@
 
 api.hisgc.co.tz {
 	encode gzip
-	reverse_proxy core-api:4001
+	handle /api/v1/reporting* {
+		reverse_proxy reporting-service:4005
+	}
+	handle {
+		reverse_proxy core-api:4001
+	}
 }
 
 web.hisgc.co.tz {
