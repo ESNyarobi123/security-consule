@@ -13,8 +13,9 @@
 #   parking     -> parking-web:3006
 #   files       -> minio:9000
 #
-# For public Let's Encrypt: each subdomain DNS A = origin IP, Proxy OFF (grey).
-# Until then, `tls internal` keeps origin HTTPS up for Cloudflare Full SSL.
+# Public Let's Encrypt for all hosts (DNS A → origin, Proxy OFF / grey-cloud).
+# Internal admin portals (HR, Branch, CCTV, …) live under web.hisgc.co.tz routes.
+# Partner / owner / contractor paths are under recruitment / parking / visitor apps.
 
 api.hisgc.co.tz {
 	encode gzip
@@ -27,43 +28,36 @@ web.hisgc.co.tz {
 }
 
 customer.hisgc.co.tz {
-	tls internal
 	encode gzip
 	reverse_proxy customer-web:3002
 }
 
 executive.hisgc.co.tz {
-	tls internal
 	encode gzip
 	reverse_proxy executive-web:3001
 }
 
 supplier.hisgc.co.tz {
-	tls internal
 	encode gzip
 	reverse_proxy supplier-web:3003
 }
 
 recruitment.hisgc.co.tz {
-	tls internal
 	encode gzip
 	reverse_proxy recruitment-web:3004
 }
 
 visitor.hisgc.co.tz {
-	tls internal
 	encode gzip
 	reverse_proxy visitor-web:3005
 }
 
 parking.hisgc.co.tz {
-	tls internal
 	encode gzip
 	reverse_proxy parking-web:3006
 }
 
 files.hisgc.co.tz {
-	tls internal
 	encode gzip
 	reverse_proxy minio:9000
 }
