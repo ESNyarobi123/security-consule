@@ -37,9 +37,9 @@ export const EXTERNAL_PORTALS: PortalEntry[] = [
     name: 'Admin / Security Console',
     designRef: 'Portal 35.1–35.23 (internal multi-portal)',
     summary:
-      'Main internal console: Super Admin, HR, ESS, Finance, Ops, Branch, CCTV, Compliance, Call Centre, Developer, and more — role-filtered sidebar.',
+      'Main internal console (HTTPS web.hisgc.co.tz): Super Admin, HR, ESS, Finance, Ops, Branch, CCTV, Compliance, Call Centre, Developer, and more — role-filtered sidebar. No separate subdomain per internal portal.',
     howItWorks:
-      'Staff login with company email. Menus appear by RBAC permissions. Super Admin sees all. Nested routes stay in this same app (not separate microservices).',
+      'Staff login with company email. Menus appear by RBAC permissions. Super Admin sees all. Nested routes stay in this same app (not separate microservices). Design portals 35.1/35.3–35.5/35.15–35.24 live here as routes.',
     path: '/login',
     localPort: 3000,
     prodHost: 'web.hisgc.co.tz',
