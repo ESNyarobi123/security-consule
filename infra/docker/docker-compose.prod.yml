@@ -150,6 +150,7 @@ services:
         npx prisma db execute --file prisma/migrations/0034_visitor_id_document/migration.sql --schema prisma/schema.prisma &&
         npx prisma db execute --file prisma/migrations/0035_vehicle_rfid_tag/migration.sql --schema prisma/schema.prisma &&
         npx prisma db execute --file prisma/migrations/0036_parking_permit_billing/migration.sql --schema prisma/schema.prisma &&
+        npx prisma db execute --file prisma/migrations/0037_b2b_guard_supply_criteria/migration.sql --schema prisma/schema.prisma &&
         if [ \"$$PSSMS_RUN_SEED\" = \"true\" ]; then npm run prisma:seed; else echo 'SKIP_SEED (set PSSMS_RUN_SEED=true to seed)'; fi
       "
     depends_on:
@@ -254,6 +255,8 @@ services:
         APP_PORT: "3001"
         NEXT_PUBLIC_CORE_API_URL: https://api.hisgc.co.tz
         NEXT_PUBLIC_REPORTING_API_URL: https://api.hisgc.co.tz
+        NEXT_PUBLIC_ADMIN_WEB_URL: https://web.hisgc.co.tz
+        NEXT_PUBLIC_PARKING_WEB_URL: https://parking.hisgc.co.tz
     image: pssms-executive-web:prod
     container_name: pssms-executive-web
     restart: unless-stopped
