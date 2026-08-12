@@ -7,11 +7,34 @@ type ApiEnvelope<T> = {
   success: boolean;
   data: T;
   meta?: Record<string, unknown>;
+  error?: { code?: string; message?: string };
 };
 
+function errorMessageFromBody(text: string, fallback: string): string {
+  try {
+    const json = JSON.parse(text) as {
+      error?: { message?: string | string[] };
+      message?: string | string[];
+    };
+    const msg = json.error?.message ?? json.message;
+    if (Array.isArray(msg)) return msg.join('; ');
+    if (typeof msg === 'string' && msg.trim()) return msg;
+  } catch {
+    /* not JSON */
+  }
+  return text.trim() || fallback;
+}
+
 async function parseEnvelope<T>(res: Response): Promise<T> {
-  if (!res.ok) throw new Error(await res.text());
-  const json = (await res.json()) as ApiEnvelope<T>;
+  const text = await res.text();
+  if (!res.ok) {
+    throw new Error(errorMessageFromBody(text, `Request failed (${res.status})`));
+  }
+  if (!text) throw new Error('Empty response from API');
+  const json = JSON.parse(text) as ApiEnvelope<T>;
+  if (json.success === false) {
+    throw new Error(errorMessageFromBody(text, 'Request failed'));
+  }
   return json.data;
 }
 
@@ -52,11 +75,22 @@ export type JobApplicationReceipt = {
 };
 
 /** Safe status-by-ref subset — no name/phone/notes/resume. */
+export type ApplicationStatusStage = {
+  key: string;
+  label: string;
+  state: 'done' | 'current' | 'upcoming' | 'skipped';
+};
+
 export type ApplicationStatusLookup = {
   referenceNumber: string;
   status: string;
+  statusLabel: string;
+  statusHint: string;
   postingTitle: string;
+  department?: string | null;
+  location?: string | null;
   submittedAt: string;
+  stages: ApplicationStatusStage[];
 };
 
 /**

@@ -12,6 +12,7 @@ import { DEMO_CHECKPOINT_QR } from '@/constants/config';
 import { useOnline } from '@/hooks/useOnline';
 import {
   enqueuePatrolScanByCode,
+  formatGpsLabel,
   listCheckpoints,
   type CheckpointSummary,
 } from '@/services/patrol';
@@ -52,9 +53,9 @@ export default function PatrolScreen() {
     setError(null);
     setMessage(null);
     try {
-      const { row, checkpoint } = await enqueuePatrolScanByCode(code);
+      const { row, checkpoint, gps } = await enqueuePatrolScanByCode(code);
       setMessage(
-        `Queued PATROL_SCAN for ${checkpoint.code} · ${row.clientEventId.slice(0, 8)}… — sync from Outbox.`,
+        `Queued PATROL_SCAN for ${checkpoint.code} · ${row.clientEventId.slice(0, 8)}… · ${formatGpsLabel(gps)} — sync from Outbox.`,
       );
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Patrol scan failed');
@@ -67,7 +68,8 @@ export default function PatrolScreen() {
     <View style={styles.root}>
       <Text style={styles.hint}>
         Enter checkpoint QR/code (no camera). Default {DEMO_CHECKPOINT_QR}.
-        Resolves against GET /operations/checkpoints (cached per site).
+        Resolves against GET /operations/checkpoints (cached per site). Uses
+        live GPS when available.
       </Text>
 
       <Text style={styles.label}>Checkpoint code</Text>

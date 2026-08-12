@@ -2,6 +2,25 @@
 @tailwind components;
 @tailwind utilities;
 
+:root {
+  --font-sans: var(--font-inter), ui-sans-serif, system-ui, -apple-system,
+    'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+}
+
 body {
-  @apply bg-[#f5f6fa] text-[#323130] antialiased;
+  @apply bg-[#f8fafc] text-base leading-relaxed text-slate-800 antialiased;
+  font-family: var(--font-sans);
+}
+
+/* Preline-style readable dashboard type scale */
+.exec-type-label {
+  @apply text-xs font-semibold uppercase tracking-wider text-slate-500;
+}
+
+.exec-type-title {
+  @apply text-lg font-semibold tracking-tight text-slate-900;
+}
+
+.exec-type-kpi {
+  @apply text-3xl font-semibold tracking-tight tabular-nums text-slate-900;
 }

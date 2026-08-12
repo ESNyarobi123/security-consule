@@ -8,13 +8,6 @@ import {
   refreshSession,
   type KpiItem,
 } from '@pssms/api-client';
-import {
-  AlertTriangle,
-  Briefcase,
-  Shield,
-  Users,
-  Wallet,
-} from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
@@ -25,8 +18,10 @@ import {
   isUnauthorizedError,
 } from '@/lib/auth';
 import {
-  CategoryPanel,
+  CategoryWorkbench,
+  DomainCoveragePanel,
   ExecChrome,
+  FootprintPanel,
   SPOTLIGHT_CODES,
   SpotlightTile,
   findKpi,
@@ -54,23 +49,8 @@ function daysAgo(n: number): string {
 
 type PeriodPreset = 'today' | '7d' | 'mtd' | 'custom';
 
-const SPOTLIGHT_VISUAL: Record<
-  string,
-  {
-    accent: 'sky' | 'emerald' | 'rose' | 'amber' | 'teal' | 'blue';
-    Icon: typeof Shield;
-    category: string;
-  }
-> = {
-  GUARD_HEADCOUNT_ACTIVE: { accent: 'sky', Icon: Shield, category: 'OPS' },
-  GUARD_ON_DUTY: { accent: 'teal', Icon: Users, category: 'OPS' },
-  OPEN_INCIDENTS: { accent: 'rose', Icon: AlertTriangle, category: 'SAFETY' },
-  CONTRACTS_ACTIVE: { accent: 'emerald', Icon: Briefcase, category: 'COMMERCIAL' },
-  CONTRACTS_MRR: { accent: 'blue', Icon: Briefcase, category: 'COMMERCIAL' },
-  INVOICE_OUTSTANDING: { accent: 'amber', Icon: Wallet, category: 'FINANCE' },
-};
-
 const CATEGORY_ORDER = [
+  'ENTERPRISE',
   'OPS',
   'SAFETY',
   'ACCESS',
@@ -78,7 +58,26 @@ const CATEGORY_ORDER = [
   'FINANCE',
   'PAYROLL',
   'HR',
+  'COMPLIANCE',
 ];
+
+const CODE_TO_CATEGORY: Record<string, string> = {
+  BRANCHES_ACTIVE: 'ENTERPRISE',
+  CUSTOMERS_ACTIVE: 'COMMERCIAL',
+  CONTRACTS_ACTIVE: 'COMMERCIAL',
+  REVENUE_COLLECTED: 'FINANCE',
+  DEPLOYMENTS_ACTIVE: 'OPS',
+  GUARD_HEADCOUNT_ACTIVE: 'OPS',
+  GUARD_ON_DUTY: 'OPS',
+  OPEN_INCIDENTS: 'SAFETY',
+  CRITICAL_INCIDENTS_OPEN: 'SAFETY',
+  CONTRACTS_MRR: 'COMMERCIAL',
+  INVOICE_OUTSTANDING: 'FINANCE',
+  COMPLIANCE_BREACHES_OPEN: 'COMPLIANCE',
+  COMPLIANCE_POLICIES_PUBLISHED: 'COMPLIANCE',
+  RECRUITMENT_PIPELINE: 'HR',
+  PARKING_ENTRIES: 'ACCESS',
+};
 
 export default function DashboardPage() {
   const router = useRouter();
@@ -93,6 +92,7 @@ export default function DashboardPage() {
   const [error, setError] = useState<string | null>(null);
   const [health, setHealth] = useState<string>('…');
   const [kpis, setKpis] = useState<KpiItem[]>([]);
+  const [activeCategory, setActiveCategory] = useState('ENTERPRISE');
 
   const forceLogin = useCallback(
     (reason: string) => {
@@ -242,9 +242,22 @@ export default function DashboardPage() {
     );
   }, [kpis]);
 
+  useEffect(() => {
+    if (
+      byCategory.length &&
+      !byCategory.some(([c]) => c === activeCategory)
+    ) {
+      setActiveCategory(byCategory[0]![0]);
+    }
+  }, [byCategory, activeCategory]);
+
   function jumpToCategory(category: string) {
-    const el = document.getElementById(`exec-cat-${category}`);
-    el?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    setActiveCategory(category);
+    requestAnimationFrame(() => {
+      document
+        .getElementById('exec-analysis')
+        ?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    });
   }
 
   const presetBtn = (p: PeriodPreset, label: string) => (
@@ -252,10 +265,10 @@ export default function DashboardPage() {
       key={p}
       type="button"
       onClick={() => applyPreset(p)}
-      className={`rounded-lg px-3 py-1.5 text-xs font-semibold transition ${
+      className={`rounded-lg px-2.5 py-1.5 text-sm font-semibold transition ${
         preset === p
           ? 'bg-[#0078d4] text-white shadow-sm'
-          : 'border border-[#e1dfdd] bg-white text-[#323130] hover:bg-[#f3f2f1]'
+          : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
       }`}
     >
       {label}
@@ -272,22 +285,22 @@ export default function DashboardPage() {
       onExport={(f) => void onExport(f)}
       onLogout={logout}
       period={
-        <div className="flex flex-wrap items-end gap-3 rounded-2xl border border-[#e1dfdd] bg-white px-4 py-3.5 shadow-sm sm:px-5">
+        <div className="flex flex-wrap items-center gap-3 rounded-xl border border-slate-200 bg-white px-4 py-3 shadow-sm">
           <div className="mr-auto min-w-0">
-            <p className="text-[11px] font-semibold uppercase tracking-wider text-[#605e5c]">
+            <p className="text-xs font-semibold uppercase tracking-wider text-slate-400">
               Reporting period
             </p>
-            <p className="text-sm text-[#323130]">
-              {roleLabel} · company-wide KPIs
+            <p className="text-base font-medium text-slate-800">
+              {roleLabel} · company-wide
             </p>
-            <div className="mt-2 flex flex-wrap gap-1.5">
-              {presetBtn('today', 'Today')}
-              {presetBtn('7d', '7 days')}
-              {presetBtn('mtd', 'MTD')}
-              {presetBtn('custom', 'Custom')}
-            </div>
           </div>
-          <label className="text-xs font-medium text-[#605e5c]">
+          <div className="flex flex-wrap gap-1">
+            {presetBtn('today', 'Today')}
+            {presetBtn('7d', '7 days')}
+            {presetBtn('mtd', 'MTD')}
+            {presetBtn('custom', 'Custom')}
+          </div>
+          <label className="text-sm font-medium text-slate-500">
             From
             <input
               type="date"
@@ -296,10 +309,10 @@ export default function DashboardPage() {
                 setPreset('custom');
                 setFrom(e.target.value);
               }}
-              className="mt-1 block rounded-lg border border-[#8a8886] bg-white px-3 py-2 text-sm text-[#1b1a19] outline-none focus:border-[#0078d4] focus:ring-1 focus:ring-[#0078d4]"
+              className="mt-1 block rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-sm text-slate-800 outline-none focus:border-[#0078d4] focus:ring-2 focus:ring-[#0078d4]/20"
             />
           </label>
-          <label className="text-xs font-medium text-[#605e5c]">
+          <label className="text-sm font-medium text-slate-500">
             To
             <input
               type="date"
@@ -308,94 +321,75 @@ export default function DashboardPage() {
                 setPreset('custom');
                 setTo(e.target.value);
               }}
-              className="mt-1 block rounded-lg border border-[#8a8886] bg-white px-3 py-2 text-sm text-[#1b1a19] outline-none focus:border-[#0078d4] focus:ring-1 focus:ring-[#0078d4]"
+              className="mt-1 block rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-sm text-slate-800 outline-none focus:border-[#0078d4] focus:ring-2 focus:ring-[#0078d4]/20"
             />
           </label>
           <button
             type="button"
             onClick={() => token && void load(token)}
-            className="rounded-lg bg-[#0078d4] px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-[#106ebe]"
+            className="rounded-lg bg-[#0078d4] px-3.5 py-2 text-base font-semibold text-white shadow-sm transition hover:bg-[#106ebe]"
           >
-            Apply period
+            Apply
           </button>
         </div>
       }
     >
       {error ? (
-        <p className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800">
+        <p className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-base text-rose-800">
           {error}
         </p>
       ) : null}
 
       {loading ? (
-        <div className="rounded-2xl border border-[#e1dfdd] bg-white px-6 py-16 text-center text-sm text-[#605e5c]">
+        <div className="rounded-xl border border-slate-200 bg-white px-6 py-16 text-center text-base text-slate-500 shadow-sm">
           Loading executive KPIs…
         </div>
       ) : (
         <>
-          <section
-            className="overflow-hidden rounded-2xl p-4 shadow-md sm:p-5"
-            style={{
-              background: `linear-gradient(125deg, #071525 0%, #12263f 45%, #0b4f7a 100%)`,
-              border: '1px solid rgba(56, 189, 248, 0.28)',
-            }}
-          >
-            <div className="mb-3 flex flex-wrap items-end justify-between gap-2">
+          <section className="space-y-3">
+            <div className="flex flex-wrap items-end justify-between gap-2">
               <div>
-                <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-sky-300">
+                <h2 className="text-lg font-semibold text-slate-900">
                   At a glance
-                </p>
-                <h2 className="text-base font-semibold text-white">
-                  Priority company signals
                 </h2>
+                <p className="text-base text-slate-500">
+                  Priority signals · click a card to open analysis
+                </p>
               </div>
-              <p className="text-[11px] text-slate-400">
-                Click a tile → jump to category · select metric for site drill-down
-              </p>
             </div>
-            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
-              {spotlight.map((kpi) => {
-                const v = SPOTLIGHT_VISUAL[kpi.code] ?? {
-                  accent: 'sky' as const,
-                  Icon: Shield,
-                  category: kpi.category,
-                };
-                return (
-                  <button
-                    key={kpi.code}
-                    type="button"
-                    className="text-left"
-                    onClick={() => jumpToCategory(v.category)}
-                  >
-                    <SpotlightTile
-                      kpi={kpi}
-                      accent={v.accent}
-                      Icon={v.Icon}
-                    />
-                  </button>
-                );
-              })}
+            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-4 2xl:grid-cols-8">
+              {spotlight.map((kpi) => (
+                <SpotlightTile
+                  key={kpi.code}
+                  kpi={kpi}
+                  onClick={() =>
+                    jumpToCategory(
+                      CODE_TO_CATEGORY[kpi.code] ?? kpi.category,
+                    )
+                  }
+                />
+              ))}
             </div>
           </section>
 
-          <div className="space-y-4">
-            {byCategory.map(([category, items]) => (
-              <div key={category} id={`exec-cat-${category}`}>
-                <CategoryPanel
-                  category={category}
-                  items={items}
-                  token={token}
-                  from={from}
-                  to={to}
-                />
-              </div>
-            ))}
-          </div>
+          <FootprintPanel kpis={kpis} />
 
-          <p className="rounded-xl border border-[#e1dfdd] bg-white px-4 py-3 text-[11px] leading-relaxed text-[#605e5c]">
-            Executive Portal 35.2 — period presets + live KPI drill-down by site
-            (`GET /reporting/kpis/:code/drilldown`). No fake trends. Charts /
-            risk register deferred.
+          <DomainCoveragePanel
+            kpis={kpis}
+            onOpenCategory={jumpToCategory}
+          />
+
+          <CategoryWorkbench
+            byCategory={byCategory}
+            token={token}
+            from={from}
+            to={to}
+            activeCategory={activeCategory}
+            onCategoryChange={setActiveCategory}
+          />
+
+          <p className="text-center text-sm text-slate-400">
+            HIGHLINK · Portal 35.2 · live KPIs across domains · portal deep-links
           </p>
         </>
       )}

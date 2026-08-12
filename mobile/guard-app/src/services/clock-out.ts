@@ -1,13 +1,21 @@
-import { DEMO_GPS } from '@/constants/config';
 import { newClientEventId } from '@/lib/uuid';
 import { enqueueClockOut } from '@/offline/outbox';
 import type { OutboxRow } from '@/offline/types';
 import { getOpenAttendanceId } from '@/services/duty-state';
+import {
+  formatGpsLabel,
+  getFieldGps,
+  type FieldGps,
+} from '@/services/location';
 
 /**
  * Enqueue CLOCK_OUT for the open attendance from last synced CLOCK_IN.
+ * GPS prefers live fix; may use cached or warehouse fallback.
  */
-export async function enqueueDemoClockOut(): Promise<OutboxRow> {
+export async function enqueueDemoClockOut(): Promise<{
+  row: OutboxRow;
+  gps: FieldGps;
+}> {
   const attendanceId = await getOpenAttendanceId();
   if (!attendanceId) {
     throw new Error(
@@ -15,11 +23,17 @@ export async function enqueueDemoClockOut(): Promise<OutboxRow> {
     );
   }
 
-  return enqueueClockOut({
+  const gps = await getFieldGps({ allowFallback: true });
+
+  const row = await enqueueClockOut({
     clientEventId: newClientEventId(),
     deviceTime: new Date().toISOString(),
     attendanceId,
-    latitude: DEMO_GPS.latitude,
-    longitude: DEMO_GPS.longitude,
+    latitude: gps.latitude,
+    longitude: gps.longitude,
   });
+
+  return { row, gps };
 }
+
+export { formatGpsLabel };

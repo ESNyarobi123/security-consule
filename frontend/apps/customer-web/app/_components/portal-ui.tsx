@@ -33,11 +33,11 @@ export function PortalHero({
               {eyebrow}
             </p>
           ) : null}
-          <h1 className="mt-1 text-2xl font-bold tracking-tight sm:text-[28px]">
+          <h1 className="mt-1 text-3xl font-bold tracking-tight sm:text-[32px]">
             {title}
           </h1>
           {subtitle ? (
-            <p className="mt-2 max-w-2xl text-sm text-slate-200/90">{subtitle}</p>
+            <p className="mt-2 max-w-3xl text-base text-slate-200/90">{subtitle}</p>
           ) : null}
         </div>
         {actions ? <div className="flex flex-wrap gap-2">{actions}</div> : null}
@@ -72,13 +72,13 @@ export function PortalStat({
     <div
       className={`rounded-2xl bg-gradient-to-br ${tones[tone]} p-4 ring-1 transition hover:-translate-y-0.5 hover:shadow-md`}
     >
-      <p className="text-[11px] font-semibold uppercase tracking-wide text-[#605e5c]">
+      <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
         {label}
       </p>
-      <p className="mt-2 text-3xl font-bold tracking-tight text-[#1b1a19]">
+      <p className="mt-2 text-3xl font-bold tracking-tight text-slate-900 sm:text-[2.15rem]">
         {value}
       </p>
-      {hint ? <p className="mt-1 text-xs text-[#605e5c]">{hint}</p> : null}
+      {hint ? <p className="mt-1 text-sm text-slate-500">{hint}</p> : null}
     </div>
   );
 
@@ -102,12 +102,12 @@ export function PortalPanel({
   children: ReactNode;
 }) {
   return (
-    <section className="overflow-hidden rounded-2xl border border-[#e1dfdd] bg-white shadow-sm">
-      <div className="flex items-center justify-between border-b border-[#edebe9] bg-[#faf9f8] px-4 py-3">
-        <h2 className="text-sm font-semibold text-[#1b1a19]">{title}</h2>
+    <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+      <div className="flex items-center justify-between border-b border-slate-100 bg-slate-50/80 px-4 py-3.5">
+        <h2 className="text-base font-semibold text-slate-900">{title}</h2>
         {action}
       </div>
-      <div className="p-4">{children}</div>
+      <div className="p-4 sm:p-5">{children}</div>
     </section>
   );
 }

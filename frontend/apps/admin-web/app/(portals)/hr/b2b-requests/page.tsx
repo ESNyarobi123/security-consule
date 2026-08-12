@@ -1,8 +1,11 @@
 'use client';
 
 import {
+  listStaffB2bPartners,
   listStaffGuardSupplyRequests,
+  updateB2bPartnerStatus,
   updateGuardSupplyRequestStatus,
+  type B2bPartnerProfile,
   type GuardSupplyRequest,
 } from '@pssms/api-client';
 import { getSessionUser } from '@pssms/auth';
@@ -25,6 +28,7 @@ export default function HrB2bRequestsPage() {
     session?.permissions?.includes('recruitment.manage');
 
   const [rows, setRows] = useState<GuardSupplyRequest[]>([]);
+  const [partners, setPartners] = useState<B2bPartnerProfile[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] =
@@ -40,10 +44,14 @@ export default function HrB2bRequestsPage() {
     setLoading(true);
     setError(null);
     try {
-      const list = await listStaffGuardSupplyRequests(
-        statusFilter === 'all' ? undefined : statusFilter,
-      );
+      const [list, partnerList] = await Promise.all([
+        listStaffGuardSupplyRequests(
+          statusFilter === 'all' ? undefined : statusFilter,
+        ),
+        listStaffB2bPartners(),
+      ]);
       setRows(list);
+      setPartners(partnerList);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -54,6 +62,19 @@ export default function HrB2bRequestsPage() {
   useEffect(() => {
     void refresh();
   }, [refresh]);
+
+  async function setPartnerStatus(id: string, status: string) {
+    setBusyId(id);
+    setError(null);
+    try {
+      await updateB2bPartnerStatus(id, status);
+      await refresh();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setBusyId(null);
+    }
+  }
 
   async function setStatus(id: string, status: string) {
     setBusyId(id);
@@ -116,6 +137,52 @@ export default function HrB2bRequestsPage() {
             </p>
           ) : null}
 
+          {partners.filter((p) => p.status === 'PENDING').length > 0 ? (
+            <section className="mb-6 rounded-lg border border-amber-200 bg-amber-50/60 p-4">
+              <p className="text-xs font-semibold uppercase tracking-wide text-amber-800">
+                Pending partner registrations
+              </p>
+              <ul className="mt-3 space-y-2">
+                {partners
+                  .filter((p) => p.status === 'PENDING')
+                  .map((p) => (
+                    <li
+                      key={p.id}
+                      className="flex flex-wrap items-center justify-between gap-2 rounded-md bg-white px-3 py-2 ring-1 ring-amber-100"
+                    >
+                      <div>
+                        <p className="text-sm font-semibold text-[#1b1a19]">
+                          {p.name}{' '}
+                          <span className="font-mono text-xs font-normal text-[#605e5c]">
+                            {p.code}
+                          </span>
+                        </p>
+                        <p className="text-xs text-[#605e5c]">{p.email}</p>
+                      </div>
+                      <div className="flex gap-2">
+                        <button
+                          type="button"
+                          disabled={busyId === p.id}
+                          onClick={() => void setPartnerStatus(p.id, 'APPROVED')}
+                          className="rounded-md bg-[#107c10] px-2.5 py-1 text-xs font-medium text-white disabled:opacity-60"
+                        >
+                          Approve
+                        </button>
+                        <button
+                          type="button"
+                          disabled={busyId === p.id}
+                          onClick={() => void setPartnerStatus(p.id, 'SUSPENDED')}
+                          className="rounded-md border border-[#8a8886] bg-white px-2.5 py-1 text-xs font-medium text-[#323130] disabled:opacity-60"
+                        >
+                          Suspend
+                        </button>
+                      </div>
+                    </li>
+                  ))}
+              </ul>
+            </section>
+          ) : null}
+
           {loading ? (
             <p className="text-sm text-[#605e5c]">Loading…</p>
           ) : rows.length === 0 ? (
@@ -138,9 +205,25 @@ export default function HrB2bRequestsPage() {
                       <p className="mt-0.5 text-sm text-[#605e5c]">
                         {r.guardCount} guards
                         {r.siteLocation ? ` · ${r.siteLocation}` : ''}
+                        {r.urgency ? ` · ${r.urgency}` : ''}
                         {r.startDate ? ` · ${r.startDate}` : ''}
                         {r.endDate ? ` → ${r.endDate}` : ''}
                       </p>
+                      {r.qualifications ? (
+                        <p className="mt-1 text-xs text-[#605e5c]">
+                          Qualifications: {r.qualifications}
+                        </p>
+                      ) : null}
+                      {r.trainingNeeds ? (
+                        <p className="mt-1 text-xs text-[#605e5c]">
+                          Training: {r.trainingNeeds}
+                        </p>
+                      ) : null}
+                      {r.serviceTerms ? (
+                        <p className="mt-1 text-xs text-[#605e5c]">
+                          Terms: {r.serviceTerms}
+                        </p>
+                      ) : null}
                       {r.criteriaNotes ? (
                         <p className="mt-1 text-xs text-[#605e5c]">
                           {r.criteriaNotes}

@@ -1,9 +1,13 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { DEMO_GPS } from '@/constants/config';
 import { newClientEventId } from '@/lib/uuid';
 import { enqueuePatrolScan } from '@/offline/outbox';
 import type { OutboxRow } from '@/offline/types';
 import { apiRequest } from '@/services/api';
+import {
+  formatGpsLabel,
+  getFieldGps,
+  type FieldGps,
+} from '@/services/location';
 import { resolveDemoSite } from '@/services/sites';
 
 export type CheckpointSummary = {
@@ -73,10 +77,15 @@ export function resolveCheckpointByCode(
 /**
  * Resolve checkpoint (online list or cache) and enqueue PATROL_SCAN.
  * Throws if offline with no cached checkpoint list for the site.
+ * GPS prefers live fix; may use cached or warehouse fallback.
  */
 export async function enqueuePatrolScanByCode(
   qrOrNfcCode: string,
-): Promise<{ row: OutboxRow; checkpoint: CheckpointSummary }> {
+): Promise<{
+  row: OutboxRow;
+  checkpoint: CheckpointSummary;
+  gps: FieldGps;
+}> {
   const site = await resolveDemoSite();
   let checkpoints: CheckpointSummary[];
   try {
@@ -98,16 +107,20 @@ export async function enqueuePatrolScanByCode(
     throw new Error(`No checkpoint matches code "${qrOrNfcCode.trim()}"`);
   }
 
+  const gps = await getFieldGps({ allowFallback: true });
+
   const row = await enqueuePatrolScan({
     clientEventId: newClientEventId(),
     deviceTime: new Date().toISOString(),
     siteId: site.id,
     checkpointId: checkpoint.id,
     qrOrNfcCode: qrOrNfcCode.trim(),
-    latitude: DEMO_GPS.latitude,
-    longitude: DEMO_GPS.longitude,
+    latitude: gps.latitude,
+    longitude: gps.longitude,
     method: 'QR',
   });
 
-  return { row, checkpoint };
+  return { row, checkpoint, gps };
 }
+
+export { formatGpsLabel };

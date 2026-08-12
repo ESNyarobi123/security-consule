@@ -29,7 +29,7 @@ export function CareersShell({
   return (
     <div className="flex min-h-[100dvh] flex-col bg-[#f4f7fb] text-[#323130]">
       <header className="sticky top-0 z-40 border-b border-white/10 bg-gradient-to-r from-[#0b1f3a] via-[#0e2f52] to-[#312e81] text-white shadow-md">
-        <div className="mx-auto flex h-14 max-w-6xl items-center gap-3 px-4 sm:px-6">
+        <div className="flex h-14 w-full items-center gap-3 px-4 sm:px-6 lg:px-8 xl:px-10">
           <Link href="/" className="flex items-center gap-2.5">
             <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-indigo-400 to-[#4f46e5] text-[11px] font-bold shadow">
               HL
@@ -48,7 +48,7 @@ export function CareersShell({
           </nav>
         </div>
       </header>
-      <main className="mx-auto w-full max-w-6xl flex-1 px-4 py-6 sm:px-6 sm:py-8">
+      <main className="w-full flex-1 px-4 py-6 sm:px-6 sm:py-8 lg:px-8 xl:px-10">
         {children}
       </main>
       <footer className="border-t border-[#e1dfdd] bg-white/80 py-4 text-center text-[11px] text-[#605e5c]">
@@ -63,14 +63,22 @@ export function CareersHero({
   title,
   subtitle,
   actions,
+  bleed = false,
 }: {
   eyebrow?: string;
   title: string;
   subtitle?: string;
   actions?: ReactNode;
+  bleed?: boolean;
 }) {
   return (
-    <section className="relative mb-8 overflow-hidden rounded-2xl bg-gradient-to-br from-[#0b1f3a] via-[#1e3a5f] to-[#4f46e5] px-6 py-8 text-white shadow-lg sm:px-8 sm:py-10">
+    <section
+      className={`relative mb-8 overflow-hidden bg-gradient-to-br from-[#0b1f3a] via-[#1e3a5f] to-[#4f46e5] px-6 py-8 text-white shadow-lg sm:px-8 sm:py-10 ${
+        bleed
+          ? '-mx-4 rounded-none sm:-mx-6 lg:-mx-8 xl:-mx-10'
+          : 'rounded-2xl'
+      }`}
+    >
       <div
         className="pointer-events-none absolute inset-0 opacity-25"
         style={{
@@ -107,6 +115,9 @@ export function StatusPill({ status }: { status: string }) {
   if (s.includes('HIRED') || s.includes('OFFER') || s.includes('ACTIVE')) {
     className = 'bg-emerald-50 text-emerald-800 ring-emerald-200/80';
     dot = 'bg-emerald-500';
+  } else if (s.includes('WITHDRAW')) {
+    className = 'bg-slate-100 text-slate-700 ring-slate-200';
+    dot = 'bg-slate-400';
   } else if (s.includes('REJECT') || s.includes('CLOSED') || s.includes('CANCEL')) {
     className = 'bg-rose-50 text-rose-800 ring-rose-200/80';
     dot = 'bg-rose-500';
@@ -172,4 +183,37 @@ export function Field({
 }
 
 export const inputClass =
-  'w-full rounded-xl border border-[#c8c6c4] bg-white px-3.5 py-2.5 text-[#1b1a19] outline-none transition focus:border-[#4f46e5] focus:ring-2 focus:ring-[#4f46e5]/20';
+  'w-full rounded-xl border border-slate-300 bg-white px-3.5 py-2.5 text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-[#4f46e5] focus:ring-2 focus:ring-[#4f46e5]/20';
+
+/** Split job description / requirements into readable blocks. */
+export function splitJobCopy(text?: string | null): string[] {
+  if (!text?.trim()) return [];
+  const trimmed = text.trim();
+  const byLines = trimmed
+    .split(/\n+/)
+    .map((part) => part.replace(/^[\s•\-]+/, '').trim())
+    .filter(Boolean);
+  if (byLines.length > 1) return byLines;
+  const bySentences = trimmed
+    .split(/(?<=[.!?])\s+(?=[A-Z•\-])/)
+    .map((part) => part.replace(/^[\s•\-]+/, '').trim())
+    .filter(Boolean);
+  if (bySentences.length > 1) return bySentences;
+  if (!/[.!?]/.test(trimmed) && trimmed.includes(',')) {
+    return trimmed
+      .split(',')
+      .map((part) => part.trim())
+      .filter(Boolean);
+  }
+  return [trimmed];
+}
+
+export function postingMentionsDocuments(job?: {
+  description?: string | null;
+  requirements?: string | null;
+} | null): boolean {
+  const text = `${job?.description ?? ''} ${job?.requirements ?? ''}`.toLowerCase();
+  return /\b(cv|resume|curriculum|certificate|document|nida|id copy)\b/.test(
+    text,
+  );
+}

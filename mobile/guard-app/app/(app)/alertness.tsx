@@ -13,6 +13,7 @@ import { useOnline } from '@/hooks/useOnline';
 import {
   enqueueConfirmAlertness,
   fetchPendingAlertness,
+  formatGpsLabel,
   type PendingAlertnessCheck,
 } from '@/services/alertness';
 
@@ -63,9 +64,9 @@ export default function AlertnessScreen() {
     setError(null);
     setMessage(null);
     try {
-      const row = await enqueueConfirmAlertness(check.id);
+      const { row, gps } = await enqueueConfirmAlertness(check.id);
       setMessage(
-        `Queued ALERTNESS_CONFIRM ${row.clientEventId.slice(0, 8)}… — sync from Outbox.`,
+        `Queued ALERTNESS_CONFIRM ${row.clientEventId.slice(0, 8)}… · ${formatGpsLabel(gps)} — sync from Outbox.`,
       );
       setChecks((prev) => prev.filter((c) => c.id !== check.id));
     } catch (e) {
@@ -79,7 +80,8 @@ export default function AlertnessScreen() {
     <View style={styles.root}>
       <Text style={styles.hint}>
         Pending checks from GET /attendance/alertness/pending. Confirm queues
-        ALERTNESS_CONFIRM with demo GPS — sync via Outbox.
+        ALERTNESS_CONFIRM with live GPS (cached/fallback if needed) — sync via
+        Outbox.
       </Text>
       {message ? <Text style={styles.ok}>{message}</Text> : null}
       {error ? <Text style={styles.error}>{error}</Text> : null}

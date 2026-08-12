@@ -45,6 +45,39 @@ export class CustomerReportSummaryDto {
   @ApiProperty() currency!: string;
 }
 
+export class CustomerEmployeeAttendanceReportDto {
+  @ApiProperty() totalEmployees!: number;
+  @ApiProperty() activeEmployees!: number;
+  @ApiProperty() checkIns!: number;
+  @ApiProperty() checkOuts!: number;
+  @ApiProperty() uniqueEmployeesSeen!: number;
+}
+
+export class CustomerParkingReportDto {
+  @ApiProperty() registeredVehicles!: number;
+  @ApiProperty() activePermits!: number;
+  @ApiProperty() pendingPermits!: number;
+  @ApiProperty() entries!: number;
+  @ApiProperty() exits!: number;
+  @ApiProperty() deniedEntries!: number;
+  @ApiProperty() violations!: number;
+  @ApiProperty() blacklistedVehicles!: number;
+}
+
+export class CustomerPayrollReportDto {
+  @ApiProperty() available!: boolean;
+  @ApiProperty() cyclesInPeriod!: number;
+  @ApiProperty() paidCycles!: number;
+  @ApiProperty() pendingCycles!: number;
+  @ApiProperty() payslipsInLatestCycle!: number;
+  @ApiProperty() grossPayInLatestCycle!: number;
+  @ApiProperty() netPayInLatestCycle!: number;
+  @ApiPropertyOptional() latestCycleCode?: string | null;
+  @ApiPropertyOptional() latestCycleStatus?: string | null;
+  @ApiPropertyOptional() latestPeriodStart?: string | null;
+  @ApiPropertyOptional() latestPeriodEnd?: string | null;
+}
+
 export class CustomerReportSiteRowDto {
   @ApiProperty() siteId!: string;
   @ApiProperty() siteCode!: string;
@@ -64,6 +97,12 @@ export class CustomerReportResponseDto {
   period!: CustomerReportPeriodDto;
   @ApiProperty({ type: CustomerReportSummaryDto })
   summary!: CustomerReportSummaryDto;
+  @ApiProperty({ type: CustomerEmployeeAttendanceReportDto })
+  customerEmployeeAttendance!: CustomerEmployeeAttendanceReportDto;
+  @ApiProperty({ type: CustomerParkingReportDto })
+  parkingReport!: CustomerParkingReportDto;
+  @ApiProperty({ type: CustomerPayrollReportDto })
+  payrollReport!: CustomerPayrollReportDto;
   @ApiProperty({ type: [CustomerReportSiteRowDto] })
   bySite!: CustomerReportSiteRowDto[];
   @ApiProperty() generatedAt!: string;

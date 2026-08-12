@@ -198,21 +198,43 @@ export class RecruitmentService {
     reference: string,
     email: string,
   ): Promise<JobApplicationPublicStatusDto> {
+    const ref = reference?.trim() ?? '';
+    const mail = email?.trim() ?? '';
+    if (!ref || !mail) {
+      throw new BadRequestException({
+        error: 'APPLICATION_LOOKUP_INVALID',
+        message:
+          'Enter both the reference number and the email used to apply.',
+      });
+    }
+
     return this.withPublicOrg(async () => {
       const app = await this.prisma.jobApplication.findFirst({
         where: {
-          referenceNumber: reference.trim().toUpperCase(),
-          email: email.toLowerCase().trim(),
+          referenceNumber: ref.toUpperCase(),
+          email: mail.toLowerCase(),
         },
         include: { posting: true },
       });
-      if (!app) throw new NotFoundException('Application not found');
+      if (!app) {
+        throw new NotFoundException({
+          error: 'APPLICATION_NOT_FOUND',
+          message:
+            'No application matches that reference number and email. Check both and try again.',
+        });
+      }
 
+      const view = publicApplicationStatusView(app.status);
       return {
         referenceNumber: app.referenceNumber,
         status: app.status,
+        statusLabel: view.label,
+        statusHint: view.hint,
         postingTitle: app.posting.title,
+        department: app.posting.department,
+        location: app.posting.location,
         submittedAt: app.createdAt,
+        stages: view.stages,
       };
     });
   }
@@ -407,4 +429,84 @@ export class RecruitmentService {
       createdAt: a.createdAt,
     };
   }
+}
+
+const PIPELINE: Array<{ key: ApplicationStatus; label: string }> = [
+  { key: ApplicationStatus.SUBMITTED, label: 'Received' },
+  { key: ApplicationStatus.SCREENING, label: 'Screening' },
+  { key: ApplicationStatus.INTERVIEW, label: 'Interview' },
+  { key: ApplicationStatus.OFFERED, label: 'Offer' },
+  { key: ApplicationStatus.HIRED, label: 'Hired' },
+];
+
+const STATUS_COPY: Record<
+  ApplicationStatus,
+  { label: string; hint: string }
+> = {
+  SUBMITTED: {
+    label: 'Received',
+    hint: 'HIGHLINK has received your application. Screening has not started yet.',
+  },
+  SCREENING: {
+    label: 'In screening',
+    hint: 'Recruitment is reviewing your application. Keep this email available.',
+  },
+  INTERVIEW: {
+    label: 'Interview',
+    hint: 'You have been shortlisted. HIGHLINK will contact you on this email.',
+  },
+  OFFERED: {
+    label: 'Offer',
+    hint: 'An offer is in progress. Watch this email for next steps.',
+  },
+  HIRED: {
+    label: 'Hired',
+    hint: 'This application is marked hired. Welcome to HIGHLINK.',
+  },
+  REJECTED: {
+    label: 'Not taken forward',
+    hint: 'This application was not taken forward. You may apply for other open roles.',
+  },
+  WITHDRAWN: {
+    label: 'Withdrawn',
+    hint: 'This application was withdrawn and is no longer in the hiring pipeline.',
+  },
+};
+
+function publicApplicationStatusView(status: ApplicationStatus): {
+  label: string;
+  hint: string;
+  stages: Array<{
+    key: string;
+    label: string;
+    state: 'done' | 'current' | 'upcoming' | 'skipped';
+  }>;
+} {
+  const copy = STATUS_COPY[status];
+  const idx = PIPELINE.findIndex((step) => step.key === status);
+  const terminalOffPath =
+    status === ApplicationStatus.REJECTED ||
+    status === ApplicationStatus.WITHDRAWN;
+
+  const stages = PIPELINE.map((step, i) => {
+    if (terminalOffPath) {
+      return {
+        key: step.key,
+        label: step.label,
+        state: i === 0 ? ('done' as const) : ('skipped' as const),
+      };
+    }
+    return {
+      key: step.key,
+      label: step.label,
+      state:
+        i < idx
+          ? ('done' as const)
+          : i === idx
+            ? ('current' as const)
+            : ('upcoming' as const),
+    };
+  });
+
+  return { label: copy.label, hint: copy.hint, stages };
 }

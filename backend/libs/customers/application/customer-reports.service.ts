@@ -5,10 +5,16 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import {
+  AccessEntryType,
   ComplaintStatus,
   DeploymentStatus,
   IncidentStatus,
   InvoiceStatus,
+  ParkingDecision,
+  ParkingEntryDirection,
+  PayrollCycleStatus,
+  PayrollTenantType,
+  PermitStatus,
   Prisma,
 } from '@prisma/client';
 import { AuthUser, PrismaService, requireCustomerScope } from '@pssms/shared';
@@ -116,6 +122,12 @@ export class CustomerReportsService {
       orderBy: { name: 'asc' },
     });
     const siteIds = sites.map((s) => s.id);
+    const customerVehicles = await this.prisma.vehicle.findMany({
+      where: { organizationId, customerId },
+      select: { id: true, plateNumber: true },
+    });
+    const vehicleIds = customerVehicles.map((v) => v.id);
+    const customerPlates = customerVehicles.map((v) => v.plateNumber);
 
     const range = { gte: period.from, lte: period.to };
 
@@ -138,6 +150,22 @@ export class CustomerReportsService {
       accessBySite,
       visitorEntriesBySite,
       parkingBySite,
+      customerEmployees,
+      activeCustomerEmployees,
+      accessCheckIns,
+      accessCheckOuts,
+      uniqueAccessEmployees,
+      activePermits,
+      pendingPermits,
+      customerParkingEntries,
+      customerParkingExits,
+      deniedParkingEntries,
+      parkingViolations,
+      blacklistedVehicles,
+      payrollCyclesInPeriod,
+      payrollPaidCycles,
+      payrollPendingCycles,
+      latestPayrollCycle,
     ] = await Promise.all([
       siteIds.length
         ? this.prisma.guardDeployment.count({
@@ -299,6 +327,169 @@ export class CustomerReportsService {
             _count: { _all: true },
           })
         : Promise.resolve([]),
+      this.prisma.customerEmployee.count({
+        where: {
+          organizationId,
+          customerId,
+        },
+      }),
+      this.prisma.customerEmployee.count({
+        where: {
+          organizationId,
+          customerId,
+          isActive: true,
+        },
+      }),
+      this.prisma.accessEntry.count({
+        where: {
+          organizationId,
+          customerId,
+          recordedAt: range,
+          entryType: AccessEntryType.CHECK_IN,
+        },
+      }),
+      this.prisma.accessEntry.count({
+        where: {
+          organizationId,
+          customerId,
+          recordedAt: range,
+          entryType: AccessEntryType.CHECK_OUT,
+        },
+      }),
+      this.prisma.accessEntry.groupBy({
+        by: ['employeeId'],
+        where: {
+          organizationId,
+          customerId,
+          recordedAt: range,
+        },
+      }),
+      vehicleIds.length
+        ? this.prisma.parkingPermit.count({
+            where: {
+              organizationId,
+              vehicleId: { in: vehicleIds },
+              status: PermitStatus.ACTIVE,
+            },
+          })
+        : Promise.resolve(0),
+      vehicleIds.length
+        ? this.prisma.parkingPermit.count({
+            where: {
+              organizationId,
+              vehicleId: { in: vehicleIds },
+              status: PermitStatus.PENDING,
+            },
+          })
+        : Promise.resolve(0),
+      vehicleIds.length
+        ? this.prisma.parkingEntry.count({
+            where: {
+              organizationId,
+              vehicleId: { in: vehicleIds },
+              direction: ParkingEntryDirection.ENTRY,
+              recordedAt: range,
+            },
+          })
+        : Promise.resolve(0),
+      vehicleIds.length
+        ? this.prisma.parkingEntry.count({
+            where: {
+              organizationId,
+              vehicleId: { in: vehicleIds },
+              direction: ParkingEntryDirection.EXIT,
+              recordedAt: range,
+            },
+          })
+        : Promise.resolve(0),
+      vehicleIds.length
+        ? this.prisma.parkingEntry.count({
+            where: {
+              organizationId,
+              vehicleId: { in: vehicleIds },
+              decision: ParkingDecision.DENY,
+              recordedAt: range,
+            },
+          })
+        : Promise.resolve(0),
+      vehicleIds.length || customerPlates.length
+        ? this.prisma.parkingViolation.count({
+            where: {
+              organizationId,
+              recordedAt: range,
+              OR: [
+                ...(vehicleIds.length ? [{ vehicleId: { in: vehicleIds } }] : []),
+                ...(customerPlates.length
+                  ? [{ plateNumber: { in: customerPlates } }]
+                  : []),
+              ],
+            },
+          })
+        : Promise.resolve(0),
+      customerPlates.length
+        ? this.prisma.vehicleBlacklist.count({
+            where: {
+              organizationId,
+              isActive: true,
+              plateNumber: { in: customerPlates },
+            },
+          })
+        : Promise.resolve(0),
+      this.prisma.payrollCycle.count({
+        where: {
+          organizationId,
+          customerId,
+          tenantType: PayrollTenantType.CUSTOMER_MANAGED_PAYROLL,
+          periodStart: { lte: period.to },
+          periodEnd: { gte: period.from },
+        },
+      }),
+      this.prisma.payrollCycle.count({
+        where: {
+          organizationId,
+          customerId,
+          tenantType: PayrollTenantType.CUSTOMER_MANAGED_PAYROLL,
+          status: PayrollCycleStatus.PAID,
+          periodStart: { lte: period.to },
+          periodEnd: { gte: period.from },
+        },
+      }),
+      this.prisma.payrollCycle.count({
+        where: {
+          organizationId,
+          customerId,
+          tenantType: PayrollTenantType.CUSTOMER_MANAGED_PAYROLL,
+          status: {
+            in: [
+              PayrollCycleStatus.CALCULATED,
+              PayrollCycleStatus.PENDING_APPROVAL,
+              PayrollCycleStatus.APPROVED,
+            ],
+          },
+          periodStart: { lte: period.to },
+          periodEnd: { gte: period.from },
+        },
+      }),
+      this.prisma.payrollCycle.findFirst({
+        where: {
+          organizationId,
+          customerId,
+          tenantType: PayrollTenantType.CUSTOMER_MANAGED_PAYROLL,
+        },
+        orderBy: [{ periodEnd: 'desc' }, { createdAt: 'desc' }],
+        select: {
+          cycleCode: true,
+          status: true,
+          periodStart: true,
+          periodEnd: true,
+          payslips: {
+            select: {
+              grossPay: true,
+              netPay: true,
+            },
+          },
+        },
+      }),
     ]);
 
     let outstanding = 0;
@@ -315,6 +506,14 @@ export class CustomerReportsService {
     const accMap = countMap(accessBySite);
     const visMap = countMap(visitorEntriesBySite);
     const parkMap = countMap(parkingBySite);
+    const latestPayrollGross = (latestPayrollCycle?.payslips ?? []).reduce(
+      (sum, slip) => sum + money(slip.grossPay),
+      0,
+    );
+    const latestPayrollNet = (latestPayrollCycle?.payslips ?? []).reduce(
+      (sum, slip) => sum + money(slip.netPay),
+      0,
+    );
 
     const bySite = sites.map((s) => ({
       siteId: s.id,
@@ -352,12 +551,45 @@ export class CustomerReportsService {
         invoiceOutstandingAmount: Math.round(outstanding * 100) / 100,
         currency: customer.currency ?? 'TZS',
       },
+      customerEmployeeAttendance: {
+        totalEmployees: customerEmployees,
+        activeEmployees: activeCustomerEmployees,
+        checkIns: accessCheckIns,
+        checkOuts: accessCheckOuts,
+        uniqueEmployeesSeen: uniqueAccessEmployees.length,
+      },
+      parkingReport: {
+        registeredVehicles: vehicleIds.length,
+        activePermits,
+        pendingPermits,
+        entries: customerParkingEntries,
+        exits: customerParkingExits,
+        deniedEntries: deniedParkingEntries,
+        violations: parkingViolations,
+        blacklistedVehicles,
+      },
+      payrollReport: {
+        available: payrollCyclesInPeriod > 0 || !!latestPayrollCycle,
+        cyclesInPeriod: payrollCyclesInPeriod,
+        paidCycles: payrollPaidCycles,
+        pendingCycles: payrollPendingCycles,
+        payslipsInLatestCycle: latestPayrollCycle?.payslips.length ?? 0,
+        grossPayInLatestCycle: Math.round(latestPayrollGross * 100) / 100,
+        netPayInLatestCycle: Math.round(latestPayrollNet * 100) / 100,
+        latestCycleCode: latestPayrollCycle?.cycleCode ?? null,
+        latestCycleStatus: latestPayrollCycle?.status ?? null,
+        latestPeriodStart: latestPayrollCycle?.periodStart.toISOString() ?? null,
+        latestPeriodEnd: latestPayrollCycle?.periodEnd.toISOString() ?? null,
+      },
       bySite,
       generatedAt: new Date().toISOString(),
       notes: [
         'Live period counts from operational tables — not snapshot KPIs.',
         'incidentsStillOpen / complaintsStillOpen are current status (not period-limited).',
         'invoiceOutstandingAmount is open AR balance (all open invoices), not period revenue.',
+        'customerEmployeeAttendance is derived from access-control entry logs for customer employees.',
+        'parkingReport is scoped to this customer vehicles / permits where the current parking model allows.',
+        'payrollReport reflects CUSTOMER_MANAGED_PAYROLL cycles linked to this customer only.',
         'Charts, PDF export suite, and SLA analytics beyond contract terms are deferred.',
       ],
     };

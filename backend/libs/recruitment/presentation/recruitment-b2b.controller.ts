@@ -19,6 +19,7 @@ import { GuardSupplyRequestStatus } from '@prisma/client';
 import {
   AuthUser,
   CurrentUser,
+  Public,
   RequireAnyPermissions,
   RequirePermissions,
 } from '@pssms/shared';
@@ -27,6 +28,9 @@ import {
   B2bPartnerProfileDto,
   CreateGuardSupplyRequestDto,
   GuardSupplyRequestResponseDto,
+  RegisterB2bPartnerDto,
+  RegisterB2bPartnerResponseDto,
+  UpdateB2bPartnerStatusDto,
   UpdateGuardSupplyRequestStatusDto,
 } from './dto/recruitment-b2b.dto';
 
@@ -35,6 +39,37 @@ import {
 @Controller('recruitment/b2b')
 export class RecruitmentB2bController {
   constructor(private readonly service: RecruitmentB2bService) {}
+
+  @Public()
+  @Post('partners/register')
+  @ApiOperation({
+    summary:
+      'Public self-register for other security companies (PENDING until HR approves)',
+  })
+  @ApiCreatedResponse({ type: RegisterB2bPartnerResponseDto })
+  register(@Body() dto: RegisterB2bPartnerDto) {
+    return this.service.registerPartner(dto);
+  }
+
+  @Get('partners')
+  @RequirePermissions('recruitment.manage')
+  @ApiOperation({ summary: 'HR — list B2B security partners' })
+  @ApiOkResponse({ type: [B2bPartnerProfileDto] })
+  listPartners(@CurrentUser() user: AuthUser) {
+    return this.service.listPartners(user);
+  }
+
+  @Patch('partners/:id/status')
+  @RequirePermissions('recruitment.manage')
+  @ApiOperation({ summary: 'HR — approve or suspend a B2B partner' })
+  @ApiOkResponse({ type: B2bPartnerProfileDto })
+  updatePartnerStatus(
+    @Param('id') id: string,
+    @Body() dto: UpdateB2bPartnerStatusDto,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.service.updatePartnerStatus(id, dto.status, user);
+  }
 
   @Get('partners/me')
   @RequirePermissions('recruitment.b2b')

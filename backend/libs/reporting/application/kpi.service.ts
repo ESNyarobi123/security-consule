@@ -2,15 +2,18 @@ import { Injectable, Logger } from '@nestjs/common';
 import {
   AlertnessStatus,
   ApplicationStatus,
+  BreachStatus,
   ContractStatus,
   DeploymentStatus,
   EmployeeStatus,
   GuardStatus,
+  IncidentSeverity,
   IncidentStatus,
   InvoiceStatus,
   KpiPeriodGranularity,
   KpiSnapshotStatus,
   PayrollCycleStatus,
+  PolicyStatus,
   Prisma,
   VerificationResult,
 } from '@prisma/client';
@@ -38,6 +41,8 @@ export const KPI_CATALOG: KpiCatalogEntry[] = [
   { code: 'ALERTNESS_CONFIRM_RATE', name: 'Alertness confirm rate', category: 'OPS', unit: 'PERCENT' },
   { code: 'FIELD_ALERTS_OPEN', name: 'Open field alerts', category: 'OPS', unit: 'COUNT' },
   { code: 'DEPLOYMENTS_ACTIVE', name: 'Active deployments', category: 'OPS', unit: 'COUNT' },
+  { code: 'BRANCHES_ACTIVE', name: 'Active branches', category: 'ENTERPRISE', unit: 'COUNT' },
+  { code: 'SITES_ACTIVE', name: 'Active sites', category: 'ENTERPRISE', unit: 'COUNT' },
   { code: 'OPEN_INCIDENTS', name: 'Open incidents', category: 'SAFETY', unit: 'COUNT' },
   { code: 'INCIDENTS_BY_SEVERITY', name: 'Incidents by severity', category: 'SAFETY', unit: 'JSON' },
   { code: 'INCIDENTS_RESOLVED', name: 'Resolved incidents', category: 'SAFETY', unit: 'COUNT' },
@@ -48,6 +53,7 @@ export const KPI_CATALOG: KpiCatalogEntry[] = [
   { code: 'CONTRACTS_ACTIVE', name: 'Active contracts', category: 'COMMERCIAL', unit: 'COUNT' },
   { code: 'CONTRACTS_MRR', name: 'Contract MRR', category: 'COMMERCIAL', unit: 'TZS' },
   { code: 'CUSTOMERS_ACTIVE', name: 'Active customers', category: 'COMMERCIAL', unit: 'COUNT' },
+  { code: 'REVENUE_COLLECTED', name: 'Revenue collected', category: 'FINANCE', unit: 'TZS' },
   { code: 'INVOICE_OUTSTANDING', name: 'Invoice outstanding', category: 'FINANCE', unit: 'TZS' },
   { code: 'INVOICE_COLLECTED', name: 'Payments collected', category: 'FINANCE', unit: 'TZS' },
   { code: 'PAYROLL_NET_TOTAL', name: 'Payroll net total', category: 'PAYROLL', unit: 'TZS' },
@@ -55,6 +61,9 @@ export const KPI_CATALOG: KpiCatalogEntry[] = [
   { code: 'PAYROLL_CYCLES_PAID', name: 'Paid payroll cycles', category: 'PAYROLL', unit: 'COUNT' },
   { code: 'EMPLOYEES_ACTIVE', name: 'Active employees', category: 'HR', unit: 'COUNT' },
   { code: 'RECRUITMENT_PIPELINE', name: 'Recruitment pipeline', category: 'HR', unit: 'COUNT' },
+  { code: 'CRITICAL_INCIDENTS_OPEN', name: 'Critical open incidents', category: 'SAFETY', unit: 'COUNT' },
+  { code: 'COMPLIANCE_POLICIES_PUBLISHED', name: 'Published policies', category: 'COMPLIANCE', unit: 'COUNT' },
+  { code: 'COMPLIANCE_BREACHES_OPEN', name: 'Open data breaches', category: 'COMPLIANCE', unit: 'COUNT' },
 ];
 
 @Injectable()
@@ -364,6 +373,21 @@ export class KpiService {
         pairs = rows.map((r) => ({ siteId: r.siteId, value: r._count._all }));
         break;
       }
+      case 'CRITICAL_INCIDENTS_OPEN': {
+        const rows = await this.prisma.incident.groupBy({
+          by: ['siteId'],
+          where: {
+            organizationId,
+            severity: IncidentSeverity.CRITICAL,
+            status: {
+              in: [IncidentStatus.OPEN, IncidentStatus.INVESTIGATING],
+            },
+          },
+          _count: { _all: true },
+        });
+        pairs = rows.map((r) => ({ siteId: r.siteId, value: r._count._all }));
+        break;
+      }
       case 'INCIDENTS_RESOLVED': {
         const rows = await this.prisma.incident.groupBy({
           by: ['siteId'],
@@ -437,6 +461,24 @@ export class KpiService {
           _count: { _all: true },
         });
         pairs = rows.map((r) => ({ siteId: r.siteId, value: r._count._all }));
+        break;
+      }
+      case 'BRANCHES_ACTIVE':
+      case 'SITES_ACTIVE':
+      case 'CUSTOMERS_ACTIVE': {
+        // Footprint: active sites (customer-linked sites prioritized for CUSTOMERS).
+        const sites = await this.prisma.site.findMany({
+          where: {
+            organizationId,
+            isActive: true,
+            ...(code === 'CUSTOMERS_ACTIVE'
+              ? { customerId: { not: null } }
+              : {}),
+          },
+          select: { id: true },
+          take: 200,
+        });
+        pairs = sites.map((s) => ({ siteId: s.id, value: 1 }));
         break;
       }
       default:
@@ -677,12 +719,76 @@ export class KpiService {
         return { value: Number(agg._sum.monthlyFee ?? 0) };
       }
 
-      case 'CUSTOMERS_ACTIVE':
+      case 'BRANCHES_ACTIVE': {
+        const branches = await this.prisma.branch.findMany({
+          where: { organizationId, isActive: true },
+          select: {
+            code: true,
+            name: true,
+            region: true,
+            _count: { select: { sites: true } },
+          },
+          orderBy: { code: 'asc' },
+          take: 50,
+        });
+        return {
+          value: branches.length,
+          breakdown: {
+            items: branches.map((b) => ({
+              code: b.code,
+              name: b.name,
+              region: b.region,
+              siteCount: b._count.sites,
+            })),
+          },
+        };
+      }
+
+      case 'SITES_ACTIVE': {
+        const sites = await this.prisma.site.findMany({
+          where: { organizationId, isActive: true },
+          select: {
+            code: true,
+            name: true,
+            branch: { select: { code: true, name: true } },
+          },
+          orderBy: { code: 'asc' },
+          take: 80,
+        });
+        return {
+          value: await this.prisma.site.count({
+            where: { organizationId, isActive: true },
+          }),
+          breakdown: {
+            items: sites.map((s) => ({
+              code: s.code,
+              name: s.name,
+              branchCode: s.branch.code,
+              branchName: s.branch.name,
+            })),
+          },
+        };
+      }
+
+      case 'CUSTOMERS_ACTIVE': {
+        const customers = await this.prisma.customer.findMany({
+          where: { organizationId, isActive: true },
+          select: { code: true, name: true },
+          orderBy: { name: 'asc' },
+          take: 50,
+        });
         return {
           value: await this.prisma.customer.count({
             where: { organizationId, isActive: true },
           }),
+          breakdown: {
+            items: customers.map((c) => ({
+              code: c.code,
+              name: c.name,
+            })),
+          },
         };
+      }
 
       case 'INVOICE_OUTSTANDING': {
         const invoices = await this.prisma.invoice.findMany({
@@ -705,7 +811,8 @@ export class KpiService {
         return { value: outstanding };
       }
 
-      case 'INVOICE_COLLECTED': {
+      case 'INVOICE_COLLECTED':
+      case 'REVENUE_COLLECTED': {
         const agg = await this.prisma.invoicePayment.aggregate({
           where: {
             organizationId,
@@ -713,8 +820,53 @@ export class KpiService {
           },
           _sum: { amount: true },
         });
-        return { value: Number(agg._sum.amount ?? 0) };
+        return {
+          value: Number(agg._sum.amount ?? 0),
+          breakdown: {
+            source: 'InvoicePayment',
+            note:
+              code === 'REVENUE_COLLECTED'
+                ? '§35.2 revenue = payments collected in period'
+                : 'Payments recorded in period',
+          },
+        };
       }
+
+      case 'CRITICAL_INCIDENTS_OPEN':
+        return {
+          value: await this.prisma.incident.count({
+            where: {
+              organizationId,
+              severity: IncidentSeverity.CRITICAL,
+              status: {
+                in: [IncidentStatus.OPEN, IncidentStatus.INVESTIGATING],
+              },
+            },
+          }),
+          breakdown: {
+            note: '§35.2 risk proxy — CRITICAL incidents still open',
+          },
+        };
+
+      case 'COMPLIANCE_POLICIES_PUBLISHED':
+        return {
+          value: await this.prisma.policyDocument.count({
+            where: {
+              organizationId,
+              status: PolicyStatus.PUBLISHED,
+            },
+          }),
+        };
+
+      case 'COMPLIANCE_BREACHES_OPEN':
+        return {
+          value: await this.prisma.dataBreachCase.count({
+            where: {
+              organizationId,
+              status: { not: BreachStatus.CLOSED },
+            },
+          }),
+        };
 
       case 'PAYROLL_NET_TOTAL':
       case 'PAYROLL_GROSS_TOTAL': {

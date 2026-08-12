@@ -4495,6 +4495,8 @@ async function main() {
     { code: 'ALERTNESS_CONFIRM_RATE', name: 'Alertness confirm rate', category: 'OPS', unit: 'PERCENT' },
     { code: 'FIELD_ALERTS_OPEN', name: 'Open field alerts', category: 'OPS', unit: 'COUNT' },
     { code: 'DEPLOYMENTS_ACTIVE', name: 'Active deployments', category: 'OPS', unit: 'COUNT' },
+    { code: 'BRANCHES_ACTIVE', name: 'Active branches', category: 'ENTERPRISE', unit: 'COUNT' },
+    { code: 'SITES_ACTIVE', name: 'Active sites', category: 'ENTERPRISE', unit: 'COUNT' },
     { code: 'OPEN_INCIDENTS', name: 'Open incidents', category: 'SAFETY', unit: 'COUNT' },
     { code: 'INCIDENTS_BY_SEVERITY', name: 'Incidents by severity', category: 'SAFETY', unit: 'JSON' },
     { code: 'INCIDENTS_RESOLVED', name: 'Resolved incidents', category: 'SAFETY', unit: 'COUNT' },
@@ -4505,6 +4507,7 @@ async function main() {
     { code: 'CONTRACTS_ACTIVE', name: 'Active contracts', category: 'COMMERCIAL', unit: 'COUNT' },
     { code: 'CONTRACTS_MRR', name: 'Contract MRR', category: 'COMMERCIAL', unit: 'TZS' },
     { code: 'CUSTOMERS_ACTIVE', name: 'Active customers', category: 'COMMERCIAL', unit: 'COUNT' },
+    { code: 'REVENUE_COLLECTED', name: 'Revenue collected', category: 'FINANCE', unit: 'TZS' },
     { code: 'INVOICE_OUTSTANDING', name: 'Invoice outstanding', category: 'FINANCE', unit: 'TZS' },
     { code: 'INVOICE_COLLECTED', name: 'Payments collected', category: 'FINANCE', unit: 'TZS' },
     { code: 'PAYROLL_NET_TOTAL', name: 'Payroll net total', category: 'PAYROLL', unit: 'TZS' },
@@ -4512,6 +4515,9 @@ async function main() {
     { code: 'PAYROLL_CYCLES_PAID', name: 'Paid payroll cycles', category: 'PAYROLL', unit: 'COUNT' },
     { code: 'EMPLOYEES_ACTIVE', name: 'Active employees', category: 'HR', unit: 'COUNT' },
     { code: 'RECRUITMENT_PIPELINE', name: 'Recruitment pipeline', category: 'HR', unit: 'COUNT' },
+    { code: 'CRITICAL_INCIDENTS_OPEN', name: 'Critical open incidents', category: 'SAFETY', unit: 'COUNT' },
+    { code: 'COMPLIANCE_POLICIES_PUBLISHED', name: 'Published policies', category: 'COMPLIANCE', unit: 'COUNT' },
+    { code: 'COMPLIANCE_BREACHES_OPEN', name: 'Open data breaches', category: 'COMPLIANCE', unit: 'COUNT' },
   ];
   for (const k of kpiDefs) {
     await prisma.kpiDefinition.upsert({
@@ -4588,7 +4594,7 @@ async function main() {
   console.log('  Workflow policy-change-approval: CO submits → GENERAL_MANAGER publishes');
   console.log('  Workflow iam-role-change-approval: IT/CISO submits → GENERAL_MANAGER applies');
   console.log('  Workflow contract-approval (B3): Legal → GM → CEO → CMD@10M monthlyFee');
-  console.log('  Reporting: 24 KPI definitions seeded (executive dashboard)');
+  console.log('  Reporting: 30 KPI definitions seeded (executive dashboard §35.2)');
 }
 
 main()

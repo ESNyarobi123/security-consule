@@ -1,13 +1,24 @@
 'use client';
 
 import {
+  createCustomerParkingVehicle,
+  getCustomerPortalSites,
   listCustomerParkingPermits,
   listCustomerParkingVehicles,
+  requestCustomerParkingPermit,
+  updateCustomerParkingVehicle,
   type ParkingPermit,
   type ParkingVehicle,
+  type PortalSite,
 } from '@pssms/api-client';
-import { Car, RefreshCw, Ticket } from 'lucide-react';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { Car, Pencil, Plus, RefreshCw, Ticket, X } from 'lucide-react';
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+  type FormEvent,
+} from 'react';
 import {
   PortalDeferral,
   PortalEmpty,
@@ -20,25 +31,66 @@ import {
   formatDate,
 } from '../../_components/portal-ui';
 
+const VEHICLE_TYPES = ['CAR', 'MOTORCYCLE', 'TRUCK', 'BUS', 'OTHER'] as const;
+const PERMIT_TYPES = ['EMPLOYEE', 'VISITOR', 'CONTRACTOR', 'RESERVED'] as const;
+
+type VehicleForm = {
+  plateNumber: string;
+  vehicleType: (typeof VEHICLE_TYPES)[number];
+  make: string;
+  model: string;
+  color: string;
+  ownerName: string;
+  ownerPhone: string;
+};
+
+const emptyForm = (): VehicleForm => ({
+  plateNumber: '',
+  vehicleType: 'CAR',
+  make: '',
+  model: '',
+  color: '',
+  ownerName: '',
+  ownerPhone: '',
+});
+
+const inputCls =
+  'mt-1 w-full rounded-lg border border-[#e1dfdd] bg-white px-3 py-2 text-sm text-[#323130] outline-none focus:border-[#0078d4] focus:ring-2 focus:ring-[#0078d4]/20';
+
 export default function ParkingPage() {
   const [vehicles, setVehicles] = useState<ParkingVehicle[]>([]);
   const [permits, setPermits] = useState<ParkingPermit[]>([]);
+  const [sites, setSites] = useState<PortalSite[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState('');
   const [tab, setTab] = useState<'vehicles' | 'permits'>('vehicles');
   const [statusFilter, setStatusFilter] = useState('ALL');
 
+  const [modal, setModal] = useState<'add' | 'edit' | 'permit' | null>(null);
+  const [editing, setEditing] = useState<ParkingVehicle | null>(null);
+  const [form, setForm] = useState<VehicleForm>(emptyForm);
+  const [permitForm, setPermitForm] = useState({
+    vehicleId: '',
+    siteId: '',
+    permitType: 'EMPLOYEE' as (typeof PERMIT_TYPES)[number],
+  });
+  const [saving, setSaving] = useState(false);
+  const [formError, setFormError] = useState<string | null>(null);
+  const [busyId, setBusyId] = useState<string | null>(null);
+
   const load = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
-      const [v, p] = await Promise.all([
+      const [v, p, s] = await Promise.all([
         listCustomerParkingVehicles(),
         listCustomerParkingPermits(),
+        getCustomerPortalSites(),
       ]);
       setVehicles(v);
       setPermits(p);
+      setSites(s.filter((x) => x.isActive));
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load parking');
     } finally {
@@ -122,21 +174,152 @@ export default function ParkingPage() {
     });
   }, [permits, search, statusFilter, vehicleById]);
 
+  function openAdd() {
+    setEditing(null);
+    setForm(emptyForm());
+    setFormError(null);
+    setModal('add');
+  }
+
+  function openEdit(v: ParkingVehicle) {
+    setEditing(v);
+    setForm({
+      plateNumber: v.plateNumber,
+      vehicleType: (VEHICLE_TYPES.includes(
+        v.vehicleType as (typeof VEHICLE_TYPES)[number],
+      )
+        ? v.vehicleType
+        : 'CAR') as VehicleForm['vehicleType'],
+      make: v.make ?? '',
+      model: v.model ?? '',
+      color: v.color ?? '',
+      ownerName: v.ownerName ?? '',
+      ownerPhone: '',
+    });
+    setFormError(null);
+    setModal('edit');
+  }
+
+  function openPermitRequest(preselectVehicleId?: string) {
+    const active = vehicles.filter((v) => v.isActive);
+    const vehicleId =
+      preselectVehicleId && active.some((v) => v.id === preselectVehicleId)
+        ? preselectVehicleId
+        : (active[0]?.id ?? '');
+    setPermitForm({
+      vehicleId,
+      siteId: sites[0]?.id ?? '',
+      permitType: 'EMPLOYEE',
+    });
+    setFormError(null);
+    setTab('permits');
+    setModal('permit');
+  }
+
+  async function onSave(e: FormEvent) {
+    e.preventDefault();
+    setSaving(true);
+    setFormError(null);
+    try {
+      if (modal === 'add') {
+        const plate = form.plateNumber.trim().toUpperCase();
+        if (plate.length < 3) {
+          setFormError('Plate number must be at least 3 characters');
+          return;
+        }
+        await createCustomerParkingVehicle({
+          plateNumber: plate,
+          vehicleType: form.vehicleType,
+          make: form.make.trim() || undefined,
+          model: form.model.trim() || undefined,
+          color: form.color.trim() || undefined,
+          ownerName: form.ownerName.trim() || undefined,
+          ownerPhone: form.ownerPhone.trim() || undefined,
+        });
+      } else if (modal === 'edit' && editing) {
+        await updateCustomerParkingVehicle(editing.id, {
+          vehicleType: form.vehicleType,
+          make: form.make.trim() || null,
+          model: form.model.trim() || null,
+          color: form.color.trim() || null,
+          ownerName: form.ownerName.trim() || null,
+          ownerPhone: form.ownerPhone.trim() || null,
+        });
+      } else if (modal === 'permit') {
+        if (!permitForm.vehicleId || !permitForm.siteId) {
+          setFormError('Select an active vehicle and site');
+          return;
+        }
+        await requestCustomerParkingPermit({
+          vehicleId: permitForm.vehicleId,
+          siteId: permitForm.siteId,
+          permitType: permitForm.permitType,
+        });
+      }
+      setModal(null);
+      await load();
+    } catch (err) {
+      setFormError(err instanceof Error ? err.message : 'Save failed');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function toggleActive(v: ParkingVehicle) {
+    const next = !v.isActive;
+    const label = next ? 'reactivate' : 'deactivate';
+    if (!window.confirm(`${label[0].toUpperCase()}${label.slice(1)} ${v.plateNumber}?`)) {
+      return;
+    }
+    setBusyId(v.id);
+    setError(null);
+    try {
+      await updateCustomerParkingVehicle(v.id, { isActive: next });
+      await load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Update failed');
+    } finally {
+      setBusyId(null);
+    }
+  }
+
   return (
     <div className="w-full">
       <PortalHero
-        eyebrow="Site ops · Portal 35.8"
+        eyebrow="Site ops · Portal 35.8 · Module 13-C/D"
         title="Parking"
-        subtitle="Registered vehicles and permits for your organisation."
+        subtitle="Register vehicles and request parking permits. HIGHLINK parking ops approve requests before they become active."
         actions={
-          <button
-            type="button"
-            onClick={() => void load()}
-            className="inline-flex items-center gap-2 rounded-lg bg-white/15 px-3 py-2 text-sm font-semibold text-white ring-1 ring-white/25 hover:bg-white/20"
-          >
-            <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
-            Refresh
-          </button>
+          <div className="flex flex-wrap gap-2">
+            {tab === 'vehicles' ? (
+              <button
+                type="button"
+                onClick={openAdd}
+                className="inline-flex items-center gap-2 rounded-lg bg-[#0078d4] px-3 py-2 text-sm font-semibold text-white hover:bg-[#106ebe]"
+              >
+                <Plus className="h-4 w-4" />
+                Add vehicle
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={() => openPermitRequest()}
+                disabled={!vehicles.some((v) => v.isActive) || sites.length === 0}
+                className="inline-flex items-center gap-2 rounded-lg bg-[#0078d4] px-3 py-2 text-sm font-semibold text-white hover:bg-[#106ebe] disabled:opacity-50"
+              >
+                <Plus className="h-4 w-4" />
+                Request permit
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={() => void load()}
+              className="inline-flex items-center gap-2 rounded-lg bg-white/15 px-3 py-2 text-sm font-semibold text-white ring-1 ring-white/25 hover:bg-white/20"
+            >
+              <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
+              Refresh
+            </button>
+          </div>
         }
       />
 
@@ -200,7 +383,7 @@ export default function ParkingPage() {
         ) : filteredVehicles.length === 0 ? (
           <PortalEmpty
             title="No vehicles"
-            description="Register vehicles with HIGHLINK parking ops to see them here."
+            description="Add your fleet here — no need to wait for HIGHLINK admin."
             icon={<Car className="h-4 w-4" />}
           />
         ) : (
@@ -231,6 +414,39 @@ export default function ParkingPage() {
                     {v.vehicleType.replace(/_/g, ' ')}
                     {related ? ` · ${related} permit${related === 1 ? '' : 's'}` : ''}
                   </p>
+                  <div className="mt-3 flex flex-wrap gap-2 border-t border-[#edebe9] pt-3">
+                    <button
+                      type="button"
+                      onClick={() => openEdit(v)}
+                      className="inline-flex items-center gap-1 rounded-lg px-2 py-1 text-xs font-semibold text-[#0078d4] hover:bg-[#deecf9]"
+                    >
+                      <Pencil className="h-3.5 w-3.5" />
+                      Edit
+                    </button>
+                    {v.isActive ? (
+                      <button
+                        type="button"
+                        onClick={() => openPermitRequest(v.id)}
+                        disabled={sites.length === 0}
+                        className="inline-flex items-center gap-1 rounded-lg px-2 py-1 text-xs font-semibold text-violet-700 hover:bg-violet-50 disabled:opacity-50"
+                      >
+                        <Ticket className="h-3.5 w-3.5" />
+                        Request permit
+                      </button>
+                    ) : null}
+                    <button
+                      type="button"
+                      disabled={busyId === v.id}
+                      onClick={() => void toggleActive(v)}
+                      className={`inline-flex items-center gap-1 rounded-lg px-2 py-1 text-xs font-semibold disabled:opacity-50 ${
+                        v.isActive
+                          ? 'text-rose-700 hover:bg-rose-50'
+                          : 'text-teal-700 hover:bg-teal-50'
+                      }`}
+                    >
+                      {v.isActive ? 'Deactivate' : 'Reactivate'}
+                    </button>
+                  </div>
                 </article>
               );
             })}
@@ -241,7 +457,7 @@ export default function ParkingPage() {
       ) : filteredPermits.length === 0 ? (
         <PortalEmpty
           title="No permits"
-          description="Active parking permits for your vehicles will list here."
+          description="Request a permit for an active vehicle — HIGHLINK parking ops will approve or reject it."
           icon={<Ticket className="h-4 w-4" />}
         />
       ) : (
@@ -278,7 +494,260 @@ export default function ParkingPage() {
         </PortalPanel>
       )}
 
-      <PortalDeferral note="ANPR events and blacklist actions are handled by HIGHLINK ops — this portal shows your registered fleet and permits only." />
+      <PortalDeferral note="Approve/reject and RFID/ANPR/blacklist stay with HIGHLINK parking ops. You register vehicles and submit permit requests only." />
+
+      {modal === 'permit' ? (
+        <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/40 p-4">
+          <form
+            onSubmit={(e) => void onSave(e)}
+            className="w-full max-w-lg space-y-3 rounded-2xl bg-white p-6 shadow-xl"
+          >
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <h2 className="text-lg font-semibold text-[#1b1a19]">
+                  Request permit
+                </h2>
+                <p className="text-sm text-[#605e5c]">
+                  Submits as PENDING. Valid today → +1 year until ops approve.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setModal(null)}
+                className="rounded-lg p-1.5 text-[#605e5c] hover:bg-[#f3f2f1]"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            {formError ? (
+              <p className="rounded-lg bg-rose-50 px-3 py-2 text-sm text-rose-800">
+                {formError}
+              </p>
+            ) : null}
+
+            <label className="block text-sm font-medium text-[#323130]">
+              Vehicle *
+              <select
+                className={inputCls}
+                value={permitForm.vehicleId}
+                onChange={(e) =>
+                  setPermitForm((f) => ({ ...f, vehicleId: e.target.value }))
+                }
+                required
+              >
+                <option value="">Select vehicle…</option>
+                {vehicles
+                  .filter((v) => v.isActive)
+                  .map((v) => (
+                    <option key={v.id} value={v.id}>
+                      {v.plateNumber}
+                      {v.make || v.model
+                        ? ` · ${[v.make, v.model].filter(Boolean).join(' ')}`
+                        : ''}
+                    </option>
+                  ))}
+              </select>
+            </label>
+
+            <label className="block text-sm font-medium text-[#323130]">
+              Site *
+              <select
+                className={inputCls}
+                value={permitForm.siteId}
+                onChange={(e) =>
+                  setPermitForm((f) => ({ ...f, siteId: e.target.value }))
+                }
+                required
+              >
+                <option value="">Select site…</option>
+                {sites.map((s) => (
+                  <option key={s.id} value={s.id}>
+                    {s.code} · {s.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+
+            <label className="block text-sm font-medium text-[#323130]">
+              Permit type
+              <select
+                className={inputCls}
+                value={permitForm.permitType}
+                onChange={(e) =>
+                  setPermitForm((f) => ({
+                    ...f,
+                    permitType: e.target.value as (typeof PERMIT_TYPES)[number],
+                  }))
+                }
+              >
+                {PERMIT_TYPES.map((t) => (
+                  <option key={t} value={t}>
+                    {t}
+                  </option>
+                ))}
+              </select>
+            </label>
+
+            <div className="flex justify-end gap-2 pt-2">
+              <button
+                type="button"
+                onClick={() => setModal(null)}
+                className="rounded-lg px-3 py-2 text-sm font-semibold text-[#605e5c] hover:bg-[#f3f2f1]"
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                disabled={saving}
+                className="rounded-lg bg-[#0078d4] px-4 py-2 text-sm font-semibold text-white hover:bg-[#106ebe] disabled:opacity-50"
+              >
+                {saving ? 'Submitting…' : 'Submit request'}
+              </button>
+            </div>
+          </form>
+        </div>
+      ) : null}
+
+      {modal === 'add' || modal === 'edit' ? (
+        <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/40 p-4">
+          <form
+            onSubmit={(e) => void onSave(e)}
+            className="w-full max-w-lg space-y-3 rounded-2xl bg-white p-6 shadow-xl"
+          >
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <h2 className="text-lg font-semibold text-[#1b1a19]">
+                  {modal === 'add' ? 'Add vehicle' : 'Edit vehicle'}
+                </h2>
+                <p className="text-sm text-[#605e5c]">
+                  Bound to your organisation only. Plate cannot change after create.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setModal(null)}
+                className="rounded-lg p-1.5 text-[#605e5c] hover:bg-[#f3f2f1]"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            {formError ? (
+              <p className="rounded-lg bg-rose-50 px-3 py-2 text-sm text-rose-800">
+                {formError}
+              </p>
+            ) : null}
+
+            <label className="block text-sm font-medium text-[#323130]">
+              Plate number *
+              <input
+                className={inputCls}
+                value={form.plateNumber}
+                disabled={modal === 'edit'}
+                onChange={(e) =>
+                  setForm((f) => ({
+                    ...f,
+                    plateNumber: e.target.value.toUpperCase(),
+                  }))
+                }
+                required={modal === 'add'}
+                minLength={3}
+                placeholder="T123ABC"
+              />
+            </label>
+
+            <label className="block text-sm font-medium text-[#323130]">
+              Type
+              <select
+                className={inputCls}
+                value={form.vehicleType}
+                onChange={(e) =>
+                  setForm((f) => ({
+                    ...f,
+                    vehicleType: e.target.value as VehicleForm['vehicleType'],
+                  }))
+                }
+              >
+                {VEHICLE_TYPES.map((t) => (
+                  <option key={t} value={t}>
+                    {t}
+                  </option>
+                ))}
+              </select>
+            </label>
+
+            <div className="grid gap-3 sm:grid-cols-2">
+              <label className="block text-sm font-medium text-[#323130]">
+                Make
+                <input
+                  className={inputCls}
+                  value={form.make}
+                  onChange={(e) => setForm((f) => ({ ...f, make: e.target.value }))}
+                />
+              </label>
+              <label className="block text-sm font-medium text-[#323130]">
+                Model
+                <input
+                  className={inputCls}
+                  value={form.model}
+                  onChange={(e) => setForm((f) => ({ ...f, model: e.target.value }))}
+                />
+              </label>
+            </div>
+
+            <label className="block text-sm font-medium text-[#323130]">
+              Colour
+              <input
+                className={inputCls}
+                value={form.color}
+                onChange={(e) => setForm((f) => ({ ...f, color: e.target.value }))}
+              />
+            </label>
+
+            <div className="grid gap-3 sm:grid-cols-2">
+              <label className="block text-sm font-medium text-[#323130]">
+                Owner name
+                <input
+                  className={inputCls}
+                  value={form.ownerName}
+                  onChange={(e) =>
+                    setForm((f) => ({ ...f, ownerName: e.target.value }))
+                  }
+                />
+              </label>
+              <label className="block text-sm font-medium text-[#323130]">
+                Owner phone
+                <input
+                  className={inputCls}
+                  value={form.ownerPhone}
+                  onChange={(e) =>
+                    setForm((f) => ({ ...f, ownerPhone: e.target.value }))
+                  }
+                  placeholder="+255…"
+                />
+              </label>
+            </div>
+
+            <div className="flex justify-end gap-2 pt-2">
+              <button
+                type="button"
+                onClick={() => setModal(null)}
+                className="rounded-lg px-3 py-2 text-sm font-semibold text-[#605e5c] hover:bg-[#f3f2f1]"
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                disabled={saving}
+                className="rounded-lg bg-[#0078d4] px-4 py-2 text-sm font-semibold text-white hover:bg-[#106ebe] disabled:opacity-50"
+              >
+                {saving ? 'Saving…' : modal === 'add' ? 'Register' : 'Save'}
+              </button>
+            </div>
+          </form>
+        </div>
+      ) : null}
     </div>
   );
 }

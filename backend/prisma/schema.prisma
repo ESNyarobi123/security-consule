@@ -1349,6 +1349,10 @@ model GuardSupplyRequest {
   siteLocation    String?                  @map("site_location")
   startDate       DateTime?                @map("start_date") @db.Date
   endDate         DateTime?                @map("end_date") @db.Date
+  qualifications  String?
+  trainingNeeds   String?                  @map("training_needs")
+  urgency         GuardSupplyUrgency       @default(STANDARD)
+  serviceTerms    String?                  @map("service_terms")
   criteriaNotes   String?                  @map("criteria_notes")
   status          GuardSupplyRequestStatus @default(SUBMITTED)
   processedBy     String?                  @map("processed_by")
@@ -2526,6 +2530,14 @@ enum B2bPartnerStatus {
   PENDING
   APPROVED
   SUSPENDED
+
+  @@schema("recruitment")
+}
+
+enum GuardSupplyUrgency {
+  STANDARD
+  HIGH
+  CRITICAL
 
   @@schema("recruitment")
 }

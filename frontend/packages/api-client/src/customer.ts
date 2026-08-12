@@ -387,9 +387,63 @@ export const recordMyAccessEntry = (
 export const listCustomerParkingVehicles = (token?: string) =>
   customerFetch<ParkingVehicle[]>('/api/v1/parking/vehicles', { token });
 
+/** POST /parking/vehicles — Module 13-C self-register (customerId forced server-side) */
+export const createCustomerParkingVehicle = (
+  body: {
+    plateNumber: string;
+    vehicleType?: string;
+    make?: string;
+    model?: string;
+    color?: string;
+    ownerName?: string;
+    ownerPhone?: string;
+  },
+  token?: string,
+) =>
+  customerFetch<ParkingVehicle>('/api/v1/parking/vehicles', {
+    method: 'POST',
+    body: JSON.stringify(body),
+    token,
+  });
+
+/** PATCH /parking/vehicles/:id — Module 13-C edit / soft-deactivate */
+export const updateCustomerParkingVehicle = (
+  id: string,
+  body: {
+    vehicleType?: string;
+    make?: string | null;
+    model?: string | null;
+    color?: string | null;
+    ownerName?: string | null;
+    ownerPhone?: string | null;
+    isActive?: boolean;
+  },
+  token?: string,
+) =>
+  customerFetch<ParkingVehicle>(`/api/v1/parking/vehicles/${id}`, {
+    method: 'PATCH',
+    body: JSON.stringify(body),
+    token,
+  });
+
 /** GET /parking/permits */
 export const listCustomerParkingPermits = (token?: string) =>
   customerFetch<ParkingPermit[]>('/api/v1/parking/permits', { token });
+
+/** POST /parking/permits — Module 13-D request (PENDING; ops approve) */
+export const requestCustomerParkingPermit = (
+  body: {
+    vehicleId: string;
+    siteId: string;
+    permitType: 'EMPLOYEE' | 'VISITOR' | 'CONTRACTOR' | 'RESERVED';
+  },
+  token?: string,
+) =>
+  customerFetch<ParkingPermit>('/api/v1/parking/permits', {
+    method: 'POST',
+    body: JSON.stringify(body),
+    token,
+  });
 
 /**
  * Customer portal live slices (JWT customer-scoped).
@@ -664,6 +718,36 @@ export type CustomerPortalReport = {
     invoicesIssued: number;
     invoiceOutstandingAmount: number;
     currency: string;
+  };
+  customerEmployeeAttendance: {
+    totalEmployees: number;
+    activeEmployees: number;
+    checkIns: number;
+    checkOuts: number;
+    uniqueEmployeesSeen: number;
+  };
+  parkingReport: {
+    registeredVehicles: number;
+    activePermits: number;
+    pendingPermits: number;
+    entries: number;
+    exits: number;
+    deniedEntries: number;
+    violations: number;
+    blacklistedVehicles: number;
+  };
+  payrollReport: {
+    available: boolean;
+    cyclesInPeriod: number;
+    paidCycles: number;
+    pendingCycles: number;
+    payslipsInLatestCycle: number;
+    grossPayInLatestCycle: number;
+    netPayInLatestCycle: number;
+    latestCycleCode?: string | null;
+    latestCycleStatus?: string | null;
+    latestPeriodStart?: string | null;
+    latestPeriodEnd?: string | null;
   };
   bySite: {
     siteId: string;

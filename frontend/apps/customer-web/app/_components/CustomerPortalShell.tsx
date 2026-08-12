@@ -325,7 +325,7 @@ export function CustomerPortalShell({
           </div>
         ) : null}
 
-        <main className="no-scrollbar min-w-0 flex-1 overflow-auto p-3 sm:p-4 md:p-5 lg:p-6">
+        <main className="no-scrollbar min-w-0 flex-1 overflow-auto p-4 sm:p-5 md:p-6 lg:px-8 lg:py-6 xl:px-10">
           {children}
         </main>
       </div>

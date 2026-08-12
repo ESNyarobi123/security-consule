@@ -1,8 +1,12 @@
-import { DEMO_GPS } from '@/constants/config';
 import { newClientEventId } from '@/lib/uuid';
 import { enqueueAlertnessConfirm } from '@/offline/outbox';
 import type { OutboxRow } from '@/offline/types';
 import { apiRequest } from '@/services/api';
+import {
+  formatGpsLabel,
+  getFieldGps,
+  type FieldGps,
+} from '@/services/location';
 
 export type PendingAlertnessCheck = {
   id: string;
@@ -24,12 +28,16 @@ export async function fetchPendingAlertness(): Promise<PendingAlertnessCheck[]> 
 
 export async function enqueueConfirmAlertness(
   alertnessCheckId: string,
-): Promise<OutboxRow> {
-  return enqueueAlertnessConfirm({
+): Promise<{ row: OutboxRow; gps: FieldGps }> {
+  const gps = await getFieldGps({ allowFallback: true });
+  const row = await enqueueAlertnessConfirm({
     clientEventId: newClientEventId(),
     deviceTime: new Date().toISOString(),
     alertnessCheckId,
-    latitude: DEMO_GPS.latitude,
-    longitude: DEMO_GPS.longitude,
+    latitude: gps.latitude,
+    longitude: gps.longitude,
   });
+  return { row, gps };
 }
+
+export { formatGpsLabel };

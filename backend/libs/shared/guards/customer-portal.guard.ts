@@ -50,6 +50,16 @@ const PORTAL_ALLOWED_POST_PATHS = [
   /^\/api\/v1\/customers\/me\/service-requests\/[^/]+\/cancel$/,
   /^\/api\/v1\/customers\/me\/complaints$/,
   /^\/api\/v1\/customers\/me\/complaints\/[^/]+\/cancel$/,
+  /** Module 13-C — self-register fleet vehicles (customerId forced in service). */
+  /^\/api\/v1\/parking\/vehicles$/,
+  /** Module 13-D — request permit PENDING (ops approve on parking-web). */
+  /^\/api\/v1\/parking\/permits$/,
+];
+
+/** Exact PATCH paths (regex) allowed for portal hosts. */
+const PORTAL_ALLOWED_PATCH_PATHS = [
+  /** Module 13-C — edit / soft-deactivate own vehicles. */
+  /^\/api\/v1\/parking\/vehicles\/[^/]+$/,
 ];
 
 const EMPLOYEE_ALLOWED_POST_PATHS = [
@@ -123,6 +133,23 @@ export class CustomerPortalGuard implements CanActivate {
 
     if (method === 'POST') {
       const allowed = postPaths.some((re) => re.test(path));
+      if (!allowed) {
+        throw new ForbiddenException({
+          error: 'CUSTOMER_PORTAL_READ_ONLY',
+          message: 'Customer portal users cannot mutate this resource',
+        });
+      }
+      return true;
+    }
+
+    if (method === 'PATCH') {
+      if (employeeSelf) {
+        throw new ForbiddenException({
+          error: 'CUSTOMER_PORTAL_READ_ONLY',
+          message: 'Customer portal users cannot mutate resources',
+        });
+      }
+      const allowed = PORTAL_ALLOWED_PATCH_PATHS.some((re) => re.test(path));
       if (!allowed) {
         throw new ForbiddenException({
           error: 'CUSTOMER_PORTAL_READ_ONLY',

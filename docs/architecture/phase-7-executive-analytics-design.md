@@ -289,6 +289,8 @@ All filters: `organization_id = AuthUser.organizationId`. Dates: `[from, to]` in
 | `ALERTNESS_CONFIRM_RATE` | Alertness confirmed / scheduled | PERCENT | `attendance.alertness_checks` (`CONFIRMED` vs all in range) | Duty confirmation |
 | `FIELD_ALERTS_OPEN` | Unacked field alerts | COUNT | `attendance.field_alerts` WHERE `acknowledged = false` | Ops risk |
 | `DEPLOYMENTS_ACTIVE` | Active deployments | COUNT | `operations.guard_deployments` WHERE `status = ACTIVE` | Coverage |
+| `BRANCHES_ACTIVE` | Active branches | COUNT | `enterprise.branches` WHERE `is_active` (+ site counts in breakdown) | Footprint · §35.2 |
+| `SITES_ACTIVE` | Active sites | COUNT | `enterprise.sites` WHERE `is_active` | Footprint |
 | `OPEN_INCIDENTS` | Open + investigating incidents | COUNT | `incidents.incidents` WHERE `status IN (OPEN, INVESTIGATING)` | Safety |
 | `INCIDENTS_BY_SEVERITY` | Severity breakdown | JSON | `incidents.incidents` GROUP BY `severity` in range (`created`/`reported` date) | Safety |
 | `INCIDENTS_RESOLVED` | Resolved in period | COUNT | `incidents.incidents` WHERE `status=RESOLVED` + date filter | Safety |
@@ -299,8 +301,12 @@ All filters: `organization_id = AuthUser.organizationId`. Dates: `[from, to]` in
 | `CONTRACTS_ACTIVE` | Active contracts | COUNT | `contracts.contracts` WHERE `status=ACTIVE` | Commercial |
 | `CONTRACTS_MRR` | Monthly recurring (active) | TZS | `SUM(contracts.monthly_fee)` WHERE `status=ACTIVE` | Commercial |
 | `CUSTOMERS_ACTIVE` | Active customers | COUNT | `customers.customers` WHERE `is_active` | Commercial |
-| `INVOICE_OUTSTANDING` | Unpaid invoice balance | TZS | `finance.invoices` WHERE status in `SENT, PARTIALLY_PAID` → `total - paid` (via payments) | Finance |
-| `INVOICE_COLLECTED` | Payments received in period | TZS | `SUM(finance.invoice_payments.amount)` WHERE paid in range | Finance |
+| `REVENUE_COLLECTED` | Revenue collected (period) | TZS | `SUM(finance.invoice_payments.amount)` in range | §35.2 revenue (= payments) |
+| `INVOICE_OUTSTANDING` | Unpaid invoice balance | TZS | `finance.invoices` WHERE status in `SENT, PARTIALLY_PAID, OVERDUE` → `total - paid` | Finance |
+| `INVOICE_COLLECTED` | Payments received in period | TZS | same as revenue collected | Finance alias |
+| `CRITICAL_INCIDENTS_OPEN` | Critical open incidents | COUNT | incidents CRITICAL + OPEN/INVESTIGATING | §35.2 risks proxy |
+| `COMPLIANCE_POLICIES_PUBLISHED` | Published policies | COUNT | `compliance.policy_documents` PUBLISHED | Compliance |
+| `COMPLIANCE_BREACHES_OPEN` | Open data breaches | COUNT | `compliance.data_breach_cases` NOT CLOSED | Compliance |
 | `PAYROLL_NET_TOTAL` | Net payroll (approved/paid) | TZS | `SUM(payroll.payslip_snapshots.net_pay)` JOIN cycles `status IN (APPROVED, PAID)` AND period overlap | **Snapshot only** |
 | `PAYROLL_GROSS_TOTAL` | Gross payroll | TZS | `SUM(payslip_snapshots.gross_pay)` same join | **Snapshot only** |
 | `PAYROLL_CYCLES_PAID` | Paid cycles in period | COUNT | `payroll.payroll_cycles` WHERE `status=PAID` | Payroll ops |

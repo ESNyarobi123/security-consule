@@ -8,16 +8,17 @@ import {
 } from 'react-native';
 import { Link, useFocusEffect } from 'expo-router';
 import {
-  DEMO_GPS,
   DEMO_SITE_CODE,
   DEVICE_TIME_DISCLAIMER,
+  GPS_DISCLAIMER,
 } from '@/constants/config';
 import { useAuth } from '@/hooks/useAuth';
 import { useOnline } from '@/hooks/useOnline';
 import { countPending } from '@/offline/outbox';
-import { enqueueDemoClockIn } from '@/services/clock-in';
+import { enqueueDemoClockIn, formatGpsLabel } from '@/services/clock-in';
 import { enqueueDemoClockOut } from '@/services/clock-out';
 import { getOpenAttendanceId } from '@/services/duty-state';
+import { getFieldGps, type FieldGps } from '@/services/location';
 import { resolveDemoSite, type SiteSummary } from '@/services/sites';
 
 export default function HomeScreen() {
@@ -28,20 +29,23 @@ export default function HomeScreen() {
   const [openAttendanceId, setOpenAttendanceIdState] = useState<string | null>(
     null,
   );
+  const [lastGps, setLastGps] = useState<FieldGps | null>(null);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
     try {
-      const [c, s, openId] = await Promise.all([
+      const [c, s, openId, gps] = await Promise.all([
         countPending(),
         resolveDemoSite().catch(() => null),
         getOpenAttendanceId(),
+        getFieldGps({ allowFallback: true }).catch(() => null),
       ]);
       setPending(c);
       setSite(s);
       setOpenAttendanceIdState(openId);
+      if (gps) setLastGps(gps);
     } catch {
       /* ignore offline site resolve */
     }
@@ -58,9 +62,10 @@ export default function HomeScreen() {
     setError(null);
     setMessage(null);
     try {
-      const { row } = await enqueueDemoClockIn();
+      const { row, gps } = await enqueueDemoClockIn();
+      setLastGps(gps);
       setMessage(
-        `Queued CLOCK_IN ${row.clientEventId.slice(0, 8)}… — open Outbox to sync.`,
+        `Queued CLOCK_IN ${row.clientEventId.slice(0, 8)}… · ${formatGpsLabel(gps)} — open Outbox to sync.`,
       );
       await refresh();
     } catch (e) {
@@ -75,9 +80,10 @@ export default function HomeScreen() {
     setError(null);
     setMessage(null);
     try {
-      const row = await enqueueDemoClockOut();
+      const { row, gps } = await enqueueDemoClockOut();
+      setLastGps(gps);
       setMessage(
-        `Queued CLOCK_OUT ${row.clientEventId.slice(0, 8)}… — open Outbox to sync.`,
+        `Queued CLOCK_OUT ${row.clientEventId.slice(0, 8)}… · ${formatGpsLabel(gps)} — open Outbox to sync.`,
       );
       await refresh();
     } catch (e) {
@@ -113,7 +119,9 @@ export default function HomeScreen() {
             : 'Site id resolves on sync / first online'}
         </Text>
         <Text style={styles.cardMeta}>
-          Demo GPS {DEMO_GPS.latitude}, {DEMO_GPS.longitude}
+          {lastGps
+            ? formatGpsLabel(lastGps)
+            : 'GPS resolves on clock-in / refresh'}
         </Text>
         {openAttendanceId ? (
           <Text style={styles.cardMeta}>
@@ -125,6 +133,7 @@ export default function HomeScreen() {
       </View>
 
       <Text style={styles.disclaimer}>{DEVICE_TIME_DISCLAIMER}</Text>
+      <Text style={styles.disclaimer}>{GPS_DISCLAIMER}</Text>
 
       {message ? <Text style={styles.ok}>{message}</Text> : null}
       {error ? <Text style={styles.error}>{error}</Text> : null}

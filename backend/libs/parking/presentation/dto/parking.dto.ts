@@ -174,23 +174,30 @@ export class CreateParkingPermitDto {
   @IsUUID()
   siteId!: string;
 
-  @ApiProperty()
+  /** Ops may supply; portal requests auto-generate `PRM-REQ-…`. */
+  @ApiPropertyOptional({ example: 'PRM-00042' })
+  @IsOptional()
   @IsString()
-  permitNumber!: string;
+  @MinLength(3)
+  permitNumber?: string;
 
   @ApiProperty({ enum: PermitType })
   @IsEnum(PermitType)
   permitType!: PermitType;
 
-  @ApiProperty()
+  /** Defaults to now when omitted (portal 13-D). */
+  @ApiPropertyOptional()
+  @IsOptional()
   @IsDateString()
-  validFrom!: string;
+  validFrom?: string;
 
-  @ApiProperty()
+  /** Defaults to +1 year when omitted (portal 13-D). */
+  @ApiPropertyOptional()
+  @IsOptional()
   @IsDateString()
-  validUntil!: string;
+  validUntil?: string;
 
-  /** Module 13-B — optional fee (bill creates DRAFT invoice separately) */
+  /** Module 13-B — optional fee (bill creates DRAFT invoice separately). Ignored for portal. */
   @ApiPropertyOptional({ example: 150000 })
   @IsOptional()
   @IsNumber()

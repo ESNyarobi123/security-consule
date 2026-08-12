@@ -22,7 +22,7 @@ body {
   min-height: 100dvh;
   background: var(--rc-bg);
   color: var(--rc-text);
-  font-family: Outfit, ui-sans-serif, system-ui, sans-serif;
+  font-family: var(--font-inter), Inter, ui-sans-serif, system-ui, sans-serif;
   -webkit-font-smoothing: antialiased;
 }
 

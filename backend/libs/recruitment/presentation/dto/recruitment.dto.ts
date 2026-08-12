@@ -12,6 +12,7 @@ import {
   IsOptional,
   IsString,
   IsUUID,
+  MaxLength,
   MinLength,
 } from 'class-validator';
 
@@ -110,6 +111,7 @@ export class CreateJobApplicationDto {
   @ApiPropertyOptional()
   @IsOptional()
   @IsString()
+  @MaxLength(3_500_000)
   resumeUrl?: string;
 
   @ApiPropertyOptional()
@@ -137,8 +139,31 @@ export class JobApplicationResponseDto {
 export class JobApplicationPublicStatusDto {
   @ApiProperty() referenceNumber!: string;
   @ApiProperty({ enum: ApplicationStatus }) status!: ApplicationStatus;
+  @ApiProperty() statusLabel!: string;
+  @ApiProperty() statusHint!: string;
   @ApiProperty() postingTitle!: string;
+  @ApiPropertyOptional() department?: string | null;
+  @ApiPropertyOptional() location?: string | null;
   @ApiProperty() submittedAt!: Date;
+  @ApiProperty({
+    type: 'array',
+    items: {
+      type: 'object',
+      properties: {
+        key: { type: 'string' },
+        label: { type: 'string' },
+        state: {
+          type: 'string',
+          enum: ['done', 'current', 'upcoming', 'skipped'],
+        },
+      },
+    },
+  })
+  stages!: Array<{
+    key: string;
+    label: string;
+    state: 'done' | 'current' | 'upcoming' | 'skipped';
+  }>;
 }
 
 export class HireApplicantDto {

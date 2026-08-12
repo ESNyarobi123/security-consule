@@ -75,7 +75,14 @@ export class ParkingService {
     });
     if (exists) throw new ConflictException('Plate number already registered');
 
-    const rfidTagRef = normalizeRfidTag(dto.rfidTagRef);
+    // Module 13-C — portal hosts: force customerId from JWT (ignore body).
+    const portalCustomerId = user.customerId ?? undefined;
+    const customerId = portalCustomerId ?? dto.customerId;
+
+    // RFID remains ops-only (Module 13-A) — portal cannot set tags.
+    const rfidTagRef = portalCustomerId
+      ? null
+      : normalizeRfidTag(dto.rfidTagRef);
     if (rfidTagRef) {
       await this.assertRfidAvailable(user.organizationId, rfidTagRef);
     }
@@ -83,7 +90,7 @@ export class ParkingService {
     const vehicle = await this.prisma.vehicle.create({
       data: {
         organizationId: user.organizationId,
-        customerId: dto.customerId,
+        customerId,
         plateNumber: dto.plateNumber.toUpperCase(),
         vehicleType: dto.vehicleType,
         make: dto.make,
@@ -102,7 +109,10 @@ export class ParkingService {
       action: 'parking.vehicle.created',
       resourceType: 'Vehicle',
       resourceId: vehicle.id,
-      after: vehicle,
+      after: {
+        ...vehicle,
+        ...(portalCustomerId ? { via: 'customer_portal' } : {}),
+      },
     });
 
     return this.toVehicleDto(vehicle);
@@ -113,8 +123,13 @@ export class ParkingService {
     dto: UpdateVehicleDto,
     user: AuthUser,
   ): Promise<VehicleResponseDto> {
+    const portalCustomerId = user.customerId ?? undefined;
     const existing = await this.prisma.vehicle.findFirst({
-      where: { id, organizationId: user.organizationId },
+      where: {
+        id,
+        organizationId: user.organizationId,
+        ...(portalCustomerId ? { customerId: portalCustomerId } : {}),
+      },
     });
     if (!existing) throw new NotFoundException('Vehicle not found');
 
@@ -130,7 +145,8 @@ export class ParkingService {
     }
     if (dto.isActive !== undefined) data.isActive = dto.isActive;
 
-    if (dto.rfidTagRef !== undefined) {
+    // RFID ops-only — ignore portal attempts to set/clear tags.
+    if (!portalCustomerId && dto.rfidTagRef !== undefined) {
       const rfidTagRef = normalizeRfidTag(dto.rfidTagRef);
       if (rfidTagRef) {
         await this.assertRfidAvailable(
@@ -154,7 +170,10 @@ export class ParkingService {
       resourceType: 'Vehicle',
       resourceId: id,
       before: existing,
-      after: updated,
+      after: {
+        ...updated,
+        ...(portalCustomerId ? { via: 'customer_portal' } : {}),
+      },
     });
 
     return this.toVehicleDto(updated);
@@ -164,10 +183,12 @@ export class ParkingService {
     user: AuthUser,
     customerId?: string,
   ): Promise<VehicleResponseDto[]> {
+    // Portal fleet mgmt: include inactive so deactivate/reactivate works in UI.
+    const includeInactive = Boolean(user.customerId);
     const rows = await this.prisma.vehicle.findMany({
       where: {
         organizationId: user.organizationId,
-        isActive: true,
+        ...(includeInactive ? {} : { isActive: true }),
         ...(customerId ? { customerId } : {}),
       },
       orderBy: { plateNumber: 'asc' },
@@ -287,27 +308,80 @@ export class ParkingService {
     dto: CreateParkingPermitDto,
     user: AuthUser,
   ): Promise<ParkingPermitResponseDto> {
+    // Module 13-D — portal hosts: own vehicles/sites only; always PENDING; no fee self-set.
+    const portalCustomerId = user.customerId ?? undefined;
+
     const vehicle = await this.prisma.vehicle.findFirst({
-      where: { id: dto.vehicleId, organizationId: user.organizationId },
+      where: {
+        id: dto.vehicleId,
+        organizationId: user.organizationId,
+        ...(portalCustomerId ? { customerId: portalCustomerId } : {}),
+      },
     });
     if (!vehicle) throw new NotFoundException('Vehicle not found');
+    if (portalCustomerId && !vehicle.isActive) {
+      throw new BadRequestException({
+        error: 'VEHICLE_INACTIVE',
+        message: 'Cannot request a permit for an inactive vehicle',
+      });
+    }
 
-    const currency =
-      dto.currency?.trim() ||
-      (dto.feeAmount != null ? 'TZS' : undefined);
+    const site = await this.prisma.site.findFirst({
+      where: {
+        id: dto.siteId,
+        organizationId: user.organizationId,
+        ...(portalCustomerId
+          ? { customerId: portalCustomerId, isActive: true }
+          : {}),
+      },
+      select: { id: true, code: true, name: true },
+    });
+    if (!site) throw new NotFoundException('Site not found');
+
+    const now = new Date();
+    const validFrom = dto.validFrom ? new Date(dto.validFrom) : now;
+    const validUntil = dto.validUntil
+      ? new Date(dto.validUntil)
+      : new Date(now.getTime() + 365 * 24 * 60 * 60 * 1000);
+    if (
+      Number.isNaN(validFrom.getTime()) ||
+      Number.isNaN(validUntil.getTime())
+    ) {
+      throw new BadRequestException('Invalid permit dates');
+    }
+    if (validUntil <= validFrom) {
+      throw new BadRequestException({
+        error: 'INVALID_PERMIT_DATES',
+        message: 'validUntil must be after validFrom',
+      });
+    }
+
+    let permitNumber = dto.permitNumber?.trim();
+    if (portalCustomerId || !permitNumber) {
+      permitNumber = await this.nextPortalPermitNumber(user.organizationId);
+    }
+
+    const feeAmount = portalCustomerId
+      ? null
+      : dto.feeAmount != null
+        ? new Prisma.Decimal(dto.feeAmount)
+        : null;
+    const currency = portalCustomerId
+      ? 'TZS'
+      : dto.currency?.trim() ||
+        (dto.feeAmount != null ? 'TZS' : undefined);
 
     const permit = await this.prisma.parkingPermit.create({
       data: {
         organizationId: user.organizationId,
         vehicleId: dto.vehicleId,
         siteId: dto.siteId,
-        permitNumber: dto.permitNumber,
+        permitNumber,
         permitType: dto.permitType,
         status: PermitStatus.PENDING,
-        validFrom: new Date(dto.validFrom),
-        validUntil: new Date(dto.validUntil),
-        feeAmount:
-          dto.feeAmount != null ? new Prisma.Decimal(dto.feeAmount) : null,
+        validFrom,
+        validUntil,
+        feeAmount,
         currency: currency ?? 'TZS',
         createdBy: user.id,
       },
@@ -319,10 +393,34 @@ export class ParkingService {
       action: 'parking.permit.created',
       resourceType: 'ParkingPermit',
       resourceId: permit.id,
-      after: permit,
+      after: {
+        ...permit,
+        ...(portalCustomerId ? { via: 'customer_portal' } : {}),
+      },
     });
 
-    return this.toPermitDto(permit);
+    return this.toPermitDto(permit, {
+      plateNumber: vehicle.plateNumber,
+      siteCode: site.code,
+      siteName: site.name,
+    });
+  }
+
+  /** Org-unique request numbers for portal (and ops when number omitted). */
+  private async nextPortalPermitNumber(
+    organizationId: string,
+  ): Promise<string> {
+    for (let i = 0; i < 8; i++) {
+      const suffix = Math.random().toString(36).slice(2, 8).toUpperCase();
+      const ymd = new Date().toISOString().slice(0, 10).replace(/-/g, '');
+      const permitNumber = `PRM-REQ-${ymd}-${suffix}`;
+      const exists = await this.prisma.parkingPermit.findFirst({
+        where: { organizationId, permitNumber },
+        select: { id: true },
+      });
+      if (!exists) return permitNumber;
+    }
+    throw new ConflictException('Could not allocate permit number');
   }
 
   async updatePermit(
