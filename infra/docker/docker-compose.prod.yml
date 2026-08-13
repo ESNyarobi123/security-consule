@@ -151,6 +151,26 @@ services:
         npx prisma db execute --file prisma/migrations/0035_vehicle_rfid_tag/migration.sql --schema prisma/schema.prisma &&
         npx prisma db execute --file prisma/migrations/0036_parking_permit_billing/migration.sql --schema prisma/schema.prisma &&
         npx prisma db execute --file prisma/migrations/0037_b2b_guard_supply_criteria/migration.sql --schema prisma/schema.prisma &&
+        npx prisma db execute --file prisma/migrations/0038_parking_violation_resolve/migration.sql --schema prisma/schema.prisma &&
+        npx prisma db execute --file prisma/migrations/0039_parking_permit_visitor_appointment/migration.sql --schema prisma/schema.prisma &&
+        npx prisma db execute --file prisma/migrations/0040_vehicle_parking_category/migration.sql --schema prisma/schema.prisma &&
+        npx prisma db execute --file prisma/migrations/0041_parking_spaces_allocation/migration.sql --schema prisma/schema.prisma &&
+        npx prisma db execute --file prisma/migrations/0042_parking_entry_visit_record/migration.sql --schema prisma/schema.prisma &&
+        npx prisma db execute --file prisma/migrations/0043_parking_patrol_observations/migration.sql --schema prisma/schema.prisma &&
+        npx prisma db execute --file prisma/migrations/0044_parking_violation_lifecycle/migration.sql --schema prisma/schema.prisma &&
+        npx prisma db execute --file prisma/migrations/0045_parking_permit_charges/migration.sql --schema prisma/schema.prisma &&
+        npx prisma db execute --file prisma/migrations/0046_parking_violation_fines/migration.sql --schema prisma/schema.prisma &&
+        npx prisma db execute --file prisma/migrations/0047_b2b_guard_supply_criteria/migration.sql --schema prisma/schema.prisma &&
+        npx prisma db execute --file prisma/migrations/0048_b2b_guard_supply_billing/migration.sql --schema prisma/schema.prisma &&
+        npx prisma db execute --file prisma/migrations/0049_employee_loan_types_issue/migration.sql --schema prisma/schema.prisma &&
+        npx prisma db execute --file prisma/migrations/0050_payroll_enhancements/migration.sql --schema prisma/schema.prisma &&
+        npx prisma db execute --file prisma/migrations/0051_customer_payroll_service/migration.sql --schema prisma/schema.prisma &&
+        npx prisma db execute --file prisma/migrations/0052_epayroll_due_alerts/migration.sql --schema prisma/schema.prisma &&
+        npx prisma db execute --file prisma/migrations/0053_invoice_service_alerts/migration.sql --schema prisma/schema.prisma &&
+        npx prisma db execute --file prisma/migrations/0054_petty_cash_issue/migration.sql --schema prisma/schema.prisma &&
+        npx prisma db execute --file prisma/migrations/0055_petty_cash_issue_backfill/migration.sql --schema prisma/schema.prisma &&
+        npx prisma db execute --file prisma/migrations/0056_supplier_portal_register/migration.sql --schema prisma/schema.prisma &&
+        npx prisma db execute --file prisma/migrations/0057_purchase_requests_inventory/migration.sql --schema prisma/schema.prisma &&
         if [ \"$$PSSMS_RUN_SEED\" = \"true\" ]; then npm run prisma:seed; else echo 'SKIP_SEED (set PSSMS_RUN_SEED=true to seed)'; fi
       "
     depends_on:
