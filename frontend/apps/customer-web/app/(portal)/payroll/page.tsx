@@ -143,7 +143,7 @@ export default function CustomerPayrollPage() {
         <PortalStat
           label="Payroll cycles"
           value={loading ? '—' : cycles.length}
-          tone="blue"
+          tone="sky"
         />
         <PortalStat
           label="Employees in cycle"

@@ -60,7 +60,7 @@ export default function MyPayslipsPage() {
       {error ? <PortalError message={error} /> : null}
 
       <div className="mb-4 grid gap-4 sm:grid-cols-2">
-        <PortalStat label="Payslips" value={loading ? '—' : rows.length} tone="blue" />
+        <PortalStat label="Payslips" value={loading ? '—' : rows.length} tone="sky" />
         <PortalStat
           label="Latest net pay"
           value={loading || rows.length === 0 ? '—' : money(latestNet, 'TZS')}
