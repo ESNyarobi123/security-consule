@@ -2,7 +2,10 @@
 
 import {
   applyEssPettyCash,
+  getEssMe,
+  listBranches,
   listEssPettyCash,
+  type Branch,
   type EssPettyCashVoucher,
 } from '@pssms/api-client';
 import {
@@ -64,7 +67,7 @@ export default function EssPettyCashPage() {
   return (
     <EssShell
       title="Petty cash"
-      description="Request spend against the company imprest fund. Finance approves separately (you cannot approve your own request)."
+      description="Request spend with purpose, amount, branch, and department. Finance must approve before cash is issued — you cannot approve your own request."
       actions={
         <>
           <button
@@ -151,14 +154,41 @@ export default function EssPettyCashPage() {
                   ),
                 },
                 {
+                  key: 'branchName',
+                  label: 'Branch',
+                  render: (r) => (
+                    <span className="text-xs text-[#605e5c]">
+                      {r.branchCode ?? r.branchName ?? '—'}
+                    </span>
+                  ),
+                },
+                {
+                  key: 'department',
+                  label: 'Dept',
+                  render: (r) => (
+                    <span className="text-xs text-[#605e5c]">
+                      {r.department ?? '—'}
+                    </span>
+                  ),
+                },
+                {
                   key: 'status',
                   label: 'Status',
                   render: (r) => (
                     <div className="flex flex-col gap-0.5">
-                      <StatusBadge status={r.status} />
+                      <StatusBadge
+                        status={
+                          r.status === 'REIMBURSED' ? 'RETIRED' : r.status
+                        }
+                      />
+                      {r.status === 'ISSUED' && r.issuedAt ? (
+                        <span className="text-[10px] text-[#605e5c]">
+                          Issued {formatDate(r.issuedAt)}
+                        </span>
+                      ) : null}
                       {r.status === 'REIMBURSED' && r.reimbursedAt ? (
                         <span className="text-[10px] text-[#605e5c]">
-                          Reimbursed {formatDate(r.reimbursedAt)}
+                          Retired {formatDate(r.reimbursedAt)}
                         </span>
                       ) : null}
                       {r.status === 'REIMBURSED' && r.receiptUrl ? (
@@ -210,8 +240,30 @@ function ApplyPettyCashModal({
   const [amount, setAmount] = useState('25000');
   const [category, setCategory] = useState<string>(CATEGORIES[0]);
   const [purpose, setPurpose] = useState('');
+  const [department, setDepartment] = useState('');
+  const [branchId, setBranchId] = useState('');
+  const [branches, setBranches] = useState<Branch[]>([]);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    void (async () => {
+      try {
+        const me = await getEssMe();
+        if (me.department) setDepartment(me.department);
+      } catch {
+        /* profile already gated on the page */
+      }
+      try {
+        const rows = await listBranches();
+        const active = rows.filter((b) => b.isActive !== false);
+        setBranches(active);
+        if (active[0]?.id) setBranchId(active[0].id);
+      } catch {
+        setBranches([]);
+      }
+    })();
+  }, []);
 
   async function onSubmit(e: FormEvent) {
     e.preventDefault();
@@ -222,6 +274,8 @@ function ApplyPettyCashModal({
         amount: Number(amount),
         category,
         purpose: purpose.trim(),
+        ...(branchId ? { branchId } : {}),
+        ...(department.trim() ? { department: department.trim() } : {}),
       });
       await onCreated();
     } catch (err) {
@@ -234,7 +288,7 @@ function ApplyPettyCashModal({
   return (
     <Modal
       title="Request petty cash"
-      description="Uses the HQ imprest fund. Finance / GM must approve before cash is issued."
+      description="Uses the HQ imprest fund. Finance / GM must approve before cash is issued. No cash without approval."
       onClose={onClose}
     >
       <form onSubmit={onSubmit} className="space-y-3">
@@ -264,6 +318,33 @@ function ApplyPettyCashModal({
               </option>
             ))}
           </select>
+        </label>
+        {branches.length > 0 ? (
+          <label className="block text-sm font-medium text-[#323130]">
+            Branch
+            <select
+              value={branchId}
+              onChange={(e) => setBranchId(e.target.value)}
+              className={inputCls}
+            >
+              {branches.map((b) => (
+                <option key={b.id} value={b.id}>
+                  {b.code} — {b.name}
+                </option>
+              ))}
+            </select>
+          </label>
+        ) : null}
+        <label className="block text-sm font-medium text-[#323130]">
+          Department
+          <input
+            type="text"
+            value={department}
+            onChange={(e) => setDepartment(e.target.value)}
+            className={inputCls}
+            placeholder="e.g. Operations"
+            minLength={2}
+          />
         </label>
         <label className="block text-sm font-medium text-[#323130]">
           Purpose

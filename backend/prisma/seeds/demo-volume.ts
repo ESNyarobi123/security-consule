@@ -1352,10 +1352,23 @@ export async function seedDemoVolume(
     'PAID',
     'OVERDUE',
   ];
+  const invServices = [
+    'SECURITY_GUARD',
+    'CCTV_MONITORING',
+    'ACCESS_CONTROL',
+    'VISITOR_MANAGEMENT',
+    'PARKING',
+    'RECRUITMENT',
+    'CUSTOMER_PAYROLL',
+    'ALARM_RESPONSE',
+    'TECHNICAL',
+    'OTHER',
+  ];
   for (let i = 1; i <= N; i++) {
     const invoiceNumber = `VOL-INV-${pad(i)}`;
     const total = 400_000 + i * 50_000;
     const status = invStatuses[(i - 1) % invStatuses.length]!;
+    const serviceType = invServices[(i - 1) % invServices.length]!;
     const paid =
       status === 'PAID'
         ? total
@@ -1378,6 +1391,7 @@ export async function seedDemoVolume(
         amountPaid: paid,
         customerId: ctx.customerId,
         contractId: ctx.contractGuardId ?? volContractIds[0] ?? null,
+        serviceType,
       },
       create: {
         organizationId: orgId,
@@ -1392,6 +1406,7 @@ export async function seedDemoVolume(
         amountPaid: paid,
         currency: 'TZS',
         status,
+        serviceType,
         notes: `Volume seed invoice ${pad(i)}`,
         createdBy: ctx.adminUserId,
         lines: {
@@ -1428,6 +1443,7 @@ export async function seedDemoVolume(
   const pcStatuses: PettyCashVoucherStatus[] = [
     'PENDING',
     'APPROVED',
+    'ISSUED',
     'REIMBURSED',
     'REJECTED',
   ];
@@ -1441,7 +1457,12 @@ export async function seedDemoVolume(
           voucherNumber,
         },
       },
-      update: { status, amount: 25_000 + i * 1_000 },
+      update: {
+        status,
+        amount: 25_000 + i * 1_000,
+        department: 'Operations',
+        branchId: ctx.branchId ?? null,
+      },
       create: {
         organizationId: orgId,
         fundId: fund.id,
@@ -1450,10 +1471,20 @@ export async function seedDemoVolume(
         purpose: `Volume petty cash ${pad(i)}`,
         category: i % 2 === 0 ? 'TRANSPORT' : 'SUPPLIES',
         status,
+        department: 'Operations',
+        branchId: ctx.branchId ?? null,
         approvedBy:
-          status === 'APPROVED' || status === 'REIMBURSED'
+          status === 'APPROVED' ||
+          status === 'ISSUED' ||
+          status === 'REIMBURSED'
             ? ctx.adminUserId
             : null,
+        issuedBy:
+          status === 'ISSUED' || status === 'REIMBURSED'
+            ? ctx.adminUserId
+            : null,
+        issuedAt:
+          status === 'ISSUED' || status === 'REIMBURSED' ? hoursAgo(i) : null,
         reimbursedAt: status === 'REIMBURSED' ? hoursAgo(i) : null,
         createdBy: ctx.supervisorUserId,
       },

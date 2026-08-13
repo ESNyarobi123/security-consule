@@ -1,8 +1,9 @@
 import {
+  BadRequestException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { LoanStatus, Prisma } from '@prisma/client';
+import { InstallmentStatus, LoanStatus, LoanType, Prisma } from '@prisma/client';
 import { PrismaService, AuthUser } from '@pssms/shared';
 import { AuditService } from '@pssms/audit';
 import { ApprovalsService } from '@pssms/approvals';
@@ -24,6 +25,12 @@ import {
   EssRequestItemDto,
 } from '../presentation/dto/ess.dto';
 
+const ESS_ITEM_LOAN_TYPES: LoanType[] = [
+  LoanType.SECURITY_BOOTS,
+  LoanType.SMARTPHONE,
+  LoanType.UNIFORM,
+  LoanType.EQUIPMENT,
+];
 /** Self-scoped Employee Self-Service (§35.5) — resolves Employee by JWT userId. */
 @Injectable()
 export class EssService {
@@ -94,7 +101,7 @@ export class EssService {
     return rows.map((p) => ({
       id: p.id,
       cycleId: p.cycleId,
-      employeeId: p.employeeId,
+      employeeId: p.employeeId ?? employee.id,
       employeeNumber: p.employeeNumber,
       employeeName: p.employeeName,
       grossPay: Number(p.grossPay),
@@ -124,7 +131,7 @@ export class EssService {
     return {
       id: p.id,
       cycleId: p.cycleId,
-      employeeId: p.employeeId,
+      employeeId: p.employeeId ?? employee.id,
       employeeNumber: p.employeeNumber,
       employeeName: p.employeeName,
       grossPay: Number(p.grossPay),
@@ -153,12 +160,19 @@ export class EssService {
       organizationId: l.organizationId,
       employeeId: l.employeeId,
       loanNumber: l.loanNumber,
+      loanType: l.loanType,
       principalAmount: Number(l.principalAmount),
       interestRate: Number(l.interestRate),
       termMonths: l.termMonths,
       monthlyInstallment: Number(l.monthlyInstallment),
       status: l.status,
       purpose: l.purpose,
+      itemName: l.itemName,
+      supplierName: l.supplierName,
+      itemCost: l.itemCost != null ? Number(l.itemCost) : null,
+      issuedAt: l.issuedAt,
+      employeeAcknowledgedAt: l.employeeAcknowledgedAt,
+      settledAt: l.settledAt,
       approvalInstanceId: l.approvalInstanceId,
       approvedBy: l.approvedBy,
       approvedAt: l.approvedAt,
@@ -167,8 +181,100 @@ export class EssService {
     }));
   }
 
+  async getMyLoanStatement(id: string, user: AuthUser) {
+    const employee = await this.requireLinkedEmployee(user);
+    const loan = await this.prisma.employeeLoan.findFirst({
+      where: {
+        id,
+        organizationId: user.organizationId,
+        employeeId: employee.id,
+      },
+    });
+    if (!loan) throw new NotFoundException('Loan not found');
+
+    const installments = await this.prisma.loanInstallment.findMany({
+      where: { loanId: id },
+      orderBy: { installmentNumber: 'asc' },
+    });
+    const totalDue = round2(
+      installments.reduce((s, i) => s + Number(i.amountDue), 0),
+    );
+    const totalPaid = round2(
+      installments.reduce((s, i) => s + Number(i.amountPaid), 0),
+    );
+    const outstandingBalance = round2(Math.max(0, totalDue - totalPaid));
+
+    return {
+      loan: {
+        id: loan.id,
+        loanNumber: loan.loanNumber,
+        loanType: loan.loanType,
+        status: loan.status,
+        principalAmount: Number(loan.principalAmount),
+        monthlyInstallment: Number(loan.monthlyInstallment),
+        termMonths: loan.termMonths,
+        itemName: loan.itemName,
+        employeeAcknowledgedAt: loan.employeeAcknowledgedAt,
+        settledAt: loan.settledAt,
+      },
+      installments: installments.map((i) => ({
+        installmentNumber: i.installmentNumber,
+        dueDate: i.dueDate,
+        amountDue: Number(i.amountDue),
+        amountPaid: Number(i.amountPaid),
+        status: i.status,
+        paidAt: i.paidAt,
+      })),
+      totalDue,
+      totalPaid,
+      outstandingBalance,
+      isSettled:
+        loan.status === LoanStatus.COMPLETED || outstandingBalance <= 0,
+    };
+  }
+
+  async acknowledgeMyLoan(id: string, user: AuthUser) {
+    const employee = await this.requireLinkedEmployee(user);
+    const loan = await this.prisma.employeeLoan.findFirst({
+      where: {
+        id,
+        organizationId: user.organizationId,
+        employeeId: employee.id,
+      },
+    });
+    if (!loan) throw new NotFoundException('Loan not found');
+    if (loan.status !== LoanStatus.ACTIVE) {
+      throw new BadRequestException('Only ACTIVE loans can be acknowledged');
+    }
+    if (!ESS_ITEM_LOAN_TYPES.includes(loan.loanType)) {
+      throw new BadRequestException('Acknowledgement applies to item loans only');
+    }
+    if (loan.employeeAcknowledgedAt) {
+      return { employeeAcknowledgedAt: loan.employeeAcknowledgedAt };
+    }
+    const updated = await this.prisma.employeeLoan.update({
+      where: { id },
+      data: { employeeAcknowledgedAt: new Date() },
+    });
+    await this.audit.record({
+      organizationId: user.organizationId,
+      actorId: user.id,
+      action: 'loan.acknowledged',
+      resourceType: 'EmployeeLoan',
+      resourceId: id,
+      after: { via: 'ess' },
+    });
+    return { employeeAcknowledgedAt: updated.employeeAcknowledgedAt };
+  }
+
   async applyLoan(dto: EssApplyLoanDto, user: AuthUser) {
     const employee = await this.requireLinkedEmployee(user);
+    if (ESS_ITEM_LOAN_TYPES.includes(dto.loanType) && !dto.itemName?.trim()) {
+      throw new BadRequestException({
+        error: 'ITEM_NAME_REQUIRED',
+        message: 'itemName is required for item-based loan types',
+      });
+    }
 
     const loanNumber = await this.nextLoanNumber(user.organizationId);
     const monthlyInstallment = round2(dto.principalAmount / dto.termMonths);
@@ -178,11 +284,13 @@ export class EssService {
         organizationId: user.organizationId,
         employeeId: employee.id,
         loanNumber,
+        loanType: dto.loanType,
         principalAmount: new Prisma.Decimal(dto.principalAmount),
         interestRate: new Prisma.Decimal(dto.interestRate ?? 0),
         termMonths: dto.termMonths,
         monthlyInstallment: new Prisma.Decimal(monthlyInstallment),
-        purpose: dto.purpose,
+        purpose: dto.purpose?.trim() || null,
+        itemName: dto.itemName?.trim() || null,
         status: LoanStatus.PENDING_APPROVAL,
         createdBy: user.id,
       },
@@ -217,12 +325,14 @@ export class EssService {
       organizationId: updated.organizationId,
       employeeId: updated.employeeId,
       loanNumber: updated.loanNumber,
+      loanType: updated.loanType,
       principalAmount: Number(updated.principalAmount),
       interestRate: Number(updated.interestRate),
       termMonths: updated.termMonths,
       monthlyInstallment: Number(updated.monthlyInstallment),
       status: updated.status,
       purpose: updated.purpose,
+      itemName: updated.itemName,
       approvalInstanceId: updated.approvalInstanceId,
       approvedBy: updated.approvedBy,
       approvedAt: updated.approvedAt,
@@ -262,8 +372,14 @@ export class EssService {
     dto: EssApplyPettyCashDto,
     user: AuthUser,
   ): Promise<EssPettyCashVoucherResponseDto> {
-    await this.requireLinkedEmployee(user);
-    return this.financeOps.createEssPettyCashVoucher(dto, user);
+    const employee = await this.requireLinkedEmployee(user);
+    return this.financeOps.createEssPettyCashVoucher(
+      {
+        ...dto,
+        department: dto.department?.trim() || employee.department || undefined,
+      },
+      user,
+    );
   }
 
   /**

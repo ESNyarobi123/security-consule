@@ -16,7 +16,7 @@ import {
   ApiQuery,
   ApiTags,
 } from '@nestjs/swagger';
-import { ParkingDecision, PermitStatus } from '@prisma/client';
+import { ParkingDecision, ParkingViolationStatus, PermitStatus, ParkingSpaceType, ParkingSpaceStatus, ParkingPatrolObservationType } from '@prisma/client';
 import {
   AuthUser,
   CurrentUser,
@@ -27,30 +27,50 @@ import {
 } from '@pssms/shared';
 import { ParkingService } from '../application/parking.service';
 import {
+  AllocateParkingSpaceDto,
   AnprResultResponseDto,
+  ApproveParkingViolationClosureDto,
   CreateAnprResultDto,
   CreateParkingEntryDto,
   CreateParkingPermitDto,
+  CreateParkingPatrolObservationDto,
+  CreateParkingSpaceDto,
   CreateParkingViolationDto,
   CreateVehicleBlacklistDto,
   CreateVehicleDto,
   DecideAnprResultDto,
+  ParkingCustomerOptionDto,
   ParkingEntryResponseDto,
   ParkingPermitResponseDto,
+  ParkingPatrolObservationResponseDto,
+  ParkingSiteOptionDto,
+  ParkingSpaceResponseDto,
   ParkingViolationResponseDto,
+  ParkingVisitorAppointmentOptionDto,
+  ResolveParkingViolationDto,
   UpdateParkingPermitDto,
+  UpdateParkingSpaceDto,
+  UpdateParkingViolationDto,
   UpdatePermitStatusDto,
   UpdateVehicleDto,
   VehicleBlacklistResponseDto,
   VehicleResponseDto,
 } from './dto/parking.dto';
+import {
+  ParkingReportQueryDto,
+  ParkingReportResponseDto,
+} from './dto/parking-report.dto';
+import { ParkingReportsService } from '../application/parking-reports.service';
 
 @ApiTags('Parking')
 @ApiBearerAuth()
 @UseGuards(PermissionsGuard)
 @Controller('parking')
 export class ParkingController {
-  constructor(private readonly service: ParkingService) {}
+  constructor(
+    private readonly service: ParkingService,
+    private readonly reports: ParkingReportsService,
+  ) {}
 
   @Get('me')
   @RequirePermissions('parking.self')
@@ -79,7 +99,10 @@ export class ParkingController {
 
   @Post('vehicles')
   @RequirePermissions('parking.manage')
-  @ApiOperation({ summary: 'Register vehicle' })
+  @ApiOperation({
+    summary:
+      'Register vehicle (ops · Modules 13-E / 13-I; portal 13-C forced CUSTOMER)',
+  })
   @ApiCreatedResponse({ type: VehicleResponseDto })
   createVehicle(@Body() dto: CreateVehicleDto, @CurrentUser() user: AuthUser) {
     return this.service.createVehicle(dto, user);
@@ -101,7 +124,8 @@ export class ParkingController {
   @Patch('vehicles/:id')
   @RequirePermissions('parking.manage')
   @ApiOperation({
-    summary: 'Update vehicle (RFID tag + basic fields · Module 13-A)',
+    summary:
+      'Update vehicle (RFID + profile + category + driver + active · Modules 13-A / 13-E / 13-I)',
   })
   @ApiOkResponse({ type: VehicleResponseDto })
   updateVehicle(
@@ -110,6 +134,39 @@ export class ParkingController {
     @CurrentUser() user: AuthUser,
   ) {
     return this.service.updateVehicle(id, dto, user);
+  }
+
+  @Get('customer-options')
+  @RequirePermissions('parking.manage')
+  @ApiOperation({
+    summary:
+      'Thin customer picker for vehicle register (id/code/name · Module 13-E)',
+  })
+  @ApiOkResponse({ type: [ParkingCustomerOptionDto] })
+  listCustomerOptions(@CurrentUser() user: AuthUser) {
+    return this.service.listCustomerOptions(user);
+  }
+
+  @Get('site-options')
+  @RequirePermissions('parking.manage')
+  @ApiOperation({
+    summary:
+      'Thin site + gates picker for manual gate punch (Module 13-F)',
+  })
+  @ApiOkResponse({ type: [ParkingSiteOptionDto] })
+  listSiteOptions(@CurrentUser() user: AuthUser) {
+    return this.service.listSiteOptions(user);
+  }
+
+  @Get('visitor-appointment-options')
+  @RequirePermissions('parking.manage')
+  @ApiOperation({
+    summary:
+      'Thin APPROVED/COMPLETED appointments for permit link (Module 13-H)',
+  })
+  @ApiOkResponse({ type: [ParkingVisitorAppointmentOptionDto] })
+  listVisitorAppointmentOptions(@CurrentUser() user: AuthUser) {
+    return this.service.listVisitorAppointmentOptions(user);
   }
 
   @Post('permits')
@@ -174,11 +231,21 @@ export class ParkingController {
   @RequirePermissions('parking.manage')
   @ApiOperation({
     summary:
-      'Create DRAFT parking invoice for permit fee (Module 13-B · requires customer on vehicle)',
+      'Create parking invoice for calculated permit charges (Module 13-O · optional send)',
+  })
+  @ApiQuery({
+    name: 'send',
+    required: false,
+    description: 'If true, send DRAFT invoice immediately (electronic invoicing)',
   })
   @ApiOkResponse({ type: ParkingPermitResponseDto })
-  billPermit(@Param('id') id: string, @CurrentUser() user: AuthUser) {
-    return this.service.billPermit(id, user);
+  billPermit(
+    @Param('id') id: string,
+    @CurrentUser() user: AuthUser,
+    @Query('send') send?: string,
+  ) {
+    const sendInvoice = send === 'true' || send === '1';
+    return this.service.billPermit(id, user, { sendInvoice });
   }
 
   @Patch('permits/:id/status')
@@ -244,7 +311,10 @@ export class ParkingController {
 
   @Post('entries')
   @RequirePermissions('parking.manage')
-  @ApiOperation({ summary: 'Record parking entry/exit (manual gate)' })
+  @ApiOperation({
+    summary:
+      'Record parking entry/exit (Modules 13-F/K/L · visit record + FieldAlerts)',
+  })
   @ApiCreatedResponse({ type: ParkingEntryResponseDto })
   recordEntry(
     @Body() dto: CreateParkingEntryDto,
@@ -267,7 +337,7 @@ export class ParkingController {
 
   @Post('violations')
   @RequirePermissions('parking.manage')
-  @ApiOperation({ summary: 'Record parking violation' })
+  @ApiOperation({ summary: 'Record parking violation (Module 13-G · OPEN)' })
   @ApiCreatedResponse({ type: ParkingViolationResponseDto })
   createViolation(
     @Body() dto: CreateParkingViolationDto,
@@ -280,12 +350,95 @@ export class ParkingController {
   @RequirePermissions('parking.manage')
   @ApiOperation({ summary: 'List parking violations' })
   @ApiQuery({ name: 'siteId', required: false })
+  @ApiQuery({ name: 'status', required: false, enum: ParkingViolationStatus })
   @ApiOkResponse({ type: [ParkingViolationResponseDto] })
   listViolations(
     @CurrentUser() user: AuthUser,
     @Query('siteId') siteId?: string,
+    @Query('status') status?: ParkingViolationStatus,
   ) {
-    return this.service.listViolations(user, siteId);
+    return this.service.listViolations(user, siteId, status);
+  }
+
+  @Post('violations/:id/resolve')
+  @RequirePermissions('parking.manage')
+  @ApiOperation({
+    summary:
+      'Approve closure (Module 13-N · alias when PENDING_CLOSURE; creator ≠ approver)',
+  })
+  @ApiOkResponse({ type: ParkingViolationResponseDto })
+  resolveViolation(
+    @Param('id') id: string,
+    @Body() dto: ResolveParkingViolationDto,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.service.resolveViolation(id, dto, user);
+  }
+
+  @Patch('violations/:id')
+  @RequirePermissions('parking.manage')
+  @ApiOperation({
+    summary:
+      'Update officer remarks / corrective action (Module 13-N · OPEN/CORRECTIVE_ACTION)',
+  })
+  @ApiOkResponse({ type: ParkingViolationResponseDto })
+  updateViolation(
+    @Param('id') id: string,
+    @Body() dto: UpdateParkingViolationDto,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.service.updateViolation(id, dto, user);
+  }
+
+  @Post('violations/:id/submit-closure')
+  @RequirePermissions('parking.manage')
+  @ApiOperation({
+    summary:
+      'Submit violation for closure approval (Module 13-N · requires corrective action)',
+  })
+  @ApiOkResponse({ type: ParkingViolationResponseDto })
+  submitViolationClosure(
+    @Param('id') id: string,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.service.submitViolationClosure(id, user);
+  }
+
+  @Post('violations/:id/approve-closure')
+  @RequirePermissions('parking.manage')
+  @ApiOperation({
+    summary:
+      'Approve and close violation (Module 13-N · submitter ≠ approver, creator ≠ approver)',
+  })
+  @ApiOkResponse({ type: ParkingViolationResponseDto })
+  approveViolationClosure(
+    @Param('id') id: string,
+    @Body() dto: ApproveParkingViolationClosureDto,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.service.approveViolationClosure(id, dto, user);
+  }
+
+  @Post('violations/:id/bill')
+  @RequirePermissions('parking.manage')
+  @ApiOperation({
+    summary:
+      'Create finance invoice for violation fine (Module 13-P · optional send)',
+  })
+  @ApiQuery({
+    name: 'send',
+    required: false,
+    description: 'If true, send DRAFT invoice immediately',
+  })
+  @ApiOkResponse({ type: ParkingViolationResponseDto })
+  billViolation(
+    @Param('id') id: string,
+    @CurrentUser() user: AuthUser,
+    @Query('send') send?: string,
+  ) {
+    return this.service.billViolation(id, user, {
+      sendInvoice: send === 'true' || send === '1',
+    });
   }
 
   @Get('blacklist')
@@ -328,5 +481,146 @@ export class ParkingController {
     @CurrentUser() user: AuthUser,
   ) {
     return this.service.deactivateBlacklist(id, user);
+  }
+
+  // ── Module 13-J — spaces + allocation ─────────────────────────────────
+
+  @Post('spaces')
+  @RequirePermissions('parking.manage')
+  @ApiOperation({
+    summary: 'Register parking space / bay (Module 13-J)',
+  })
+  @ApiCreatedResponse({ type: ParkingSpaceResponseDto })
+  createParkingSpace(
+    @Body() dto: CreateParkingSpaceDto,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.service.createParkingSpace(dto, user);
+  }
+
+  @Get('spaces')
+  @RequirePermissions('parking.manage')
+  @ApiOperation({ summary: 'List parking spaces (Module 13-J)' })
+  @ApiQuery({ name: 'siteId', required: false })
+  @ApiQuery({ name: 'spaceType', required: false, enum: ParkingSpaceType })
+  @ApiQuery({ name: 'status', required: false, enum: ParkingSpaceStatus })
+  @ApiQuery({ name: 'customerId', required: false })
+  @ApiOkResponse({ type: [ParkingSpaceResponseDto] })
+  listParkingSpaces(
+    @CurrentUser() user: AuthUser,
+    @Query('siteId') siteId?: string,
+    @Query('spaceType') spaceType?: ParkingSpaceType,
+    @Query('status') status?: ParkingSpaceStatus,
+    @Query('customerId') customerId?: string,
+  ) {
+    return this.service.listParkingSpaces(user, {
+      siteId,
+      spaceType,
+      status,
+      customerId,
+    });
+  }
+
+  @Patch('spaces/:id')
+  @RequirePermissions('parking.manage')
+  @ApiOperation({ summary: 'Update parking space metadata (Module 13-J)' })
+  @ApiOkResponse({ type: ParkingSpaceResponseDto })
+  updateParkingSpace(
+    @Param('id') id: string,
+    @Body() dto: UpdateParkingSpaceDto,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.service.updateParkingSpace(id, dto, user);
+  }
+
+  @Post('spaces/allocate')
+  @RequirePermissions('parking.manage')
+  @ApiOperation({
+    summary:
+      'Allocate bay to vehicle — MANUAL (spaceId) or AUTO (policy · Module 13-J)',
+  })
+  @ApiCreatedResponse({ type: ParkingSpaceResponseDto })
+  allocateParkingSpace(
+    @Body() dto: AllocateParkingSpaceDto,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.service.allocateParkingSpace(dto, user);
+  }
+
+  @Post('spaces/:id/release')
+  @RequirePermissions('parking.manage')
+  @ApiOperation({ summary: 'Release occupied parking space (Module 13-J)' })
+  @ApiOkResponse({ type: ParkingSpaceResponseDto })
+  releaseParkingSpace(
+    @Param('id') id: string,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.service.releaseParkingSpace(id, user);
+  }
+
+  // ── Module 13-M — parking patrol observations ─────────────────────────
+
+  @Post('patrol-observations')
+  @RequireAnyPermissions('attendance.manage', 'parking.manage')
+  @ApiOperation({
+    summary:
+      'Record parking patrol observation (guard mobile · Module 13-M)',
+  })
+  @ApiCreatedResponse({ type: ParkingPatrolObservationResponseDto })
+  createParkingPatrolObservation(
+    @Body() dto: CreateParkingPatrolObservationDto,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.service.createParkingPatrolObservation(dto, user);
+  }
+
+  @Get('patrol-observations')
+  @RequireAnyPermissions(
+    'attendance.manage',
+    'parking.manage',
+    'operations.manage',
+  )
+  @ApiOperation({ summary: 'List parking patrol observations (Module 13-M)' })
+  @ApiQuery({ name: 'siteId', required: false })
+  @ApiQuery({
+    name: 'observationType',
+    required: false,
+    enum: ParkingPatrolObservationType,
+  })
+  @ApiQuery({ name: 'guardId', required: false })
+  @ApiOkResponse({ type: [ParkingPatrolObservationResponseDto] })
+  listParkingPatrolObservations(
+    @CurrentUser() user: AuthUser,
+    @Query('siteId') siteId?: string,
+    @Query('observationType') observationType?: ParkingPatrolObservationType,
+    @Query('guardId') guardId?: string,
+  ) {
+    return this.service.listParkingPatrolObservations(user, {
+      siteId,
+      observationType,
+      guardId,
+    });
+  }
+
+  @Get('reports')
+  @RequireAnyPermissions('parking.manage', 'reporting.read')
+  @ApiOperation({
+    summary:
+      'Parking reports pack (Module 13-Q · entries, occupancy, violations, revenue, patrols)',
+  })
+  @ApiQuery({ name: 'from', required: false })
+  @ApiQuery({ name: 'to', required: false })
+  @ApiQuery({ name: 'siteId', required: false })
+  @ApiOkResponse({ type: ParkingReportResponseDto })
+  getParkingReports(
+    @CurrentUser() user: AuthUser,
+    @Query() query: ParkingReportQueryDto,
+  ) {
+    return this.reports.build(
+      user,
+      query.from,
+      query.to,
+      query.siteId,
+    );
   }
 }

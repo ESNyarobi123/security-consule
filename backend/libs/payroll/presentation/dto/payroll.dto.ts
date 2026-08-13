@@ -44,6 +44,7 @@ export class PayrollCycleResponseDto {
   @ApiPropertyOptional() approvedBy?: string | null;
   @ApiPropertyOptional() paidAt?: Date | null;
   @ApiPropertyOptional() paymentReference?: string | null;
+  @ApiPropertyOptional() billingInvoiceId?: string | null;
   @ApiProperty() createdAt!: Date;
 }
 
@@ -51,7 +52,8 @@ export class PayslipSnapshotResponseDto {
   @ApiProperty() id!: string;
   @ApiProperty() organizationId!: string;
   @ApiProperty() cycleId!: string;
-  @ApiProperty() employeeId!: string;
+  @ApiPropertyOptional() employeeId?: string | null;
+  @ApiPropertyOptional() customerEmployeeId?: string | null;
   @ApiProperty() employeeNumber!: string;
   @ApiProperty() employeeName!: string;
   @ApiProperty() inputsSnapshot!: unknown;

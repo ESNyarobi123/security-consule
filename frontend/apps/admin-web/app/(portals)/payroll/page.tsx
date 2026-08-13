@@ -3,12 +3,27 @@
 import {
   approvePayrollCycle,
   createPayrollCycle,
+  downloadPayrollBankFile,
+  downloadPayrollMobileFile,
   generatePayrollCycle,
+  getPayrollApprovalReport,
+  getPayrollInvoiceGate,
+  getPayrollLoanReport,
+  getPayrollRegister,
+  getPayrollStatutoryReport,
+  grantPayrollPayException,
+  getPayslip,
+  listCustomers,
   listPayrollCycles,
+  listPayrollDueAlerts,
   listPayslips,
   markPayrollPaid,
+  scanPayrollDueAlerts,
   submitPayrollCycle,
+  type Customer,
   type PayrollCycle,
+  type PayrollDueAlert,
+  type PayrollInvoiceGate,
   type PayslipSnapshot,
 } from '@pssms/api-client';
 import { getSessionUser } from '@pssms/auth';
@@ -16,6 +31,7 @@ import {
   Modal,
   PageHeader,
   StatCard,
+  StatusBadge,
   btnPrimary,
   btnSecondary,
   inputCls,
@@ -92,8 +108,22 @@ export default function PayrollPage() {
   const [showCreate, setShowCreate] = useState(false);
   const [periodStart, setPeriodStart] = useState('');
   const [periodEnd, setPeriodEnd] = useState('');
+  const [tenantType, setTenantType] = useState<
+    'INTERNAL_COMPANY' | 'CUSTOMER_MANAGED_PAYROLL'
+  >('INTERNAL_COMPANY');
+  const [customerId, setCustomerId] = useState('');
+  const [customers, setCustomers] = useState<Customer[]>([]);
   const [creating, setCreating] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
+  const [detailPayslip, setDetailPayslip] = useState<PayslipSnapshot | null>(
+    null,
+  );
+  const [reportBusy, setReportBusy] = useState<string | null>(null);
+  const [dueAlerts, setDueAlerts] = useState<PayrollDueAlert[]>([]);
+  const [invoiceGate, setInvoiceGate] = useState<PayrollInvoiceGate | null>(
+    null,
+  );
+  const [scanBusy, setScanBusy] = useState(false);
 
   const user = getSessionUser();
 
@@ -103,12 +133,16 @@ export default function PayrollPage() {
     try {
       const list = await listPayrollCycles();
       setCycles(list);
-      const slipArrays = await Promise.all(
-        list.map((c) =>
-          listPayslips(c.id).catch(() => [] as PayslipSnapshot[]),
+      const [slipArrays, alerts] = await Promise.all([
+        Promise.all(
+          list.map((c) =>
+            listPayslips(c.id).catch(() => [] as PayslipSnapshot[]),
+          ),
         ),
-      );
+        listPayrollDueAlerts().catch(() => [] as PayrollDueAlert[]),
+      ]);
       setAllPayslips(slipArrays.flat());
+      setDueAlerts(alerts);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load cycles');
     } finally {
@@ -171,9 +205,71 @@ export default function PayrollPage() {
     });
   }, [cycles, query, statusFilter]);
 
+  async function openPayslipDetail(id: string) {
+    setDetailPayslip(await getPayslip(id));
+  }
+
+  async function runReport(
+    kind: 'register' | 'loan' | 'statutory' | 'approval' | 'bank' | 'mobile',
+  ) {
+    if (!selected) return;
+    setReportBusy(kind);
+    setError(null);
+    try {
+      if (kind === 'register') {
+        const reg = await getPayrollRegister(selected);
+        const csv = [
+          'employeeNumber,employeeName,grossPay,totalDeductions,netPay',
+          ...reg.rows.map(
+            (r) =>
+              `${r.employeeNumber},${r.employeeName},${r.grossPay},${r.totalDeductions},${r.netPay}`,
+          ),
+        ].join('\n');
+        const blob = new Blob([csv], { type: 'text/csv' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `${selectedCycle?.cycleCode ?? 'payroll'}-register.csv`;
+        a.click();
+        URL.revokeObjectURL(url);
+      } else if (kind === 'loan') {
+        await getPayrollLoanReport(selected);
+        window.alert('Loan deduction report loaded — use Register export for full CSV pack (API JSON available).');
+      } else if (kind === 'statutory') {
+        const rep = await getPayrollStatutoryReport(selected);
+        window.alert(
+          `Statutory: NSSF ${money(rep.nssfTotal)} · PAYE ${money(rep.payeTotal)} (${rep.headcount} employees)`,
+        );
+      } else if (kind === 'approval') {
+        const rep = await getPayrollApprovalReport(selected);
+        window.alert(
+          `Approval trail: ${rep.steps.length} action(s) · status ${rep.cycle.status}`,
+        );
+      } else if (kind === 'bank') {
+        await downloadPayrollBankFile(selected);
+      } else if (kind === 'mobile') {
+        await downloadPayrollMobileFile(selected);
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Report failed');
+    } finally {
+      setReportBusy(null);
+    }
+  }
+
   async function openPayslips(cycleId: string) {
     setSelected(cycleId);
     setPayslips(await listPayslips(cycleId));
+    const cycle = cycles.find((c) => c.id === cycleId);
+    if (cycle?.tenantType === 'CUSTOMER_MANAGED_PAYROLL') {
+      try {
+        setInvoiceGate(await getPayrollInvoiceGate(cycleId));
+      } catch {
+        setInvoiceGate(null);
+      }
+    } else {
+      setInvoiceGate(null);
+    }
   }
 
   async function runAction(
@@ -210,8 +306,13 @@ export default function PayrollPage() {
     const d = monthDefaults();
     setPeriodStart(d.start);
     setPeriodEnd(d.end);
+    setTenantType('INTERNAL_COMPANY');
+    setCustomerId('');
     setCreateError(null);
     setShowCreate(true);
+    void listCustomers()
+      .then(setCustomers)
+      .catch(() => setCustomers([]));
   }
 
   async function handleCreate(e: FormEvent) {
@@ -224,13 +325,20 @@ export default function PayrollPage() {
       setCreateError('Period end must be on or after the start date');
       return;
     }
+    if (tenantType === 'CUSTOMER_MANAGED_PAYROLL' && !customerId) {
+      setCreateError('Select a customer for customer-managed payroll');
+      return;
+    }
     setCreating(true);
     setCreateError(null);
     try {
       await createPayrollCycle({
         periodStart,
         periodEnd,
-        tenantType: 'INTERNAL_COMPANY',
+        tenantType,
+        ...(tenantType === 'CUSTOMER_MANAGED_PAYROLL'
+          ? { customerId }
+          : {}),
       });
       setShowCreate(false);
       await load();
@@ -302,6 +410,137 @@ export default function PayrollPage() {
         <p className="mt-4 rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
           {error}
         </p>
+      ) : null}
+
+      {dueAlerts.length > 0 ? (
+        <section className="mt-6 rounded-xl border border-[#c7e0f4] bg-white p-4">
+          <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+            <h2 className="text-[15px] font-semibold text-[#1b1a19]">
+              E-payroll due alerts
+            </h2>
+            <button
+              type="button"
+              disabled={scanBusy}
+              onClick={async () => {
+                setScanBusy(true);
+                setError(null);
+                try {
+                  const res = await scanPayrollDueAlerts(true);
+                  setError(
+                    `Scan: ${res.alertsCreated} alert(s), ${res.skippedUnpaid} unpaid skipped`,
+                  );
+                  await load();
+                } catch (err) {
+                  setError(
+                    err instanceof Error ? err.message : 'Scan failed',
+                  );
+                } finally {
+                  setScanBusy(false);
+                }
+              }}
+              className={btnSecondary}
+            >
+              {scanBusy ? 'Scanning…' : 'Scan due alerts'}
+            </button>
+          </div>
+          <ul className="space-y-2 text-sm">
+            {dueAlerts.map((a) => (
+              <li
+                key={a.id}
+                className="rounded-lg border border-[#e1dfdd] bg-[#faf9f8] px-3 py-2"
+              >
+                <p className="font-semibold text-[#323130]">
+                  {a.customerName ?? a.customerCode} · {a.payrollMonth}
+                </p>
+                <p className="text-[12px] text-[#605e5c]">
+                  Invoice {a.invoiceNumber ?? '—'} · paid{' '}
+                  {money(a.invoiceAmountPaid)} · {a.employeesCovered} employees
+                  · due {a.dueDate.slice(0, 10)} · portion{' '}
+                  {money(a.payrollPortionDue)} · invoice {a.invoicePaymentStatus}{' '}
+                  · approval {a.payrollApprovalStatus} · officer{' '}
+                  {a.responsibleOfficerName ?? '—'}
+                </p>
+              </li>
+            ))}
+          </ul>
+        </section>
+      ) : (
+        <div className="mt-6 flex items-center justify-between gap-3 rounded-lg border border-dashed border-[#e1dfdd] px-4 py-3 text-[13px] text-[#605e5c]">
+          <span>
+            Customer payroll disbursement is due on the 1st of the following
+            month only if the related invoice is fully paid.
+          </span>
+          <button
+            type="button"
+            disabled={scanBusy}
+            onClick={async () => {
+              setScanBusy(true);
+              setError(null);
+              try {
+                await scanPayrollDueAlerts(true);
+                await load();
+              } catch (err) {
+                setError(err instanceof Error ? err.message : 'Scan failed');
+              } finally {
+                setScanBusy(false);
+              }
+            }}
+            className={btnSecondary}
+          >
+            {scanBusy ? 'Scanning…' : 'Scan now'}
+          </button>
+        </div>
+      )}
+
+      {invoiceGate && selectedCycle?.tenantType === 'CUSTOMER_MANAGED_PAYROLL' ? (
+        <div
+          className={`mt-4 rounded-lg border px-4 py-3 text-sm ${
+            invoiceGate.eligible
+              ? 'border-emerald-200 bg-emerald-50 text-emerald-900'
+              : 'border-amber-200 bg-amber-50 text-amber-900'
+          }`}
+        >
+          {invoiceGate.eligible ? (
+            <p>
+              Invoice {invoiceGate.invoiceNumber} is fully paid
+              {invoiceGate.exceptionApproved
+                ? ' (management exception recorded)'
+                : ''}
+              . Customer payroll disbursement is allowed.
+            </p>
+          ) : (
+            <div className="flex flex-wrap items-start justify-between gap-2">
+              <p>{invoiceGate.blockedReason}</p>
+              {user?.roles.some((r) =>
+                ['SUPER_ADMIN', 'GENERAL_MANAGER', 'CEO', 'CMD'].includes(r),
+              ) ? (
+                <button
+                  type="button"
+                  className={btnSecondary}
+                  onClick={async () => {
+                    const reason =
+                      window.prompt('Exception reason (required for audit)') ??
+                      '';
+                    if (!reason.trim() || !selected) return;
+                    try {
+                      setInvoiceGate(
+                        await grantPayrollPayException(selected, {
+                          reason: reason.trim(),
+                        }),
+                      );
+                    } catch (err) {
+                      setError(
+                        err instanceof Error ? err.message : 'Exception failed',
+                      );
+                    }
+                  }}
+                >
+                  Grant exception
+                </button>
+              ) : null}
+            </div>
+          )}
+        </div>
       ) : null}
 
       <section className="mt-8">
@@ -418,21 +657,81 @@ export default function PayrollPage() {
                 Frozen employee payslips for this cycle — not live payroll
               </p>
             </div>
-            <button
-              type="button"
-              onClick={() => {
-                setSelected(null);
-                setPayslips([]);
-              }}
-              className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-[12px] font-semibold text-[#605e5c] hover:bg-[#f3f2f1] hover:text-[#323130]"
-            >
-              <X className="h-3.5 w-3.5" />
-              Close
-            </button>
+            <div className="flex flex-wrap items-center gap-2">
+              {selectedCycle.status !== 'DRAFT' ? (
+                <>
+                  <button
+                    type="button"
+                    disabled={!!reportBusy}
+                    className={btnSecondary}
+                    onClick={() => void runReport('register')}
+                  >
+                    Register CSV
+                  </button>
+                  <button
+                    type="button"
+                    disabled={!!reportBusy}
+                    className={btnSecondary}
+                    onClick={() => void runReport('statutory')}
+                  >
+                    Statutory
+                  </button>
+                  <button
+                    type="button"
+                    disabled={!!reportBusy}
+                    className={btnSecondary}
+                    onClick={() => void runReport('loan')}
+                  >
+                    Loans
+                  </button>
+                  <button
+                    type="button"
+                    disabled={!!reportBusy}
+                    className={btnSecondary}
+                    onClick={() => void runReport('approval')}
+                  >
+                    Approval trail
+                  </button>
+                </>
+              ) : null}
+              {selectedCycle.status === 'APPROVED' ||
+              selectedCycle.status === 'PAID' ? (
+                <>
+                  <button
+                    type="button"
+                    disabled={!!reportBusy}
+                    className={btnSecondary}
+                    onClick={() => void runReport('bank')}
+                  >
+                    Bank file
+                  </button>
+                  <button
+                    type="button"
+                    disabled={!!reportBusy}
+                    className={btnSecondary}
+                    onClick={() => void runReport('mobile')}
+                  >
+                    Mobile money
+                  </button>
+                </>
+              ) : null}
+              <button
+                type="button"
+                onClick={() => {
+                  setSelected(null);
+                  setPayslips([]);
+                }}
+                className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-[12px] font-semibold text-[#605e5c] hover:bg-[#f3f2f1] hover:text-[#323130]"
+              >
+                <X className="h-3.5 w-3.5" />
+                Close
+              </button>
+            </div>
           </div>
 
           <PayslipRoster
             rows={payslips}
+            onView={(id) => void openPayslipDetail(id)}
             empty={
               <div className="flex flex-col items-center gap-2 py-10 text-center">
                 <FileSpreadsheet className="h-5 w-5 text-[#a19f9d]" />
@@ -456,6 +755,80 @@ export default function PayrollPage() {
             </p>
           ) : null}
         </section>
+      ) : null}
+
+      {detailPayslip ? (
+        <Modal
+          title="Payslip"
+          description={`${detailPayslip.employeeName} · ${detailPayslip.employeeNumber}`}
+          onClose={() => setDetailPayslip(null)}
+          size="lg"
+        >
+          <div className="mb-3 grid gap-2 sm:grid-cols-3">
+            <div className="rounded-lg bg-[#faf9f8] px-3 py-2">
+              <p className="text-[10px] uppercase text-[#8a8886]">Gross</p>
+              <p className="text-sm font-semibold tabular-nums">
+                {money(detailPayslip.grossPay)}
+              </p>
+            </div>
+            <div className="rounded-lg bg-[#faf9f8] px-3 py-2">
+              <p className="text-[10px] uppercase text-[#8a8886]">Deductions</p>
+              <p className="text-sm font-semibold tabular-nums">
+                {money(detailPayslip.totalDeductions)}
+              </p>
+            </div>
+            <div className="rounded-lg bg-[#faf9f8] px-3 py-2">
+              <p className="text-[10px] uppercase text-[#8a8886]">Net pay</p>
+              <p className="text-sm font-semibold tabular-nums text-emerald-700">
+                {money(detailPayslip.netPay)}
+              </p>
+            </div>
+          </div>
+          {(detailPayslip.calculationResult?.lines?.length ?? 0) > 0 ? (
+            <div className="max-h-[320px] overflow-auto rounded border border-[#e1dfdd]">
+              <table className="w-full text-left text-xs">
+                <thead className="sticky top-0 bg-[#faf9f8] text-[11px] uppercase tracking-wide text-[#605e5c]">
+                  <tr>
+                    <th className="px-3 py-2 font-semibold">Code</th>
+                    <th className="px-3 py-2 font-semibold">Description</th>
+                    <th className="px-3 py-2 font-semibold">Type</th>
+                    <th className="px-3 py-2 font-semibold">Amount</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {detailPayslip.calculationResult!.lines!.map((line) => (
+                    <tr
+                      key={`${line.code}-${line.label}`}
+                      className="border-t border-[#edebe9]"
+                    >
+                      <td className="px-3 py-2 font-mono">{line.code}</td>
+                      <td className="px-3 py-2">{line.label}</td>
+                      <td className="px-3 py-2">
+                        <StatusBadge status={line.type} />
+                      </td>
+                      <td className="px-3 py-2 tabular-nums">
+                        {money(line.amount)}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <p className="text-sm text-[#605e5c]">
+              Line items appear after generation with the enhanced calculator.
+            </p>
+          )}
+          <div className="mt-4 flex justify-end">
+            <button
+              type="button"
+              onClick={() => setDetailPayslip(null)}
+              className={btnSecondary}
+            >
+              Close
+            </button>
+          </div>
+        </Modal>
       ) : null}
 
       {showCreate ? (
@@ -487,12 +860,48 @@ export default function PayrollPage() {
                 />
               </label>
             </div>
-            <div className="rounded-md border border-[#e1dfdd] bg-[#faf9f8] px-3 py-2 text-[13px] text-[#605e5c]">
-              Tenant type:{' '}
-              <span className="font-medium text-[#323130]">
-                Internal company
-              </span>
-            </div>
+            <label className="block text-sm font-medium text-[#323130]">
+              Payroll type
+              <select
+                value={tenantType}
+                onChange={(e) =>
+                  setTenantType(
+                    e.target.value as
+                      | 'INTERNAL_COMPANY'
+                      | 'CUSTOMER_MANAGED_PAYROLL',
+                  )
+                }
+                className={inputCls}
+              >
+                <option value="INTERNAL_COMPANY">Internal company (guards/staff)</option>
+                <option value="CUSTOMER_MANAGED_PAYROLL">
+                  Customer employee payroll service
+                </option>
+              </select>
+            </label>
+            {tenantType === 'CUSTOMER_MANAGED_PAYROLL' ? (
+              <label className="block text-sm font-medium text-[#323130]">
+                Customer
+                <select
+                  value={customerId}
+                  onChange={(e) => setCustomerId(e.target.value)}
+                  className={inputCls}
+                  required
+                >
+                  <option value="">Select customer…</option>
+                  {customers.map((c) => (
+                    <option key={c.id} value={c.id}>
+                      {c.code} — {c.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            ) : (
+              <div className="rounded-md border border-[#e1dfdd] bg-[#faf9f8] px-3 py-2 text-[13px] text-[#605e5c]">
+                Uses workforce employees, guard attendance and company loans —
+                separate from customer employee payroll.
+              </div>
+            )}
             {createError ? (
               <p className="rounded-md border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">
                 {createError}

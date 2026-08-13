@@ -22,6 +22,7 @@ export const ADMIN_PORTALS: NavItem[] = [
   { href: '/finance', label: 'Finance', permission: 'finance.manage', group: 'Money' },
   { href: '/finance/petty-cash', label: 'Petty cash', permission: 'finance.manage', group: 'Money' },
   { href: '/procurement', label: 'Procurement', permission: 'procurement.manage', group: 'Money' },
+  { href: '/procurement/inventory', label: 'Inventory', permission: 'inventory.manage', group: 'Money' },
   { href: '/assets', label: 'Assets', permission: 'assets.manage', group: 'Money' },
   { href: '/assets/returns', label: 'Equipment returns', permission: 'assets.manage', group: 'Money' },
   { href: '/operations', label: 'Ops Console', permission: 'operations.manage', group: 'Field' },
@@ -125,6 +126,18 @@ export const CUSTOMER_NAV: NavItem[] = [
   },
   { href: '/invoices', label: 'Invoices & payments', permission: 'finance.manage', group: 'Finance' },
   {
+    href: '/payroll',
+    label: 'Employee payroll',
+    permission: 'finance.manage',
+    group: 'Finance',
+  },
+  {
+    href: '/my-payslips',
+    label: 'My payslips',
+    permission: 'access.self',
+    group: 'Finance',
+  },
+  {
     href: '/requests',
     label: 'Service requests',
     permission: 'contracts.manage',
@@ -168,6 +181,12 @@ export const SUPPLIER_NAV: NavItem[] = [
     group: 'Commerce',
   },
   {
+    href: '/submissions',
+    label: 'Quotes & invoices',
+    permission: 'procurement.manage',
+    group: 'Commerce',
+  },
+  {
     href: '/profile',
     label: 'Company profile',
     permission: 'procurement.manage',
@@ -184,6 +203,12 @@ export const PARKING_NAV: NavItem[] = [
     group: 'Overview',
   },
   {
+    href: '/reports',
+    label: 'Reports',
+    permission: 'parking.manage',
+    group: 'Overview',
+  },
+  {
     href: '/vehicles',
     label: 'Vehicles',
     permission: 'parking.manage',
@@ -196,8 +221,20 @@ export const PARKING_NAV: NavItem[] = [
     group: 'Access',
   },
   {
+    href: '/spaces',
+    label: 'Spaces',
+    permission: 'parking.manage',
+    group: 'Access',
+  },
+  {
     href: '/entries',
     label: 'Gate entries',
+    permission: 'parking.manage',
+    group: 'Access',
+  },
+  {
+    href: '/patrols',
+    label: 'Patrols',
     permission: 'parking.manage',
     group: 'Access',
   },

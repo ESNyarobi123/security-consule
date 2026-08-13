@@ -376,18 +376,20 @@ export function PayslipRoster({
   rows,
   empty,
   toolbar,
+  onView,
 }: {
   rows: PayslipSnapshot[];
   empty?: ReactNode;
   toolbar?: ReactNode;
+  onView?: (id: string) => void;
 }) {
   const grid =
-    'md:grid-cols-[minmax(0,1.6fr)_minmax(0,0.9fr)_minmax(0,0.9fr)_minmax(0,1fr)]';
+    'md:grid-cols-[minmax(0,1.6fr)_minmax(0,0.9fr)_minmax(0,0.9fr)_minmax(0,1fr)_auto]';
 
   return (
     <ListShell
       toolbar={toolbar}
-      headers={['Employee', 'Gross', 'Deductions', 'Net pay']}
+      headers={['Employee', 'Gross', 'Deductions', 'Net pay', '']}
       headerClassName={grid}
       isEmpty={rows.length === 0}
       empty={empty}
@@ -431,6 +433,15 @@ export function PayslipRoster({
                       </p>
                     </div>
                   </div>
+                  {onView ? (
+                    <button
+                      type="button"
+                      className="mt-2 text-[11px] font-semibold text-[#0078d4]"
+                      onClick={() => onView(r.id)}
+                    >
+                      View payslip
+                    </button>
+                  ) : null}
                 </div>
               </div>
 
@@ -464,6 +475,15 @@ export function PayslipRoster({
                 <span className="inline-flex w-fit rounded-lg bg-emerald-50 px-2.5 py-1 text-[13px] font-semibold tabular-nums text-emerald-800 ring-1 ring-emerald-200/80">
                   {money(r.netPay)}
                 </span>
+                {onView ? (
+                  <button
+                    type="button"
+                    className="text-[11px] font-semibold text-[#0078d4] hover:underline"
+                    onClick={() => onView(r.id)}
+                  >
+                    View
+                  </button>
+                ) : null}
               </div>
             </div>
           </li>

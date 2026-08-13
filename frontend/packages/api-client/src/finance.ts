@@ -79,10 +79,23 @@ async function coreFetch<T>(
   return parseEnvelope<T>(res);
 }
 
+export type PettyCashFund = {
+  id: string;
+  organizationId: string;
+  branchId?: string | null;
+  name: string;
+  imprestAmount: number;
+  currentBalance: number;
+  custodianId?: string | null;
+  isActive: boolean;
+};
+
 export type PettyCashVoucher = {
   id: string;
   organizationId: string;
   fundId: string;
+  fundName?: string | null;
+  fundBalance?: number | null;
   voucherNumber: string;
   amount: number;
   purpose: string;
@@ -91,10 +104,20 @@ export type PettyCashVoucher = {
   receiptUrl?: string | null;
   approvalInstanceId?: string | null;
   approvedBy?: string | null;
+  issuedBy?: string | null;
+  issuedAt?: string | null;
   reimbursedAt?: string | null;
+  branchId?: string | null;
+  branchCode?: string | null;
+  branchName?: string | null;
+  department?: string | null;
+  rejectedReason?: string | null;
   createdBy: string;
   createdAt: string;
 };
+
+export const listPettyCashFunds = (token?: string) =>
+  coreFetch<PettyCashFund[]>('/api/v1/finance/petty-cash/funds', { token });
 
 export const listPettyCashVouchers = (status?: string, token?: string) => {
   const q = status ? `?status=${encodeURIComponent(status)}` : '';
@@ -124,7 +147,13 @@ export const rejectPettyCashVoucher = (
     },
   );
 
-/** Mark APPROVED voucher REIMBURSED — at least one of receiptUrl / notes required. */
+export const issuePettyCashVoucher = (id: string, token?: string) =>
+  coreFetch<PettyCashVoucher>(
+    `/api/v1/finance/petty-cash/vouchers/${id}/issue`,
+    { method: 'POST', body: '{}', token },
+  );
+
+/** Retire ISSUED voucher (REIMBURSED) — at least one of receiptUrl / notes required. */
 export const reimbursePettyCashVoucher = (
   id: string,
   body: { receiptUrl?: string; notes?: string },

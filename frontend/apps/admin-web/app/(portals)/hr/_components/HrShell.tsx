@@ -15,6 +15,11 @@ export const HR_TABS = [
   { href: '/hr/discipline', label: 'Discipline' },
   { href: '/hr/movements', label: 'Movements' },
   {
+    href: '/hr/applications',
+    label: 'Applications',
+    permission: 'recruitment.manage',
+  },
+  {
     href: '/hr/b2b-requests',
     label: 'B2B requests',
     permission: 'recruitment.manage',

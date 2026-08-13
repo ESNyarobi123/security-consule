@@ -31,6 +31,11 @@ const PARENT_PERMISSION_BY_RESOURCE: Record<string, string> = {
   Contract: 'contracts.manage',
   /** §12 Module 12-F — visitor ID scan / appointment attachments */
   VisitorAppointment: 'visitors.manage',
+  /** Module 13-N — parking violation evidence photographs */
+  ParkingViolation: 'parking.manage',
+  /** Module 24-A — supplier licence / TIN / VRN and submission attachments */
+  Supplier: 'procurement.manage',
+  SupplierSubmission: 'procurement.manage',
 };
 
 const SUPPORTED_RESOURCE_TYPES = new Set(
@@ -114,6 +119,40 @@ async function assertResourceOwned(
         'VisitorAppointment not found in your organization',
       );
     }
+    return;
+  }
+  if (resourceType === 'ParkingViolation') {
+    const violation = await prisma.parkingViolation.findFirst({
+      where: { id: resourceId, organizationId },
+      select: { id: true },
+    });
+    if (!violation) {
+      throw new BadRequestException(
+        'ParkingViolation not found in your organization',
+      );
+    }
+    return;
+  }
+  if (resourceType === 'Supplier') {
+    const supplier = await prisma.supplier.findFirst({
+      where: { id: resourceId, organizationId },
+      select: { id: true },
+    });
+    if (!supplier) {
+      throw new BadRequestException('Supplier not found in your organization');
+    }
+    return;
+  }
+  if (resourceType === 'SupplierSubmission') {
+    const row = await prisma.supplierSubmission.findFirst({
+      where: { id: resourceId, organizationId },
+      select: { id: true },
+    });
+    if (!row) {
+      throw new BadRequestException(
+        'SupplierSubmission not found in your organization',
+      );
+    }
   }
 }
 
@@ -121,6 +160,8 @@ async function assertResourceOwned(
  * Org ownership of the parent resource + authz:
  * - CUSTOMER_PORTAL (JWT customerId): read-only on own Customer, Contract, or
  *   VisitorAppointment (same customerId) attachments — no portal upload
+ * - SUPPLIER_PORTAL (JWT supplierId): read+write on own Supplier and own
+ *   SupplierSubmission attachments
  * - Staff: documents.manage + parent domain permission (+ SUPER_ADMIN bypass)
  */
 async function assertDocumentAccess(
@@ -130,6 +171,45 @@ async function assertDocumentAccess(
   user: AuthUser,
   mode: AccessMode,
 ): Promise<void> {
+  if (user.supplierId) {
+    if (resourceType === 'Supplier') {
+      if (resourceId !== user.supplierId) {
+        throw new ForbiddenException({
+          error: 'FORBIDDEN',
+          message: 'Supplier portal can only access their own documents',
+        });
+      }
+    } else if (resourceType === 'SupplierSubmission') {
+      const row = await prisma.supplierSubmission.findFirst({
+        where: {
+          id: resourceId,
+          organizationId: user.organizationId,
+          supplierId: user.supplierId,
+        },
+        select: { id: true },
+      });
+      if (!row) {
+        throw new ForbiddenException({
+          error: 'FORBIDDEN',
+          message: 'Supplier portal can only access own submission documents',
+        });
+      }
+      return;
+    } else {
+      throw new ForbiddenException({
+        error: 'FORBIDDEN',
+        message: 'Supplier portal can only access their own documents',
+      });
+    }
+    await assertResourceOwned(
+      prisma,
+      resourceType,
+      resourceId,
+      user.organizationId,
+    );
+    return;
+  }
+
   if (user.customerId) {
     if (mode === 'write') {
       throw new ForbiddenException({

@@ -31,6 +31,8 @@ import {
   CreatePaymentVoucherDto,
   CreatePettyCashFundDto,
   CreatePettyCashVoucherDto,
+  DisputeInvoiceDto,
+  InvoiceAlertsPackDto,
   InvoiceResponseDto,
   InvoiceScanOverdueResultDto,
   PayVoucherDto,
@@ -85,11 +87,25 @@ export class InvoicesController {
     return this.service.list(user.organizationId, scoped, contractId);
   }
 
+  @Get('alerts')
+  @UseGuards(PermissionsGuard)
+  @RequirePermissions('finance.manage')
+  @ApiOperation({
+    summary:
+      'Billing alerts pack — overdue, unpaid, completed payments, payroll-due invoices, contract expiry, suspension risk',
+  })
+  @ApiOkResponse({ type: InvoiceAlertsPackDto })
+  alerts(@CurrentUser() user: AuthUser) {
+    assertStaff(user);
+    return this.service.listAlerts(user.organizationId);
+  }
+
   @Post('scan-overdue')
   @UseGuards(PermissionsGuard)
   @RequirePermissions('finance.manage')
   @ApiOperation({
-    summary: 'Mark past-due SENT/PARTIALLY_PAID invoices as OVERDUE',
+    summary:
+      'Mark past-due SENT/PARTIALLY_PAID as OVERDUE and queue overdue / unpaid / suspension EMAIL alerts',
     description: 'Also callable by background-worker via internal route.',
   })
   @ApiOkResponse({ type: InvoiceScanOverdueResultDto })
@@ -110,7 +126,9 @@ export class InvoicesController {
   @Post(':id/void')
   @UseGuards(PermissionsGuard)
   @RequirePermissions('finance.manage')
-  @ApiOperation({ summary: 'Void unpaid DRAFT / SENT / OVERDUE invoice' })
+  @ApiOperation({
+    summary: 'Cancel unpaid DRAFT / issued / overdue / disputed invoice (stored VOIDED)',
+  })
   @ApiOkResponse({ type: InvoiceResponseDto })
   voidInvoice(
     @Param('id') id: string,
@@ -119,6 +137,30 @@ export class InvoicesController {
   ) {
     assertStaff(user);
     return this.service.void(id, dto, user);
+  }
+
+  @Post(':id/dispute')
+  @UseGuards(PermissionsGuard)
+  @RequirePermissions('finance.manage')
+  @ApiOperation({ summary: 'Mark issued / partial / overdue invoice as DISPUTED' })
+  @ApiOkResponse({ type: InvoiceResponseDto })
+  dispute(
+    @Param('id') id: string,
+    @Body() dto: DisputeInvoiceDto,
+    @CurrentUser() user: AuthUser,
+  ) {
+    assertStaff(user);
+    return this.service.dispute(id, dto, user);
+  }
+
+  @Post(':id/close')
+  @UseGuards(PermissionsGuard)
+  @RequirePermissions('finance.manage')
+  @ApiOperation({ summary: 'Close a fully paid invoice' })
+  @ApiOkResponse({ type: InvoiceResponseDto })
+  close(@Param('id') id: string, @CurrentUser() user: AuthUser) {
+    assertStaff(user);
+    return this.service.close(id, user);
   }
 
   @Post(':id/payments')
@@ -197,10 +239,20 @@ export class PettyCashController {
     return this.service.rejectPettyCashVoucher(id, dto, user);
   }
 
+  @Post('vouchers/:id/issue')
+  @ApiOperation({
+    summary:
+      'Issue cash after approval (debits imprest; creator ≠ issuer). No issue without approval.',
+  })
+  @ApiOkResponse({ type: PettyCashVoucherResponseDto })
+  issue(@Param('id') id: string, @CurrentUser() user: AuthUser) {
+    return this.service.issuePettyCashVoucher(id, user);
+  }
+
   @Post('vouchers/:id/reimburse')
   @ApiOperation({
     summary:
-      'Mark approved voucher REIMBURSED (receipt URL and/or notes; creator ≠ reimbursedBy)',
+      'Retire issued voucher (ISSUED → REIMBURSED) with receipt URL and/or notes; creator ≠ retiree',
   })
   @ApiOkResponse({ type: PettyCashVoucherResponseDto })
   reimburse(

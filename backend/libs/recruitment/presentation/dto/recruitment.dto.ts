@@ -134,6 +134,19 @@ export class JobApplicationResponseDto {
   @ApiPropertyOptional() notes?: string | null;
   @ApiPropertyOptional() employeeId?: string | null;
   @ApiProperty() createdAt!: Date;
+
+  /** Module 14-A — posting title for HR inbox */
+  @ApiPropertyOptional() postingTitle?: string | null;
+
+  @ApiPropertyOptional({
+    enum: ApplicationStatus,
+    isArray: true,
+    description: 'Allowed PATCH status transitions (HIRED via /hire only)',
+  })
+  allowedNextStatuses?: ApplicationStatus[];
+
+  @ApiPropertyOptional({ description: 'True when status is OFFERED' })
+  canHire?: boolean;
 }
 
 export class JobApplicationPublicStatusDto {

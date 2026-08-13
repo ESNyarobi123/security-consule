@@ -1,11 +1,38 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { InstallmentStatus, LoanStatus } from '@prisma/client';
-import { IsInt, IsNumber, IsOptional, IsString, IsUUID, Min, MinLength } from 'class-validator';
+import {
+  InstallmentStatus,
+  LoanStatus,
+  LoanType,
+} from '@prisma/client';
+import {
+  IsBoolean,
+  IsEnum,
+  IsInt,
+  IsNumber,
+  IsOptional,
+  IsString,
+  IsUUID,
+  Min,
+  MinLength,
+  ValidateIf,
+} from 'class-validator';
+
+/** Item loans require itemName at application. */
+export const ITEM_LOAN_TYPES: LoanType[] = [
+  LoanType.SECURITY_BOOTS,
+  LoanType.SMARTPHONE,
+  LoanType.UNIFORM,
+  LoanType.EQUIPMENT,
+];
 
 export class ApplyLoanDto {
   @ApiProperty()
   @IsUUID()
   employeeId!: string;
+
+  @ApiProperty({ enum: LoanType })
+  @IsEnum(LoanType)
+  loanType!: LoanType;
 
   @ApiProperty({ example: 500000 })
   @IsNumber()
@@ -22,10 +49,49 @@ export class ApplyLoanDto {
   @IsNumber()
   interestRate?: number;
 
-  @ApiProperty()
+  @ApiPropertyOptional({ example: 'Emergency school fees' })
+  @IsOptional()
   @IsString()
   @MinLength(3)
-  purpose!: string;
+  purpose?: string;
+
+  @ApiPropertyOptional({ example: 'Security boots size 42' })
+  @ValidateIf((o: ApplyLoanDto) => ITEM_LOAN_TYPES.includes(o.loanType))
+  @IsString()
+  @MinLength(2)
+  itemName?: string;
+}
+
+export class IssueLoanDto {
+  @ApiPropertyOptional({ example: '2026-08-13' })
+  @IsOptional()
+  @IsString()
+  issueDate?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  @MinLength(2)
+  itemName?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  @MinLength(2)
+  supplierName?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  itemCost?: number;
+
+  @ApiPropertyOptional({
+    description: 'When true, records employee acknowledgement at issue time',
+  })
+  @IsOptional()
+  @IsBoolean()
+  employeeAcknowledged?: boolean;
 }
 
 export class RejectLoanDto {
@@ -40,18 +106,28 @@ export class EmployeeLoanResponseDto {
   @ApiProperty() organizationId!: string;
   @ApiProperty() employeeId!: string;
   @ApiProperty() loanNumber!: string;
+  @ApiProperty({ enum: LoanType }) loanType!: LoanType;
   @ApiProperty() principalAmount!: number;
   @ApiProperty() interestRate!: number;
   @ApiProperty() termMonths!: number;
   @ApiProperty() monthlyInstallment!: number;
   @ApiProperty({ enum: LoanStatus }) status!: LoanStatus;
-  @ApiProperty() purpose!: string;
+  @ApiPropertyOptional() purpose?: string | null;
+  @ApiPropertyOptional() itemName?: string | null;
+  @ApiPropertyOptional() supplierName?: string | null;
+  @ApiPropertyOptional() itemCost?: number | null;
   @ApiPropertyOptional() approvalInstanceId?: string | null;
   @ApiPropertyOptional() createdBy?: string | null;
   @ApiPropertyOptional() approvedBy?: string | null;
   @ApiPropertyOptional() approvedAt?: Date | null;
+  @ApiPropertyOptional() issuedBy?: string | null;
+  @ApiPropertyOptional() issuedAt?: Date | null;
+  @ApiPropertyOptional() employeeAcknowledgedAt?: Date | null;
   @ApiPropertyOptional() disbursedAt?: Date | null;
+  @ApiPropertyOptional() settledAt?: Date | null;
+  @ApiPropertyOptional() clearedBy?: string | null;
   @ApiProperty() createdAt!: Date;
+  @ApiPropertyOptional() outstandingBalance?: number | null;
 }
 
 export class LoanInstallmentResponseDto {
@@ -69,4 +145,24 @@ export class LoanInstallmentResponseDto {
 export class ApproveLoanResponseDto {
   @ApiProperty({ type: EmployeeLoanResponseDto }) loan!: EmployeeLoanResponseDto;
   @ApiProperty({ type: [LoanInstallmentResponseDto] }) installments!: LoanInstallmentResponseDto[];
+}
+
+export class IssueLoanResponseDto {
+  @ApiProperty({ type: EmployeeLoanResponseDto }) loan!: EmployeeLoanResponseDto;
+  @ApiProperty({ type: [LoanInstallmentResponseDto] }) installments!: LoanInstallmentResponseDto[];
+}
+
+export class LoanStatementResponseDto {
+  @ApiProperty({ type: EmployeeLoanResponseDto }) loan!: EmployeeLoanResponseDto;
+  @ApiProperty({ type: [LoanInstallmentResponseDto] }) installments!: LoanInstallmentResponseDto[];
+  @ApiProperty() totalDue!: number;
+  @ApiProperty() totalPaid!: number;
+  @ApiProperty() outstandingBalance!: number;
+  @ApiProperty() isSettled!: boolean;
+}
+
+export class LoanTypeOptionDto {
+  @ApiProperty({ enum: LoanType }) value!: LoanType;
+  @ApiProperty() label!: string;
+  @ApiProperty() isItemLoan!: boolean;
 }

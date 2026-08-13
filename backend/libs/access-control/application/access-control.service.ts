@@ -21,6 +21,7 @@ import {
   AccessEntryResponseDto,
   SelfAccessSitesResponseDto,
   UpdateCustomerEmployeeDto,
+  UpdateCustomerEmployeePaymentDto,
 } from '../presentation/dto/access.dto';
 
 /** Device-normalized access event resolved inside the access domain. */
@@ -123,6 +124,72 @@ export class AccessControlService {
       orderBy: { fullName: 'asc' },
     });
     return rows.map((e) => this.toEmployeeDto(e));
+  }
+
+  /** Module 19-A — payment instructions for customer-managed payroll. */
+  async updateEmployeePayment(
+    employeeId: string,
+    dto: UpdateCustomerEmployeePaymentDto,
+    user: AuthUser,
+    opts?: { requiredCustomerId?: string },
+  ): Promise<CustomerEmployeeResponseDto> {
+    if (isCustomerEmployeeSelfScoped(user)) {
+      throw new ForbiddenException({
+        error: 'FORBIDDEN',
+        message: 'Customer employees cannot update payment instructions',
+      });
+    }
+
+    const existing = await this.prisma.customerEmployee.findFirst({
+      where: { id: employeeId, organizationId: user.organizationId },
+    });
+    if (!existing) throw new NotFoundException('Customer employee not found');
+
+    if (
+      opts?.requiredCustomerId &&
+      existing.customerId !== opts.requiredCustomerId
+    ) {
+      throw new NotFoundException('Customer employee not found for this customer');
+    }
+
+    await this.assertCustomerInOrg(existing.customerId, user.organizationId);
+
+    const blankToNull = (v: string | null | undefined) => {
+      if (v === undefined) return undefined;
+      if (v === null) return null;
+      const t = v.trim();
+      return t.length ? t : null;
+    };
+
+    const employee = await this.prisma.customerEmployee.update({
+      where: { id: existing.id },
+      data: {
+        ...(dto.bankAccountRef !== undefined
+          ? { bankAccountRef: blankToNull(dto.bankAccountRef) }
+          : {}),
+        ...(dto.bankName !== undefined
+          ? { bankName: blankToNull(dto.bankName) }
+          : {}),
+        ...(dto.mobileMoneyRef !== undefined
+          ? { mobileMoneyRef: blankToNull(dto.mobileMoneyRef) }
+          : {}),
+        ...(dto.mobileMoneyProvider !== undefined
+          ? { mobileMoneyProvider: blankToNull(dto.mobileMoneyProvider) }
+          : {}),
+      },
+    });
+
+    await this.audit.record({
+      organizationId: user.organizationId,
+      actorId: user.id,
+      action: 'access.employee.payment_updated',
+      resourceType: 'CustomerEmployee',
+      resourceId: employee.id,
+      before: existing,
+      after: employee,
+    });
+
+    return this.toEmployeeDto(employee);
   }
 
   /**
@@ -870,6 +937,10 @@ export class AccessControlService {
     accessLevel: AccessLevel;
     accessCardRef: string | null;
     biometricRef: string | null;
+    bankAccountRef?: string | null;
+    bankName?: string | null;
+    mobileMoneyRef?: string | null;
+    mobileMoneyProvider?: string | null;
     isActive: boolean;
     createdAt: Date;
   }): CustomerEmployeeResponseDto {
@@ -886,6 +957,10 @@ export class AccessControlService {
       accessLevel: e.accessLevel,
       accessCardRef: e.accessCardRef,
       biometricRef: e.biometricRef,
+      bankAccountRef: e.bankAccountRef ?? null,
+      bankName: e.bankName ?? null,
+      mobileMoneyRef: e.mobileMoneyRef ?? null,
+      mobileMoneyProvider: e.mobileMoneyProvider ?? null,
       isActive: e.isActive,
       createdAt: e.createdAt,
     };

@@ -122,6 +122,10 @@ export class CustomerEmployeeStaffResponseDto {
   @ApiProperty({ enum: AccessLevel }) accessLevel!: AccessLevel;
   @ApiPropertyOptional() accessCardRef?: string | null;
   @ApiPropertyOptional() biometricRef?: string | null;
+  @ApiPropertyOptional() bankAccountRef?: string | null;
+  @ApiPropertyOptional() bankName?: string | null;
+  @ApiPropertyOptional() mobileMoneyRef?: string | null;
+  @ApiPropertyOptional() mobileMoneyProvider?: string | null;
   @ApiProperty() isActive!: boolean;
   @ApiProperty() createdAt!: Date;
 }

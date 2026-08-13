@@ -1,16 +1,29 @@
 'use client';
 
-import { supplierLogin } from '@pssms/api-client';
+import { registerSupplier, supplierLogin } from '@pssms/api-client';
 import { setSupplierSession } from '@pssms/auth';
 import { Package } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { FormEvent, useEffect, useState } from 'react';
 
+const fieldCls =
+  'mt-1.5 w-full rounded-xl border border-[#c8c6c4] bg-white px-3.5 py-2.5 text-[#1b1a19] outline-none transition focus:border-[#ea580c] focus:ring-2 focus:ring-[#ea580c]/20';
+
 export default function LoginPage() {
   const router = useRouter();
+  const [mode, setMode] = useState<'signin' | 'register'>('signin');
   const [email, setEmail] = useState('portal@uniforms.co.tz');
   const [password, setPassword] = useState('ChangeMe123!');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [companyName, setCompanyName] = useState('');
+  const [contactName, setContactName] = useState('');
+  const [phone, setPhone] = useState('');
+  const [tin, setTin] = useState('');
+  const [vrn, setVrn] = useState('');
+  const [address, setAddress] = useState('');
+  const [category, setCategory] = useState('GOODS');
   const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
@@ -28,6 +41,38 @@ export default function LoginPage() {
       router.push('/dashboard');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Login failed');
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function onRegister(e: FormEvent) {
+    e.preventDefault();
+    if (password !== confirmPassword) {
+      setError('Password and confirmation do not match.');
+      return;
+    }
+    setLoading(true);
+    setError(null);
+    setNotice(null);
+    try {
+      const result = await registerSupplier({
+        companyName: companyName.trim(),
+        contactName: contactName.trim(),
+        email: email.trim(),
+        password,
+        phone: phone.trim() || undefined,
+        tin: tin.trim() || undefined,
+        vrn: vrn.trim() || undefined,
+        address: address.trim() || undefined,
+        category,
+      });
+      setMode('signin');
+      setPassword('');
+      setConfirmPassword('');
+      setNotice(result.message);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Registration failed');
     } finally {
       setLoading(false);
     }
@@ -55,68 +100,230 @@ export default function LoginPage() {
             <span className="block text-amber-200">Supplier Access</span>
           </h1>
           <p className="mt-4 text-base text-slate-200/90">
-            View your company profile and purchase orders issued by HIGHLINK —
-            scoped to your supplier account only.
+            Register your company, then sign in. You only see your own profile,
+            purchase orders, quotes, invoices, delivery notes, and payment
+            status.
           </p>
           <ul className="mt-6 space-y-2 text-sm text-slate-300">
-            <li>• Access issued by HIGHLINK procurement</li>
-            <li>• You only see your own POs and profile</li>
-            <li>• Quotes, delivery & payment status come next</li>
+            <li>• Self-register — procurement approves before trading</li>
+            <li>• Upload licence, TIN and VRN on your profile</li>
+            <li>• Submit quotes, invoices, DNs and payment requests</li>
           </ul>
         </div>
 
-        <form
-          onSubmit={onSubmit}
-          className="w-full max-w-md rounded-3xl border border-white/20 bg-white/95 p-8 shadow-2xl backdrop-blur"
-        >
-          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#ea580c]">
-            Sign in
-          </p>
-          <h2 className="mt-1 text-2xl font-bold text-[#1b1a19]">
-            Welcome back
-          </h2>
-          <p className="mt-1 text-sm text-[#605e5c]">
-            Use the credentials from your supplier invite.
-          </p>
+        <div className="w-full max-w-md rounded-3xl border border-white/20 bg-white/95 p-8 shadow-2xl backdrop-blur">
+          <div className="mb-5 grid grid-cols-2 rounded-xl bg-[#f3f2f1] p-1 text-sm font-semibold">
+            <button
+              type="button"
+              onClick={() => {
+                setMode('signin');
+                setError(null);
+              }}
+              className={`rounded-lg px-3 py-2 ${
+                mode === 'signin' ? 'bg-white text-[#ea580c] shadow-sm' : 'text-[#605e5c]'
+              }`}
+            >
+              Sign in
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setMode('register');
+                setError(null);
+                setNotice(null);
+                setEmail('');
+                setPassword('');
+              }}
+              className={`rounded-lg px-3 py-2 ${
+                mode === 'register' ? 'bg-white text-[#ea580c] shadow-sm' : 'text-[#605e5c]'
+              }`}
+            >
+              Register
+            </button>
+          </div>
 
-          <label className="mt-6 block text-sm font-medium text-[#323130]">
-            Email
-            <input
-              type="email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              className="mt-1.5 w-full rounded-xl border border-[#c8c6c4] bg-white px-3.5 py-2.5 text-[#1b1a19] outline-none transition focus:border-[#ea580c] focus:ring-2 focus:ring-[#ea580c]/20"
-              required
-              autoComplete="username"
-            />
-          </label>
+          {mode === 'signin' ? (
+            <form onSubmit={onSubmit}>
+              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#ea580c]">
+                Sign in
+              </p>
+              <h2 className="mt-1 text-2xl font-bold text-[#1b1a19]">
+                Welcome back
+              </h2>
+              <p className="mt-1 text-sm text-[#605e5c]">
+                Use your supplier portal credentials.
+              </p>
 
-          <label className="mt-4 block text-sm font-medium text-[#323130]">
-            Password
-            <input
-              type="password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              className="mt-1.5 w-full rounded-xl border border-[#c8c6c4] bg-white px-3.5 py-2.5 text-[#1b1a19] outline-none transition focus:border-[#ea580c] focus:ring-2 focus:ring-[#ea580c]/20"
-              required
-              autoComplete="current-password"
-            />
-          </label>
+              <label className="mt-6 block text-sm font-medium text-[#323130]">
+                Email
+                <input
+                  type="email"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  className={fieldCls}
+                  required
+                  autoComplete="username"
+                />
+              </label>
+              <label className="mt-4 block text-sm font-medium text-[#323130]">
+                Password
+                <input
+                  type="password"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  className={fieldCls}
+                  required
+                  autoComplete="current-password"
+                />
+              </label>
 
-          {error ? (
-            <p className="mt-4 rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">
-              {error}
-            </p>
-          ) : null}
+              {notice ? (
+                <p className="mt-4 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-800">
+                  {notice}
+                </p>
+              ) : null}
+              {error ? (
+                <p className="mt-4 rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">
+                  {error}
+                </p>
+              ) : null}
 
-          <button
-            type="submit"
-            disabled={loading}
-            className="mt-6 w-full rounded-xl bg-gradient-to-r from-[#ea580c] to-[#c2410c] px-4 py-3 font-semibold text-white shadow-md transition hover:brightness-105 disabled:opacity-60"
-          >
-            {loading ? 'Signing in…' : 'Continue to portal'}
-          </button>
-        </form>
+              <button
+                type="submit"
+                disabled={loading}
+                className="mt-6 w-full rounded-xl bg-gradient-to-r from-[#ea580c] to-[#c2410c] px-4 py-3 font-semibold text-white shadow-md transition hover:brightness-105 disabled:opacity-60"
+              >
+                {loading ? 'Signing in…' : 'Continue to portal'}
+              </button>
+            </form>
+          ) : (
+            <form onSubmit={onRegister} className="max-h-[70vh] overflow-y-auto pr-1">
+              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#ea580c]">
+                Register
+              </p>
+              <h2 className="mt-1 text-2xl font-bold text-[#1b1a19]">
+                Supplier company
+              </h2>
+              <p className="mt-1 text-sm text-[#605e5c]">
+                Pending until HIGHLINK procurement approves you.
+              </p>
+
+              <label className="mt-5 block text-sm font-medium text-[#323130]">
+                Company name
+                <input
+                  value={companyName}
+                  onChange={(e) => setCompanyName(e.target.value)}
+                  className={fieldCls}
+                  required
+                  minLength={2}
+                />
+              </label>
+              <label className="mt-3 block text-sm font-medium text-[#323130]">
+                Contact person
+                <input
+                  value={contactName}
+                  onChange={(e) => setContactName(e.target.value)}
+                  className={fieldCls}
+                  required
+                  minLength={2}
+                />
+              </label>
+              <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                <label className="block text-sm font-medium text-[#323130]">
+                  Email
+                  <input
+                    type="email"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    className={fieldCls}
+                    required
+                  />
+                </label>
+                <label className="block text-sm font-medium text-[#323130]">
+                  Phone
+                  <input
+                    value={phone}
+                    onChange={(e) => setPhone(e.target.value)}
+                    className={fieldCls}
+                  />
+                </label>
+              </div>
+              <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                <label className="block text-sm font-medium text-[#323130]">
+                  TIN
+                  <input
+                    value={tin}
+                    onChange={(e) => setTin(e.target.value)}
+                    className={fieldCls}
+                  />
+                </label>
+                <label className="block text-sm font-medium text-[#323130]">
+                  VRN
+                  <input
+                    value={vrn}
+                    onChange={(e) => setVrn(e.target.value)}
+                    className={fieldCls}
+                  />
+                </label>
+              </div>
+              <label className="mt-3 block text-sm font-medium text-[#323130]">
+                Category
+                <select
+                  value={category}
+                  onChange={(e) => setCategory(e.target.value)}
+                  className={fieldCls}
+                >
+                  <option value="GOODS">Goods</option>
+                  <option value="SERVICES">Services</option>
+                  <option value="BOTH">Goods and services</option>
+                </select>
+              </label>
+              <label className="mt-3 block text-sm font-medium text-[#323130]">
+                Address
+                <input
+                  value={address}
+                  onChange={(e) => setAddress(e.target.value)}
+                  className={fieldCls}
+                />
+              </label>
+              <label className="mt-3 block text-sm font-medium text-[#323130]">
+                Password
+                <input
+                  type="password"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  className={fieldCls}
+                  required
+                  minLength={8}
+                />
+              </label>
+              <label className="mt-3 block text-sm font-medium text-[#323130]">
+                Confirm password
+                <input
+                  type="password"
+                  value={confirmPassword}
+                  onChange={(e) => setConfirmPassword(e.target.value)}
+                  className={fieldCls}
+                  required
+                />
+              </label>
+
+              {error ? (
+                <p className="mt-4 rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">
+                  {error}
+                </p>
+              ) : null}
+
+              <button
+                type="submit"
+                disabled={loading}
+                className="mt-6 w-full rounded-xl bg-gradient-to-r from-[#ea580c] to-[#c2410c] px-4 py-3 font-semibold text-white shadow-md transition hover:brightness-105 disabled:opacity-60"
+              >
+                {loading ? 'Submitting…' : 'Submit registration'}
+              </button>
+            </form>
+          )}
+        </div>
       </div>
     </div>
   );

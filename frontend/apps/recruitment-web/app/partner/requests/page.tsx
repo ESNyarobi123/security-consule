@@ -70,6 +70,18 @@ export default function PartnerRequestsPage() {
   );
   const [serviceTerms, setServiceTerms] = useState('');
   const [criteriaNotes, setCriteriaNotes] = useState('');
+  const [experienceYearsMin, setExperienceYearsMin] = useState('');
+  const [ageMin, setAgeMin] = useState('');
+  const [ageMax, setAgeMax] = useState('');
+  const [genderPreference, setGenderPreference] = useState<
+    'ANY' | 'MALE' | 'FEMALE' | 'UNSPECIFIED'
+  >('ANY');
+  const [militaryTrainingRequired, setMilitaryTrainingRequired] =
+    useState(false);
+  const [firearmTrainingRequired, setFirearmTrainingRequired] = useState(false);
+  const [languages, setLanguages] = useState('');
+  const [heightMinCm, setHeightMinCm] = useState('');
+  const [healthConditionNotes, setHealthConditionNotes] = useState('');
 
   const refresh = useCallback(async () => {
     if (!getPartnerToken()) {
@@ -111,6 +123,17 @@ export default function PartnerRequestsPage() {
         urgency,
         serviceTerms: serviceTerms.trim() || undefined,
         criteriaNotes: criteriaNotes.trim() || undefined,
+        experienceYearsMin: experienceYearsMin
+          ? Number(experienceYearsMin)
+          : undefined,
+        ageMin: ageMin ? Number(ageMin) : undefined,
+        ageMax: ageMax ? Number(ageMax) : undefined,
+        genderPreference,
+        militaryTrainingRequired,
+        firearmTrainingRequired,
+        languages: languages.trim() || undefined,
+        heightMinCm: heightMinCm ? Number(heightMinCm) : undefined,
+        healthConditionNotes: healthConditionNotes.trim() || undefined,
       });
       setSiteLocation('');
       setQualifications('');
@@ -118,6 +141,15 @@ export default function PartnerRequestsPage() {
       setServiceTerms('');
       setCriteriaNotes('');
       setUrgency('STANDARD');
+      setExperienceYearsMin('');
+      setAgeMin('');
+      setAgeMax('');
+      setGenderPreference('ANY');
+      setMilitaryTrainingRequired(false);
+      setFirearmTrainingRequired(false);
+      setLanguages('');
+      setHeightMinCm('');
+      setHealthConditionNotes('');
       await refresh();
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
@@ -142,7 +174,7 @@ export default function PartnerRequestsPage() {
         title={partner ? partner.name : 'Guard supply requests'}
         subtitle={
           partner
-            ? `${partner.code} · ${partner.status} — request HIGHLINK recruitment by number, qualifications, location, training, urgency and terms.`
+            ? `${partner.code} · ${partner.status} — request HIGHLINK recruitment by count, location, experience, age, training, language, health and urgency.`
             : (session?.email ?? 'Partner portal')
         }
         actions={
@@ -253,17 +285,125 @@ export default function PartnerRequestsPage() {
           <section className="rounded-2xl border border-slate-100 bg-slate-50/70 p-4">
             <p className="inline-flex items-center gap-2 text-sm font-semibold text-slate-800">
               <Award className="h-4 w-4 text-[#4f46e5]" />
-              Qualifications
+              Qualifications &amp; profile criteria
             </p>
-            <Field label="Required qualifications" hint="licence, shift, language, firearms">
+            <Field label="Required qualifications" hint="licence, shift, clearance">
               <textarea
                 value={qualifications}
                 onChange={(e) => setQualifications(e.target.value)}
-                rows={3}
+                rows={2}
                 className={inputClass}
-                placeholder="e.g. Valid guard licence, night shift, basic firearms clearance"
+                placeholder="e.g. Valid guard licence, night shift"
               />
             </Field>
+            <div className="mt-3 grid gap-3 sm:grid-cols-3">
+              <Field label="Min experience (years)">
+                <input
+                  type="number"
+                  min={0}
+                  max={40}
+                  value={experienceYearsMin}
+                  onChange={(e) => setExperienceYearsMin(e.target.value)}
+                  className={inputClass}
+                  placeholder="e.g. 2"
+                />
+              </Field>
+              <Field label="Age min">
+                <input
+                  type="number"
+                  min={18}
+                  max={70}
+                  value={ageMin}
+                  onChange={(e) => setAgeMin(e.target.value)}
+                  className={inputClass}
+                />
+              </Field>
+              <Field label="Age max">
+                <input
+                  type="number"
+                  min={18}
+                  max={70}
+                  value={ageMax}
+                  onChange={(e) => setAgeMax(e.target.value)}
+                  className={inputClass}
+                />
+              </Field>
+            </div>
+            <div className="mt-3 grid gap-3 sm:grid-cols-2">
+              <Field
+                label="Gender preference"
+                hint="optional · where legally acceptable"
+              >
+                <select
+                  value={genderPreference}
+                  onChange={(e) =>
+                    setGenderPreference(
+                      e.target.value as typeof genderPreference,
+                    )
+                  }
+                  className={inputClass}
+                >
+                  <option value="ANY">Any / no preference</option>
+                  <option value="MALE">Male</option>
+                  <option value="FEMALE">Female</option>
+                  <option value="UNSPECIFIED">Prefer not to specify</option>
+                </select>
+              </Field>
+              <Field label="Min height (cm)">
+                <input
+                  type="number"
+                  min={140}
+                  max={220}
+                  value={heightMinCm}
+                  onChange={(e) => setHeightMinCm(e.target.value)}
+                  className={inputClass}
+                  placeholder="e.g. 165"
+                />
+              </Field>
+            </div>
+            <div className="mt-3">
+              <Field label="Languages">
+                <input
+                  value={languages}
+                  onChange={(e) => setLanguages(e.target.value)}
+                  className={inputClass}
+                  placeholder="e.g. Swahili, English"
+                />
+              </Field>
+            </div>
+            <div className="mt-3 flex flex-wrap gap-4 text-sm text-slate-700">
+              <label className="inline-flex items-center gap-2">
+                <input
+                  type="checkbox"
+                  checked={militaryTrainingRequired}
+                  onChange={(e) =>
+                    setMilitaryTrainingRequired(e.target.checked)
+                  }
+                />
+                Military training required
+              </label>
+              <label className="inline-flex items-center gap-2">
+                <input
+                  type="checkbox"
+                  checked={firearmTrainingRequired}
+                  onChange={(e) =>
+                    setFirearmTrainingRequired(e.target.checked)
+                  }
+                />
+                Firearm training required
+              </label>
+            </div>
+            <div className="mt-3">
+              <Field label="Health / fitness notes">
+                <textarea
+                  value={healthConditionNotes}
+                  onChange={(e) => setHealthConditionNotes(e.target.value)}
+                  rows={2}
+                  className={inputClass}
+                  placeholder="e.g. Fit for standing duty; no mobility limits"
+                />
+              </Field>
+            </div>
           </section>
 
           <section className="rounded-2xl border border-slate-100 bg-slate-50/70 p-4">
@@ -387,6 +527,42 @@ export default function PartnerRequestsPage() {
                     <p className="mt-2 text-xs text-slate-700">
                       <span className="font-semibold">Qualifications:</span>{' '}
                       {r.qualifications}
+                    </p>
+                  ) : null}
+                  {(r.experienceYearsMin != null ||
+                    r.ageMin != null ||
+                    r.ageMax != null ||
+                    r.languages ||
+                    r.heightMinCm != null) && (
+                    <p className="mt-1 text-xs text-slate-700">
+                      <span className="font-semibold">Profile:</span>{' '}
+                      {[
+                        r.experienceYearsMin != null
+                          ? `≥${r.experienceYearsMin}y exp`
+                          : null,
+                        r.ageMin != null || r.ageMax != null
+                          ? `age ${r.ageMin ?? '—'}-${r.ageMax ?? '—'}`
+                          : null,
+                        r.heightMinCm != null
+                          ? `≥${r.heightMinCm} cm`
+                          : null,
+                        r.languages,
+                        r.genderPreference &&
+                        r.genderPreference !== 'ANY' &&
+                        r.genderPreference !== 'UNSPECIFIED'
+                          ? `gender ${r.genderPreference}`
+                          : null,
+                        r.militaryTrainingRequired ? 'military' : null,
+                        r.firearmTrainingRequired ? 'firearm' : null,
+                      ]
+                        .filter(Boolean)
+                        .join(' · ')}
+                    </p>
+                  )}
+                  {r.healthConditionNotes ? (
+                    <p className="mt-1 text-xs text-slate-700">
+                      <span className="font-semibold">Health:</span>{' '}
+                      {r.healthConditionNotes}
                     </p>
                   ) : null}
                   {r.trainingNeeds ? (

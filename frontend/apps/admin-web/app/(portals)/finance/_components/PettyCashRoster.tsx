@@ -2,7 +2,7 @@
 
 import type { PettyCashVoucher } from '@pssms/api-client';
 import { btnPrimary, btnSecondary } from '@pssms/ui';
-import { Paperclip, Wallet } from 'lucide-react';
+import { Banknote, Paperclip, Wallet } from 'lucide-react';
 import type { ReactNode } from 'react';
 
 function formatMoney(amount: number) {
@@ -83,9 +83,15 @@ function statusTone(status: string): {
       className: 'bg-sky-50 text-sky-800 ring-sky-200/80',
       dot: 'bg-sky-500',
     };
+  if (s === 'ISSUED')
+    return {
+      label: 'Issued',
+      className: 'bg-indigo-50 text-indigo-800 ring-indigo-200/80',
+      dot: 'bg-indigo-500',
+    };
   if (s === 'REIMBURSED')
     return {
-      label: 'Reimbursed',
+      label: 'Retired',
       className: 'bg-emerald-50 text-emerald-800 ring-emerald-200/80',
       dot: 'bg-emerald-500',
     };
@@ -129,6 +135,7 @@ export function PettyCashRoster({
   canAct,
   onApprove,
   onReject,
+  onIssue,
   onReimburse,
   onReceipts,
   toolbar,
@@ -141,6 +148,7 @@ export function PettyCashRoster({
   canAct?: (r: PettyCashVoucher) => boolean | 'own';
   onApprove?: (r: PettyCashVoucher) => void;
   onReject?: (r: PettyCashVoucher) => void;
+  onIssue?: (r: PettyCashVoucher) => void;
   onReimburse?: (r: PettyCashVoucher) => void;
   onReceipts?: (r: PettyCashVoucher) => void;
   toolbar?: ReactNode;
@@ -218,7 +226,7 @@ export function PettyCashRoster({
                             <p className="font-mono text-[13px] font-semibold text-[#1b1a19]">
                               {r.voucherNumber}
                             </p>
-                            <div className="mt-1">
+                            <div className="mt-1 flex flex-wrap items-center gap-1.5">
                               <CategoryPill category={r.category} />
                             </div>
                           </div>
@@ -234,8 +242,14 @@ export function PettyCashRoster({
                           {r.purpose}
                         </p>
                         <p className="mt-1 text-[11px] text-[#8a8886]">
-                          {formatDate(r.createdAt)}
-                          {receiptHint ? ` · ${receiptHint}` : ''}
+                          {[
+                            r.branchCode ?? r.branchName,
+                            r.department,
+                            formatDate(r.createdAt),
+                            receiptHint,
+                          ]
+                            .filter(Boolean)
+                            .join(' · ')}
                         </p>
                       </div>
                     </div>
@@ -245,6 +259,7 @@ export function PettyCashRoster({
                       busy={busyId === r.id}
                       onApprove={() => onApprove?.(r)}
                       onReject={() => onReject?.(r)}
+                      onIssue={() => onIssue?.(r)}
                       onReimburse={() => onReimburse?.(r)}
                       onReceipts={() => onReceipts?.(r)}
                     />
@@ -269,6 +284,16 @@ export function PettyCashRoster({
                         </p>
                         <div className="mt-1 flex flex-wrap items-center gap-1.5">
                           <CategoryPill category={r.category} />
+                          {r.branchCode ? (
+                            <span className="text-[10px] font-medium text-[#605e5c]">
+                              {r.branchCode}
+                            </span>
+                          ) : null}
+                          {r.department ? (
+                            <span className="text-[10px] text-[#8a8886]">
+                              {r.department}
+                            </span>
+                          ) : null}
                           {receiptHint ? (
                             <span className="text-[10px] font-medium text-[#0078d4]">
                               {receiptHint}
@@ -293,9 +318,14 @@ export function PettyCashRoster({
                       <p className="text-[12px] tabular-nums text-[#605e5c]">
                         {formatDate(r.createdAt)}
                       </p>
+                      {s === 'ISSUED' && r.issuedAt ? (
+                        <p className="mt-0.5 text-[10px] text-[#8a8886]">
+                          Issued {formatDateTime(r.issuedAt)}
+                        </p>
+                      ) : null}
                       {s === 'REIMBURSED' && r.reimbursedAt ? (
                         <p className="mt-0.5 text-[10px] text-[#8a8886]">
-                          Paid {formatDateTime(r.reimbursedAt)}
+                          Retired {formatDateTime(r.reimbursedAt)}
                         </p>
                       ) : null}
                     </div>
@@ -309,6 +339,7 @@ export function PettyCashRoster({
                         busy={busyId === r.id}
                         onApprove={() => onApprove?.(r)}
                         onReject={() => onReject?.(r)}
+                        onIssue={() => onIssue?.(r)}
                         onReimburse={() => onReimburse?.(r)}
                         onReceipts={() => onReceipts?.(r)}
                       />
@@ -330,6 +361,7 @@ function PettyActions({
   busy,
   onApprove,
   onReject,
+  onIssue,
   onReimburse,
   onReceipts,
 }: {
@@ -338,6 +370,7 @@ function PettyActions({
   busy?: boolean;
   onApprove: () => void;
   onReject: () => void;
+  onIssue: () => void;
   onReimburse: () => void;
   onReceipts: () => void;
 }) {
@@ -375,6 +408,27 @@ function PettyActions({
   }
 
   if (status === 'APPROVED') {
+    if (act === 'own') {
+      return (
+        <span className="text-[11px] text-[#a19f9d]">
+          Creator cannot issue
+        </span>
+      );
+    }
+    return (
+      <button
+        type="button"
+        className={btnPrimary}
+        disabled={busy || act === false}
+        onClick={onIssue}
+      >
+        <Banknote className="h-3 w-3" />
+        Issue cash
+      </button>
+    );
+  }
+
+  if (status === 'ISSUED') {
     return (
       <>
         <button type="button" className={btnSecondary} onClick={onReceipts}>
@@ -383,7 +437,7 @@ function PettyActions({
         </button>
         {act === 'own' ? (
           <span className="text-[11px] text-[#a19f9d]">
-            Creator cannot reimburse
+            Creator cannot retire
           </span>
         ) : (
           <button
@@ -392,7 +446,7 @@ function PettyActions({
             disabled={busy || act === false}
             onClick={onReimburse}
           >
-            Mark reimbursed
+            Retire
           </button>
         )}
       </>

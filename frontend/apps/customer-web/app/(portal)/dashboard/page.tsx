@@ -552,10 +552,10 @@ export default function DashboardPage() {
           title="Payroll report"
           action={
             <Link
-              href="/reports"
+              href="/payroll"
               className="inline-flex items-center gap-1 text-sm font-semibold text-[#0078d4] hover:underline"
             >
-              Open reports <ArrowRight className="h-4 w-4" />
+              Employee payroll <ArrowRight className="h-4 w-4" />
             </Link>
           }
         >

@@ -18,7 +18,9 @@ import {
   ApiTags,
 } from '@nestjs/swagger';
 import { AccessControlService } from '@pssms/access-control';
+import { UpdateCustomerEmployeePaymentDto } from '@pssms/access-control/presentation/dto/access.dto';
 import { SitesService } from '@pssms/enterprise';
+import { CustomerSalaryService, PayrollDueService, PayrollService } from '@pssms/payroll';
 import {
   AuthUser,
   CurrentUser,
@@ -80,6 +82,16 @@ import {
 } from './dto/customer-employee.dto';
 import { InviteCustomerEmployeePortalResponseDto } from './dto/customer-employee-portal.dto';
 import {
+  CreateCustomerSalaryAssignmentDto,
+  CustomerSalaryAssignmentResponseDto,
+  UpdateCustomerSalaryAssignmentDto,
+} from '@pssms/payroll/presentation/dto/customer-payroll.dto';
+import {
+  PayrollCycleResponseDto,
+  PayslipSnapshotResponseDto,
+} from '@pssms/payroll/presentation/dto/payroll.dto';
+import { PayrollDueAlertResponseDto } from '@pssms/payroll/presentation/dto/payroll-due.dto';
+import {
   CreateCustomerContactDto,
   CustomerContactResponseDto,
   UpdateCustomerContactDto,
@@ -101,6 +113,9 @@ export class CustomersController {
     private readonly contacts: CustomerContactsService,
     private readonly sites: SitesService,
     private readonly access: AccessControlService,
+    private readonly payroll: PayrollService,
+    private readonly customerSalary: CustomerSalaryService,
+    private readonly payrollDue: PayrollDueService,
   ) {}
 
   @Post()
@@ -281,6 +296,62 @@ export class CustomersController {
   @ApiOkResponse({ type: [CustomerContactResponseDto] })
   meContacts(@CurrentUser() user: AuthUser) {
     return this.contacts.listForPortal(user);
+  }
+
+  @Get('me/payroll/cycles')
+  @ApiOperation({
+    summary: 'Customer portal — payroll cycles (Module 19-A)',
+    description:
+      'CUSTOMER_MANAGED_PAYROLL cycles for the scoped customer only.',
+  })
+  @ApiOkResponse({ type: [PayrollCycleResponseDto] })
+  mePayrollCycles(@CurrentUser() user: AuthUser) {
+    return this.payroll.listCyclesForCustomerPortal(user);
+  }
+
+  @Get('me/payroll/due-alerts')
+  @ApiOperation({
+    summary: 'Customer portal — e-payroll due alerts (Module 20-A)',
+    description: 'Own customer only. Alerts appear after invoice is fully paid.',
+  })
+  @ApiOkResponse({ type: [PayrollDueAlertResponseDto] })
+  mePayrollDueAlerts(@CurrentUser() user: AuthUser) {
+    return this.payrollDue.listAlertsForCustomerPortal(user);
+  }
+
+  @Get('me/payroll/cycles/:cycleId/payslips')
+  @ApiOperation({
+    summary: 'Customer portal — payslips for a payroll cycle (Module 19-A)',
+  })
+  @ApiOkResponse({ type: [PayslipSnapshotResponseDto] })
+  mePayrollCyclePayslips(
+    @Param('cycleId', ParseUUIDPipe) cycleId: string,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.payroll.listPayslipsForCustomerPortal(cycleId, user);
+  }
+
+  @Get('me/payroll/payslips/:payslipId')
+  @ApiOperation({
+    summary: 'Customer portal — payslip detail (Module 19-A)',
+  })
+  @ApiOkResponse({ type: PayslipSnapshotResponseDto })
+  mePayrollPayslip(
+    @Param('payslipId', ParseUUIDPipe) payslipId: string,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.payroll.getPayslipForCustomerPortal(payslipId, user);
+  }
+
+  @Get('me/payroll/my-payslips')
+  @ApiOperation({
+    summary: 'Customer employee — own payslips (Module 19-A)',
+    description:
+      'CUSTOMER_EMPLOYEE self-scope via linked CustomerEmployee.userId.',
+  })
+  @ApiOkResponse({ type: [PayslipSnapshotResponseDto] })
+  meMyPayslips(@CurrentUser() user: AuthUser) {
+    return this.payroll.listMyPayslipsForEmployee(user);
   }
 
   @Get('complaints')
@@ -590,6 +661,69 @@ export class CustomersController {
     @CurrentUser() user: AuthUser,
   ) {
     return this.employeePortal.invite(id, employeeId, user);
+  }
+
+  @Get(':id/payroll/salary-assignments')
+  @UseGuards(PermissionsGuard)
+  @RequireAnyPermissions('customers.manage', 'payroll.manage')
+  @ApiOperation({
+    summary: 'List customer employee salary assignments (Module 19-A)',
+  })
+  @ApiOkResponse({ type: [CustomerSalaryAssignmentResponseDto] })
+  listCustomerSalaryAssignments(
+    @Param('id', ParseUUIDPipe) id: string,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.customerSalary.listForCustomer(id, user.organizationId);
+  }
+
+  @Post(':id/payroll/salary-assignments')
+  @UseGuards(PermissionsGuard)
+  @RequireAnyPermissions('customers.manage', 'payroll.manage')
+  @ApiOperation({
+    summary: 'Create customer employee salary assignment (Module 19-A)',
+  })
+  @ApiCreatedResponse({ type: CustomerSalaryAssignmentResponseDto })
+  createCustomerSalaryAssignment(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: CreateCustomerSalaryAssignmentDto,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.customerSalary.create(id, dto, user);
+  }
+
+  @Patch(':id/payroll/salary-assignments/:assignmentId')
+  @UseGuards(PermissionsGuard)
+  @RequireAnyPermissions('customers.manage', 'payroll.manage')
+  @ApiOperation({
+    summary: 'Update customer employee salary assignment (Module 19-A)',
+  })
+  @ApiOkResponse({ type: CustomerSalaryAssignmentResponseDto })
+  updateCustomerSalaryAssignment(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Param('assignmentId', ParseUUIDPipe) assignmentId: string,
+    @Body() dto: UpdateCustomerSalaryAssignmentDto,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.customerSalary.update(id, assignmentId, dto, user);
+  }
+
+  @Patch(':id/employees/:employeeId/payment-instructions')
+  @UseGuards(PermissionsGuard)
+  @RequireAnyPermissions('customers.manage', 'payroll.manage')
+  @ApiOperation({
+    summary: 'Update customer employee payment instructions (Module 19-A)',
+  })
+  @ApiOkResponse({ type: CustomerEmployeeStaffResponseDto })
+  updateEmployeePaymentInstructions(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Param('employeeId', ParseUUIDPipe) employeeId: string,
+    @Body() dto: UpdateCustomerEmployeePaymentDto,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.access.updateEmployeePayment(employeeId, dto, user, {
+      requiredCustomerId: id,
+    });
   }
 
   @Get(':id/portal-users')

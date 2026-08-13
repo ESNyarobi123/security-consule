@@ -11,6 +11,7 @@ import {
   CreateStockMovementDto,
   StockItemResponseDto,
   StockMovementResponseDto,
+  UpdateStockItemDto,
 } from '../presentation/dto/inventory.dto';
 
 @Injectable()
@@ -51,6 +52,46 @@ export class InventoryService {
     });
 
     return this.toItemDto(item, 0);
+  }
+
+  async updateItem(
+    id: string,
+    dto: UpdateStockItemDto,
+    user: AuthUser,
+  ): Promise<StockItemResponseDto> {
+    const item = await this.prisma.stockItem.findFirst({
+      where: { id, organizationId: user.organizationId },
+    });
+    if (!item) throw new NotFoundException('Stock item not found');
+    const updated = await this.prisma.stockItem.update({
+      where: { id },
+      data: {
+        ...(dto.name != null ? { name: dto.name.trim() } : {}),
+        ...(dto.category !== undefined
+          ? { category: dto.category?.trim() || null }
+          : {}),
+        ...(dto.unit != null ? { unit: dto.unit.trim() } : {}),
+        ...(dto.reorderLevel !== undefined
+          ? { reorderLevel: dto.reorderLevel }
+          : {}),
+        ...(dto.isActive !== undefined ? { isActive: dto.isActive } : {}),
+      },
+    });
+    await this.audit.record({
+      organizationId: user.organizationId,
+      actorId: user.id,
+      action: 'stock_item.updated',
+      resourceType: 'StockItem',
+      resourceId: id,
+      after: updated,
+    });
+    const onHand = await this.getOnHand(user.organizationId, id);
+    return this.toItemDto(updated, onHand);
+  }
+
+  async listAlerts(organizationId: string): Promise<StockItemResponseDto[]> {
+    const items = await this.listItems(organizationId);
+    return items.filter((i) => i.belowReorder);
   }
 
   async listItems(organizationId: string): Promise<StockItemResponseDto[]> {
@@ -176,6 +217,8 @@ export class InventoryService {
       reorderLevel: item.reorderLevel,
       isActive: item.isActive,
       onHand,
+      belowReorder:
+        item.reorderLevel != null && onHand <= item.reorderLevel,
       createdAt: item.createdAt,
     };
   }

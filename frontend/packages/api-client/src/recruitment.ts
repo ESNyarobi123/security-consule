@@ -1,3 +1,5 @@
+import { authHeaders, clearSession, getRefreshToken, setTokens } from '@pssms/auth';
+
 const coreUrl = () =>
   process.env.NEXT_PUBLIC_CORE_API_URL ??
   process.env.NEXT_PUBLIC_API_URL ??
@@ -142,4 +144,169 @@ export async function getApplicationStatus(reference: string, email: string) {
   url.searchParams.set('email', email);
   const res = await fetch(url.toString());
   return parseEnvelope<ApplicationStatusLookup>(res);
+}
+
+// ── Module 14-A — staff HR inbox (admin-web · recruitment.manage) ─────────
+
+export type ApplicationStatusValue =
+  | 'SUBMITTED'
+  | 'SCREENING'
+  | 'INTERVIEW'
+  | 'OFFERED'
+  | 'HIRED'
+  | 'REJECTED'
+  | 'WITHDRAWN';
+
+export type StaffJobApplication = {
+  id: string;
+  organizationId: string;
+  postingId: string;
+  referenceNumber: string;
+  applicantName: string;
+  email: string;
+  phone?: string | null;
+  resumeUrl?: string | null;
+  coverLetter?: string | null;
+  status: ApplicationStatusValue;
+  notes?: string | null;
+  employeeId?: string | null;
+  createdAt: string;
+  postingTitle?: string | null;
+  allowedNextStatuses?: ApplicationStatusValue[];
+  canHire?: boolean;
+};
+
+export type StaffJobPosting = {
+  id: string;
+  organizationId: string;
+  title: string;
+  department?: string | null;
+  location?: string | null;
+  description: string;
+  requirements?: string | null;
+  status: string;
+  publishedAt?: string | null;
+  closesAt?: string | null;
+  createdAt: string;
+};
+
+export type HireApplicantBody = {
+  employeeNumber: string;
+  department?: string;
+  employmentType?: 'GUARD' | 'SUPERVISOR' | 'ADMIN' | 'OTHER';
+};
+
+let staffRefreshInFlight: Promise<string | null> | null = null;
+
+async function tryStaffRefresh(): Promise<string | null> {
+  const rt = getRefreshToken();
+  if (!rt) return null;
+  if (!staffRefreshInFlight) {
+    staffRefreshInFlight = (async () => {
+      try {
+        const res = await fetch(`${coreUrl()}/api/v1/auth/refresh`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ refreshToken: rt }),
+        });
+        if (!res.ok) return null;
+        const json = (await res.json()) as ApiEnvelope<{
+          accessToken: string;
+          refreshToken: string;
+        }>;
+        setTokens(json.data.accessToken, json.data.refreshToken);
+        return json.data.accessToken;
+      } catch {
+        return null;
+      } finally {
+        setTimeout(() => {
+          staffRefreshInFlight = null;
+        }, 0);
+      }
+    })();
+  }
+  return staffRefreshInFlight;
+}
+
+async function recruitmentStaffFetch<T>(
+  path: string,
+  init?: RequestInit & { token?: string },
+): Promise<T> {
+  const doFetch = (authToken?: string) =>
+    fetch(`${coreUrl()}${path}`, {
+      ...init,
+      headers: {
+        'Content-Type': 'application/json',
+        ...authHeaders(authToken ?? init?.token),
+        ...init?.headers,
+      },
+    });
+
+  let res = await doFetch();
+  if (res.status === 401 && !init?.token) {
+    const newToken = await tryStaffRefresh();
+    if (newToken) res = await doFetch(newToken);
+    if (res.status === 401 && typeof window !== 'undefined') {
+      clearSession();
+      window.location.href = `/login?next=${encodeURIComponent(window.location.pathname)}`;
+    }
+  }
+  return parseEnvelope<T>(res);
+}
+
+/** GET /recruitment/applications — Module 14-A */
+export function listStaffJobApplications(params?: {
+  postingId?: string;
+  status?: ApplicationStatusValue;
+  token?: string;
+}) {
+  const q = new URLSearchParams();
+  if (params?.postingId) q.set('postingId', params.postingId);
+  if (params?.status) q.set('status', params.status);
+  const qs = q.toString();
+  return recruitmentStaffFetch<StaffJobApplication[]>(
+    `/api/v1/recruitment/applications${qs ? `?${qs}` : ''}`,
+    { token: params?.token },
+  );
+}
+
+/** GET /recruitment/postings */
+export function listStaffJobPostings(status?: string, token?: string) {
+  const q = status ? `?status=${encodeURIComponent(status)}` : '';
+  return recruitmentStaffFetch<StaffJobPosting[]>(
+    `/api/v1/recruitment/postings${q}`,
+    { token },
+  );
+}
+
+/** PATCH /recruitment/applications/:id/status */
+export function updateJobApplicationStatus(
+  id: string,
+  body: { status: ApplicationStatusValue; notes?: string },
+  token?: string,
+) {
+  return recruitmentStaffFetch<StaffJobApplication>(
+    `/api/v1/recruitment/applications/${id}/status`,
+    {
+      method: 'PATCH',
+      body: JSON.stringify(body),
+      token,
+    },
+  );
+}
+
+/** POST /recruitment/applications/:id/hire */
+export function hireJobApplicant(
+  id: string,
+  body: HireApplicantBody,
+  token?: string,
+) {
+  return recruitmentStaffFetch<StaffJobApplication>(
+    `/api/v1/recruitment/applications/${id}/hire`,
+    {
+      method: 'POST',
+      body: JSON.stringify(body),
+      token,
+    },
+  );
 }

@@ -1,9 +1,19 @@
 /**
  * Document attachments (MinIO metadata) — upload / list / presigned download.
  * Staff: `documents.manage` + parent perm. Portal: read-only on own Customer /
- * Contract / VisitorAppointment. Used by EOB, petty-cash, CRM, visitor ID scans.
+ * Contract / VisitorAppointment. Supplier portal may read+write own Supplier /
+ * SupplierSubmission files (supplier cookie). Parking portal uses parking cookie.
  */
-import { authHeaders, clearSession, getRefreshToken, setTokens } from '@pssms/auth';
+import {
+  authHeaders,
+  clearSession,
+  getParkingToken,
+  getRefreshToken,
+  getSupplierToken,
+  parkingAuthHeaders,
+  setTokens,
+  supplierAuthHeaders,
+} from '@pssms/auth';
 
 type ApiEnvelope<T> = {
   success: boolean;
@@ -52,19 +62,28 @@ async function tryRefresh(): Promise<string | null> {
   return refreshInFlight;
 }
 
+async function resolveAuthHeaders(token?: string): Promise<HeadersInit> {
+  if (token) return { Authorization: `Bearer ${token}` };
+  const supplier = getSupplierToken();
+  if (supplier) return supplierAuthHeaders(supplier);
+  const parking = getParkingToken();
+  if (parking) return parkingAuthHeaders(parking);
+  return authHeaders();
+}
+
 async function coreFetch<T>(
   path: string,
   init: RequestInit & { token?: string; skipJsonContentType?: boolean } = {},
 ): Promise<T> {
   const { token, skipJsonContentType = false, ...rest } = init;
-  const doFetch = (access?: string | null) =>
+  const doFetch = async (access?: string | null) =>
     fetch(`${coreUrl()}${path}`, {
       ...rest,
       headers: {
         ...(skipJsonContentType || rest.body instanceof FormData
           ? {}
           : { 'Content-Type': 'application/json' }),
-        ...authHeaders(access ?? token),
+        ...(await resolveAuthHeaders(access ?? token)),
         ...(rest.headers ?? {}),
       },
     });

@@ -1,12 +1,20 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { B2bPartnerStatus, GuardSupplyRequestStatus, GuardSupplyUrgency } from '@prisma/client';
 import {
+  B2bPartnerStatus,
+  GuardSupplyGenderPreference,
+  GuardSupplyRequestStatus,
+  GuardSupplyUrgency,
+} from '@prisma/client';
+import {
+  IsBoolean,
   IsDateString,
   IsEmail,
   IsEnum,
   IsInt,
+  IsNumber,
   IsOptional,
   IsString,
+  IsUUID,
   Max,
   MaxLength,
   Min,
@@ -34,6 +42,17 @@ export class B2bPartnerProfileDto {
 
   @ApiProperty()
   status!: string;
+
+  @ApiPropertyOptional({
+    description: 'Soft link to CRM customer for AR billing (Module 15-B)',
+  })
+  customerId?: string | null;
+
+  @ApiPropertyOptional()
+  customerCode?: string | null;
+
+  @ApiPropertyOptional()
+  customerName?: string | null;
 
   @ApiProperty()
   createdAt!: string;
@@ -94,6 +113,42 @@ export class UpdateB2bPartnerStatusDto {
   status!: B2bPartnerStatus;
 }
 
+export class UpdateB2bPartnerCustomerDto {
+  @ApiProperty({ description: 'CRM customer id for invoicing; null clears link' })
+  @IsUUID()
+  customerId!: string;
+}
+
+export class B2bCustomerOptionDto {
+  @ApiProperty()
+  id!: string;
+
+  @ApiProperty()
+  code!: string;
+
+  @ApiProperty()
+  name!: string;
+}
+
+export class UpdateGuardSupplyRequestChargesDto {
+  @ApiProperty({ minimum: 0 })
+  @IsNumber()
+  @Min(0)
+  unitRatePerGuard!: number;
+
+  @ApiPropertyOptional({ minimum: 0 })
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  discountAmount?: number;
+
+  @ApiPropertyOptional({ example: 'TZS' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(8)
+  currency?: string;
+}
+
 export class CreateGuardSupplyRequestDto {
   @ApiProperty({ minimum: 1, maximum: 500 })
   @IsInt()
@@ -151,6 +206,67 @@ export class CreateGuardSupplyRequestDto {
   @IsString()
   @MaxLength(2000)
   criteriaNotes?: string;
+
+  /** Module 15-A */
+  @ApiPropertyOptional({ minimum: 0, maximum: 40 })
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  @Max(40)
+  experienceYearsMin?: number;
+
+  @ApiPropertyOptional({ minimum: 18, maximum: 70 })
+  @IsOptional()
+  @IsInt()
+  @Min(18)
+  @Max(70)
+  ageMin?: number;
+
+  @ApiPropertyOptional({ minimum: 18, maximum: 70 })
+  @IsOptional()
+  @IsInt()
+  @Min(18)
+  @Max(70)
+  ageMax?: number;
+
+  @ApiPropertyOptional({
+    enum: GuardSupplyGenderPreference,
+    description: 'Optional preference only — where legally acceptable',
+  })
+  @IsOptional()
+  @IsEnum(GuardSupplyGenderPreference)
+  genderPreference?: GuardSupplyGenderPreference;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsBoolean()
+  militaryTrainingRequired?: boolean;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsBoolean()
+  firearmTrainingRequired?: boolean;
+
+  @ApiPropertyOptional({ example: 'Swahili, English' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(500)
+  languages?: string;
+
+  @ApiPropertyOptional({ minimum: 140, maximum: 220 })
+  @IsOptional()
+  @IsInt()
+  @Min(140)
+  @Max(220)
+  heightMinCm?: number;
+
+  @ApiPropertyOptional({
+    example: 'Medically fit for standing duty; no known mobility limits',
+  })
+  @IsOptional()
+  @IsString()
+  @MaxLength(2000)
+  healthConditionNotes?: string;
 }
 
 export class UpdateGuardSupplyRequestStatusDto {
@@ -210,6 +326,63 @@ export class GuardSupplyRequestResponseDto {
 
   @ApiPropertyOptional()
   criteriaNotes?: string | null;
+
+  @ApiPropertyOptional()
+  experienceYearsMin?: number | null;
+
+  @ApiPropertyOptional()
+  ageMin?: number | null;
+
+  @ApiPropertyOptional()
+  ageMax?: number | null;
+
+  @ApiPropertyOptional({ enum: GuardSupplyGenderPreference })
+  genderPreference?: string | null;
+
+  @ApiProperty()
+  militaryTrainingRequired!: boolean;
+
+  @ApiProperty()
+  firearmTrainingRequired!: boolean;
+
+  @ApiPropertyOptional()
+  languages?: string | null;
+
+  @ApiPropertyOptional()
+  heightMinCm?: number | null;
+
+  @ApiPropertyOptional()
+  healthConditionNotes?: string | null;
+
+  @ApiPropertyOptional()
+  unitRatePerGuard?: number | null;
+
+  @ApiPropertyOptional()
+  serviceFeeAmount?: number | null;
+
+  @ApiPropertyOptional()
+  currency?: string | null;
+
+  @ApiPropertyOptional()
+  discountAmount?: number | null;
+
+  @ApiPropertyOptional()
+  invoiceId?: string | null;
+
+  @ApiPropertyOptional()
+  billedAt?: string | null;
+
+  @ApiPropertyOptional()
+  invoiceNumber?: string | null;
+
+  @ApiPropertyOptional()
+  invoiceStatus?: string | null;
+
+  @ApiPropertyOptional()
+  amountPaid?: number | null;
+
+  @ApiPropertyOptional()
+  balanceDue?: number | null;
 
   @ApiProperty({ enum: GuardSupplyRequestStatus })
   status!: GuardSupplyRequestStatus;

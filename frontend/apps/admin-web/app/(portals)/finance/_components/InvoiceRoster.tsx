@@ -2,7 +2,7 @@
 
 import type { Invoice } from '@pssms/api-client';
 import { btnPrimary, btnSecondary } from '@pssms/ui';
-import { Ban, FileText, Send, Wallet } from 'lucide-react';
+import { Ban, CheckCircle2, FileText, Flag, Send, Wallet } from 'lucide-react';
 import type { ReactNode } from 'react';
 
 function formatMoney(amount: number, currency = 'TZS') {
@@ -66,7 +66,7 @@ function invoiceStatusTone(status: string): {
     };
   if (s === 'SENT')
     return {
-      label: 'Sent',
+      label: 'Issued',
       className: 'bg-sky-50 text-sky-800 ring-sky-200/80',
       dot: 'bg-sky-500',
     };
@@ -82,15 +82,27 @@ function invoiceStatusTone(status: string): {
       className: 'bg-rose-50 text-rose-800 ring-rose-200/80',
       dot: 'bg-rose-500',
     };
+  if (s === 'DISPUTED')
+    return {
+      label: 'Disputed',
+      className: 'bg-orange-50 text-orange-900 ring-orange-200/80',
+      dot: 'bg-orange-500',
+    };
   if (s === 'PAID')
     return {
-      label: 'Paid',
+      label: 'Fully paid',
       className: 'bg-emerald-50 text-emerald-800 ring-emerald-200/80',
       dot: 'bg-emerald-500',
     };
+  if (s === 'CLOSED')
+    return {
+      label: 'Closed',
+      className: 'bg-slate-50 text-slate-600 ring-slate-200/80',
+      dot: 'bg-slate-400',
+    };
   if (s === 'VOIDED' || s === 'CANCELLED')
     return {
-      label: 'Voided',
+      label: 'Cancelled',
       className: 'bg-slate-50 text-slate-600 ring-slate-200/80',
       dot: 'bg-slate-400',
     };
@@ -115,7 +127,8 @@ function StatusPill({ status }: { status: string }) {
 
 function dueTone(dueDate: string, status: string): string {
   const s = status.trim().toUpperCase();
-  if (s === 'PAID' || s === 'VOIDED') return 'text-[#8a8886]';
+  if (s === 'PAID' || s === 'VOIDED' || s === 'CLOSED' || s === 'CANCELLED')
+    return 'text-[#8a8886]';
   if (!dueDate) return 'text-[#605e5c]';
   const due = new Date(dueDate);
   if (Number.isNaN(due.getTime())) return 'text-[#605e5c]';
@@ -154,6 +167,8 @@ export function InvoiceRoster({
   onSend,
   onPay,
   onVoid,
+  onDispute,
+  onClose,
   toolbar,
   empty,
 }: {
@@ -165,6 +180,8 @@ export function InvoiceRoster({
   onSend?: (inv: Invoice) => void;
   onPay?: (inv: Invoice) => void;
   onVoid?: (inv: Invoice) => void;
+  onDispute?: (inv: Invoice) => void;
+  onClose?: (inv: Invoice) => void;
   toolbar?: ReactNode;
   empty?: ReactNode;
 }) {
@@ -220,9 +237,19 @@ export function InvoiceRoster({
             const bal = Math.max(r.totalAmount - r.amountPaid, 0);
             const s = r.status.trim().toUpperCase().replace(/[\s-]+/g, '_');
             const canSend = s === 'DRAFT';
-            const canPay = s === 'SENT' || s === 'PARTIALLY_PAID' || s === 'OVERDUE';
+            const canPay =
+              s === 'SENT' ||
+              s === 'PARTIALLY_PAID' ||
+              s === 'OVERDUE' ||
+              s === 'DISPUTED';
+            const canDispute =
+              s === 'SENT' || s === 'PARTIALLY_PAID' || s === 'OVERDUE';
+            const canClose = s === 'PAID';
             const canVoid =
-              (s === 'DRAFT' || s === 'SENT' || s === 'OVERDUE') &&
+              (s === 'DRAFT' ||
+                s === 'SENT' ||
+                s === 'OVERDUE' ||
+                s === 'DISPUTED') &&
               r.amountPaid <= 0;
             const paidPct =
               r.totalAmount > 0
@@ -278,10 +305,14 @@ export function InvoiceRoster({
                       canSend={canSend}
                       canPay={canPay}
                       canVoid={canVoid}
+                      canDispute={canDispute}
+                      canClose={canClose}
                       busy={busyId === r.id}
                       onSend={() => onSend?.(r)}
                       onPay={() => onPay?.(r)}
                       onVoid={() => onVoid?.(r)}
+                      onDispute={() => onDispute?.(r)}
+                      onClose={() => onClose?.(r)}
                     />
                   </div>
 
@@ -315,6 +346,11 @@ export function InvoiceRoster({
                       {r.contractNumber ? (
                         <p className="mt-0.5 font-mono text-[10px] text-[#8a8886]">
                           {r.contractNumber}
+                        </p>
+                      ) : null}
+                      {r.serviceType ? (
+                        <p className="mt-0.5 text-[10px] font-medium uppercase tracking-wide text-[#605e5c]">
+                          {r.serviceType.replace(/_/g, ' ')}
                         </p>
                       ) : null}
                       <div className="mt-1">
@@ -355,10 +391,14 @@ export function InvoiceRoster({
                         canSend={canSend}
                         canPay={canPay}
                         canVoid={canVoid}
+                        canDispute={canDispute}
+                        canClose={canClose}
                         busy={busyId === r.id}
                         onSend={() => onSend?.(r)}
                         onPay={() => onPay?.(r)}
                         onVoid={() => onVoid?.(r)}
+                        onDispute={() => onDispute?.(r)}
+                        onClose={() => onClose?.(r)}
                       />
                     </div>
                   </div>
@@ -376,20 +416,28 @@ function InvoiceActions({
   canSend,
   canPay,
   canVoid,
+  canDispute,
+  canClose,
   busy,
   onSend,
   onPay,
   onVoid,
+  onDispute,
+  onClose,
 }: {
   canSend?: boolean;
   canPay?: boolean;
   canVoid?: boolean;
+  canDispute?: boolean;
+  canClose?: boolean;
   busy?: boolean;
   onSend: () => void;
   onPay: () => void;
   onVoid: () => void;
+  onDispute: () => void;
+  onClose: () => void;
 }) {
-  if (!canSend && !canPay && !canVoid) {
+  if (!canSend && !canPay && !canVoid && !canDispute && !canClose) {
     return <span className="text-[11px] text-[#c8c6c4]">—</span>;
   }
   return (
@@ -402,13 +450,30 @@ function InvoiceActions({
           onClick={onSend}
         >
           <Send className="h-3 w-3" />
-          {busy ? 'Sending…' : 'Send'}
+          {busy ? 'Sending…' : 'Issue'}
         </button>
       ) : null}
       {canPay ? (
         <button type="button" className={btnSecondary} onClick={onPay}>
           <Wallet className="h-3 w-3" />
           Record payment
+        </button>
+      ) : null}
+      {canDispute ? (
+        <button type="button" className={btnSecondary} onClick={onDispute}>
+          <Flag className="h-3 w-3" />
+          Dispute
+        </button>
+      ) : null}
+      {canClose ? (
+        <button
+          type="button"
+          className={btnSecondary}
+          disabled={busy}
+          onClick={onClose}
+        >
+          <CheckCircle2 className="h-3 w-3" />
+          Close
         </button>
       ) : null}
       {canVoid ? (
@@ -419,7 +484,7 @@ function InvoiceActions({
           onClick={onVoid}
         >
           <Ban className="h-3 w-3" />
-          Void
+          Cancel
         </button>
       ) : null}
     </>

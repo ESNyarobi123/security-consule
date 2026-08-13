@@ -832,6 +832,10 @@ model CustomerEmployee {
   fullName       String      @map("full_name")
   email          String?
   phone          String?
+  bankAccountRef String?     @map("bank_account_ref")
+  bankName       String?     @map("bank_name")
+  mobileMoneyRef String?     @map("mobile_money_ref")
+  mobileMoneyProvider String? @map("mobile_money_provider")
   department     String?
   /** Module 11-B — gate/office privilege band (site grants deferred). */
   accessLevel    AccessLevel @default(STANDARD) @map("access_level")
@@ -996,11 +1000,16 @@ model Vehicle {
   userId         String?         @map("user_id")
   plateNumber    String          @map("plate_number")
   vehicleType    VehicleType     @default(CAR) @map("vehicle_type")
+  /** Module 13-I — who the vehicle is for (not body type) */
+  parkingCategory ParkingCategory @default(CUSTOMER) @map("parking_category")
   make           String?
   model          String?
   color          String?
   ownerName      String?         @map("owner_name")
   ownerPhone     String?         @map("owner_phone")
+  /** Module 13-I — optional driver contact */
+  driverName     String?         @map("driver_name")
+  driverPhone    String?         @map("driver_phone")
   /** Module 13-A — RFID / tag reference (barrier ingest later) */
   rfidTagRef     String?         @map("rfid_tag_ref")
   isActive       Boolean         @default(true) @map("is_active")
@@ -1012,6 +1021,7 @@ model Vehicle {
   @@unique([organizationId, rfidTagRef])
   @@index([customerId])
   @@index([organizationId, userId])
+  @@index([organizationId, parkingCategory])
   @@map("vehicles")
   @@schema("parking")
 }
@@ -1026,12 +1036,20 @@ model ParkingPermit {
   status         PermitStatus @default(PENDING)
   validFrom      DateTime     @map("valid_from")
   validUntil     DateTime     @map("valid_until")
-  /** Module 13-B — optional permit fee (DRAFT invoice via finance bill action) */
+  /** Module 13-B — net payable after calc (DRAFT invoice via finance bill action) */
   feeAmount      Decimal?     @map("fee_amount") @db.Decimal(14, 2)
   currency       String?      @default("TZS")
   /** Soft link to finance.invoices.id (no cross-schema FK) */
   invoiceId      String?      @map("invoice_id")
   billedAt       DateTime?    @map("billed_at")
+  /** Module 13-O — charge calculation */
+  billingPeriod  ParkingBillingPeriod @default(ONE_TIME) @map("billing_period")
+  unitRate       Decimal?     @map("unit_rate") @db.Decimal(14, 2)
+  quantity       Decimal?     @db.Decimal(14, 2)
+  discountAmount Decimal?     @map("discount_amount") @db.Decimal(14, 2)
+  penaltyAmount  Decimal?     @map("penalty_amount") @db.Decimal(14, 2)
+  /** Module 13-H — soft link to visitors.visitor_appointments.id (no cross-schema FK) */
+  visitorAppointmentId String? @map("visitor_appointment_id")
   createdAt      DateTime     @default(now()) @map("created_at")
   createdBy      String?      @map("created_by")
   vehicle        Vehicle      @relation(fields: [vehicleId], references: [id])
@@ -1039,6 +1057,7 @@ model ParkingPermit {
   @@unique([organizationId, permitNumber])
   @@index([siteId, status])
   @@index([invoiceId])
+  @@index([visitorAppointmentId])
   @@map("parking_permits")
   @@schema("parking")
 }
@@ -1082,26 +1101,69 @@ model ParkingEntry {
   clientEventId  String?               @unique @map("client_event_id")
   recordedAt     DateTime              @default(now()) @map("recorded_at")
   createdAt      DateTime              @default(now()) @map("created_at")
+  /** Module 13-L — visit record enrichment */
+  driverName           String?                    @map("driver_name")
+  driverIdRef          String?                    @map("driver_id_ref")
+  verificationMethod   ParkingVerificationMethod  @default(MANUAL) @map("verification_method")
+  purposeOfVisit       String?                    @map("purpose_of_visit")
+  /** Soft link to visitors.visitor_appointments.id */
+  visitorAppointmentId String?                    @map("visitor_appointment_id")
+  /** Soft link to parking.parking_spaces.id */
+  parkingSpaceId       String?                    @map("parking_space_id")
+  /** EXIT → open ENTRY id (soft pair); ENTRY stays null */
+  pairedEntryId        String?                    @map("paired_entry_id")
   anprResult     AnprResult?           @relation(fields: [anprResultId], references: [id])
 
   @@index([siteId, recordedAt])
+  @@index([organizationId, siteId, plateNumber, recordedAt])
+  @@index([pairedEntryId])
+  @@index([visitorAppointmentId])
+  @@index([parkingSpaceId])
   @@map("parking_entries")
   @@schema("parking")
 }
 
 model ParkingViolation {
-  id             String        @id @default(uuid())
-  organizationId String        @map("organization_id")
-  siteId         String        @map("site_id")
-  plateNumber    String        @map("plate_number")
-  vehicleId      String?       @map("vehicle_id")
-  violationType  ViolationType @map("violation_type")
-  description    String?
-  recordedAt     DateTime      @default(now()) @map("recorded_at")
-  createdAt      DateTime      @default(now()) @map("created_at")
-  createdBy      String?       @map("created_by")
+  id               String                 @id @default(uuid())
+  organizationId   String                 @map("organization_id")
+  siteId           String                 @map("site_id")
+  plateNumber      String                 @map("plate_number")
+  vehicleId        String?                @map("vehicle_id")
+  violationType    ViolationType          @map("violation_type")
+  description      String?
+  /** Module 13-G — OPEN until ops resolves (creator ≠ resolver). */
+  status           ParkingViolationStatus @default(OPEN)
+  /** Module 13-N — officer remarks at record time */
+  officerRemarks   String?                @map("officer_remarks")
+  /** Module 13-N — corrective action taken */
+  correctiveAction   String?              @map("corrective_action")
+  correctiveActionAt DateTime?            @map("corrective_action_at")
+  correctiveActionBy String?              @map("corrective_action_by")
+  submittedForClosureAt DateTime?         @map("submitted_for_closure_at")
+  submittedForClosureBy String?           @map("submitted_for_closure_by")
+  approvalNotes    String?                @map("approval_notes")
+  approvedBy       String?                @map("approved_by")
+  approvedAt       DateTime?              @map("approved_at")
+  closureNotes     String?                @map("closure_notes")
+  closedAt         DateTime?              @map("closed_at")
+  closedBy         String?                @map("closed_by")
+  resolvedAt       DateTime?              @map("resolved_at")
+  resolvedBy       String?                @map("resolved_by")
+  resolutionNotes  String?                @map("resolution_notes")
+  /** Module 13-P — fine → finance invoice */
+  fineAmount       Decimal?               @map("fine_amount") @db.Decimal(14, 2)
+  currency         String?                @default("TZS")
+  discountAmount   Decimal?               @map("discount_amount") @db.Decimal(14, 2)
+  /** Soft link to finance.invoices.id */
+  invoiceId        String?                @map("invoice_id")
+  billedAt         DateTime?              @map("billed_at")
+  recordedAt       DateTime               @default(now()) @map("recorded_at")
+  createdAt        DateTime               @default(now()) @map("created_at")
+  createdBy        String?                @map("created_by")
 
   @@index([siteId, recordedAt])
+  @@index([organizationId, status, recordedAt])
+  @@index([invoiceId])
   @@map("parking_violations")
   @@schema("parking")
 }
@@ -1120,6 +1182,70 @@ model VehicleBlacklist {
   @@schema("parking")
 }
 
+/**
+ * Module 13-J — bay / stall register + allocation (manual or AUTO-eligible).
+ * Soft links to vehicle/permit (no cross-schema FK). Sensor maps deferred.
+ */
+model ParkingSpace {
+  id              String                 @id @default(uuid())
+  organizationId  String                 @map("organization_id")
+  siteId          String                 @map("site_id")
+  /** Optional customer-dedicated bay (customer policy scoping) */
+  customerId      String?                @map("customer_id")
+  code            String
+  label           String?
+  spaceType       ParkingSpaceType       @map("space_type")
+  status          ParkingSpaceStatus     @default(AVAILABLE)
+  /** MANUAL = officer picks; AUTO = eligible for auto-allocate */
+  allocationMode  ParkingAllocationMode  @default(MANUAL) @map("allocation_mode")
+  vehicleId       String?                @map("vehicle_id")
+  permitId        String?                @map("permit_id")
+  allocatedAt     DateTime?              @map("allocated_at")
+  allocatedBy     String?                @map("allocated_by")
+  notes           String?
+  isActive        Boolean                @default(true) @map("is_active")
+  createdAt       DateTime               @default(now()) @map("created_at")
+  createdBy       String?                @map("created_by")
+
+  @@unique([organizationId, siteId, code])
+  @@index([organizationId, siteId, spaceType, status])
+  @@index([organizationId, vehicleId])
+  @@index([organizationId, customerId])
+  @@map("parking_spaces")
+  @@schema("parking")
+}
+
+/**
+ * Module 13-M — guard parking inspection / patrol observation (Guard Mobile).
+ * Distinct from attendance checkpoint PatrolScan (Module 29 routes).
+ */
+model ParkingPatrolObservation {
+  id               String                       @id @default(uuid())
+  organizationId   String                       @map("organization_id")
+  siteId           String                       @map("site_id")
+  guardId          String                       @map("guard_id")
+  inspectedAt      DateTime                     @map("inspected_at")
+  /** Free-text area / zone / lot name inspected */
+  parkingArea      String                       @map("parking_area")
+  observationType  ParkingPatrolObservationType @map("observation_type")
+  plateNumber      String?                      @map("plate_number")
+  vehicleId        String?                      @map("vehicle_id")
+  parkingSpaceId   String?                      @map("parking_space_id")
+  notes            String?
+  severity         String                       @default("MEDIUM")
+  latitude         Float?
+  longitude        Float?
+  clientEventId    String?                      @unique @map("client_event_id")
+  createdAt        DateTime                     @default(now()) @map("created_at")
+  createdBy        String?                      @map("created_by")
+
+  @@index([organizationId, siteId, inspectedAt])
+  @@index([organizationId, guardId, inspectedAt])
+  @@index([organizationId, observationType, inspectedAt])
+  @@map("parking_patrol_observations")
+  @@schema("parking")
+}
+
 model Employee {
   id                String             @id @default(uuid())
   organizationId    String             @map("organization_id")
@@ -1129,6 +1255,10 @@ model Employee {
   fullName          String             @map("full_name")
   email             String?
   phone             String?
+  bankAccountRef    String?            @map("bank_account_ref")
+  bankName          String?            @map("bank_name")
+  mobileMoneyRef    String?            @map("mobile_money_ref")
+  mobileMoneyProvider String?          @map("mobile_money_provider")
   department        String?
   employmentType    EmploymentType     @default(GUARD) @map("employment_type")
   status            EmployeeStatus     @default(ACTIVE)
@@ -1158,6 +1288,7 @@ model LeaveType {
   code            String
   name            String
   annualQuotaDays Int            @default(21) @map("annual_quota_days")
+  isPaidLeave     Boolean        @default(true) @map("is_paid_leave")
   isActive        Boolean        @default(true) @map("is_active")
   createdAt       DateTime       @default(now()) @map("created_at")
   leaveRequests   LeaveRequest[]
@@ -1330,16 +1461,19 @@ model B2bSecurityPartner {
   email          String?
   phone          String?
   status         B2bPartnerStatus     @default(PENDING)
+  /** Module 15-B — soft link to customers.customers.id for AR billing */
+  customerId     String?              @map("customer_id")
   createdAt      DateTime             @default(now()) @map("created_at")
   createdBy      String?              @map("created_by")
   requests       GuardSupplyRequest[]
 
   @@unique([organizationId, code])
+  @@index([customerId])
   @@map("b2b_security_partners")
   @@schema("recruitment")
 }
 
-/** External firm requests guards by criteria (thin B2B — no invoice in E2). */
+/** External firm requests guards by criteria (Module 15-A criteria · invoice deferred). */
 model GuardSupplyRequest {
   id              String                   @id @default(uuid())
   organizationId  String                   @map("organization_id")
@@ -1354,6 +1488,25 @@ model GuardSupplyRequest {
   urgency         GuardSupplyUrgency       @default(STANDARD)
   serviceTerms    String?                  @map("service_terms")
   criteriaNotes   String?                  @map("criteria_notes")
+  /** Module 15-A — detailed recruitment criteria */
+  experienceYearsMin         Int?                         @map("experience_years_min")
+  ageMin                     Int?                         @map("age_min")
+  ageMax                     Int?                         @map("age_max")
+  /** Optional preference only — where legally acceptable */
+  genderPreference           GuardSupplyGenderPreference? @map("gender_preference")
+  militaryTrainingRequired   Boolean                      @default(false) @map("military_training_required")
+  firearmTrainingRequired    Boolean                      @default(false) @map("firearm_training_required")
+  languages                  String?
+  heightMinCm                Int?                         @map("height_min_cm")
+  healthConditionNotes       String?                      @map("health_condition_notes")
+  /** Module 15-B — B2B recruitment service billing (net = rate × guards − discount) */
+  unitRatePerGuard           Decimal?                     @map("unit_rate_per_guard") @db.Decimal(14, 2)
+  serviceFeeAmount           Decimal?                     @map("service_fee_amount") @db.Decimal(14, 2)
+  currency                   String?                      @default("TZS")
+  discountAmount             Decimal?                     @map("discount_amount") @db.Decimal(14, 2)
+  /** Soft link to finance.invoices.id (no cross-schema FK) */
+  invoiceId                  String?                      @map("invoice_id")
+  billedAt                   DateTime?                    @map("billed_at")
   status          GuardSupplyRequestStatus @default(SUBMITTED)
   processedBy     String?                  @map("processed_by")
   processedAt     DateTime?                @map("processed_at")
@@ -1365,6 +1518,7 @@ model GuardSupplyRequest {
   @@unique([organizationId, referenceNumber])
   @@index([organizationId, partnerId])
   @@index([organizationId, status])
+  @@index([invoiceId])
   @@map("guard_supply_requests")
   @@schema("recruitment")
 }
@@ -1403,6 +1557,8 @@ model PayrollCycle {
   approvedBy         String?            @map("approved_by")
   paidAt             DateTime?          @map("paid_at")
   paymentReference   String?            @map("payment_reference")
+  /** Module 20-A — billing invoice that must be fully paid before customer payroll disbursement */
+  billingInvoiceId   String?            @map("billing_invoice_id")
   createdAt          DateTime           @default(now()) @map("created_at")
   updatedAt          DateTime           @updatedAt @map("updated_at")
   ruleVersion        PayrollRuleVersion @relation(fields: [ruleVersionId], references: [id])
@@ -1410,7 +1566,47 @@ model PayrollCycle {
 
   @@unique([organizationId, cycleCode])
   @@index([organizationId, periodStart])
+  @@index([customerId])
   @@map("payroll_cycles")
+  @@schema("payroll")
+}
+
+/** Module 20-A — e-payroll due alert when billing invoice is fully paid (due 1st of next month). */
+model PayrollDueAlert {
+  id                    String                 @id @default(uuid())
+  organizationId        String                 @map("organization_id")
+  customerId            String                 @map("customer_id")
+  payrollCycleId        String                 @map("payroll_cycle_id")
+  invoiceId             String?                @map("invoice_id")
+  invoiceNumber         String?                @map("invoice_number")
+  payrollMonth          String                 @map("payroll_month")
+  invoiceAmountPaid     Decimal                @map("invoice_amount_paid") @db.Decimal(14, 2)
+  employeesCovered      Int                    @map("employees_covered")
+  payrollPortionDue     Decimal                @map("payroll_portion_due") @db.Decimal(14, 2)
+  currency              String                 @default("TZS")
+  dueDate               DateTime               @map("due_date") @db.Date
+  invoicePaymentStatus  String                 @map("invoice_payment_status")
+  payrollApprovalStatus String                 @map("payroll_approval_status")
+  payrollPaymentStatus  String                 @map("payroll_payment_status")
+  responsibleOfficerId  String?                @map("responsible_officer_id")
+  responsibleOfficerName String?               @map("responsible_officer_name")
+  status                PayrollDueAlertStatus  @default(DUE)
+  notifiedAt            DateTime?              @map("notified_at")
+  idempotencyKey        String                 @unique @map("idempotency_key")
+  createdAt             DateTime               @default(now()) @map("created_at")
+  createdBy             String?                @map("created_by")
+
+  @@index([organizationId, dueDate])
+  @@index([customerId, payrollMonth])
+  @@map("payroll_due_alerts")
+  @@schema("payroll")
+}
+
+enum PayrollDueAlertStatus {
+  DUE
+  PROCESSED
+  CANCELLED
+
   @@schema("payroll")
 }
 
@@ -1418,7 +1614,10 @@ model PayslipSnapshot {
   id                 String       @id @default(uuid())
   organizationId     String       @map("organization_id")
   cycleId            String       @map("cycle_id")
-  employeeId         String       @map("employee_id")
+  /** Company payroll — workforce.Employee */
+  employeeId         String?      @map("employee_id")
+  /** Customer payroll service — access.CustomerEmployee (soft ref) */
+  customerEmployeeId String?      @map("customer_employee_id")
   employeeNumber     String       @map("employee_number")
   employeeName       String       @map("employee_name")
   inputsSnapshot     Json         @map("inputs_snapshot")
@@ -1433,11 +1632,36 @@ model PayslipSnapshot {
   createdBy          String       @map("created_by")
   createdAt          DateTime     @default(now()) @map("created_at")
   cycle              PayrollCycle @relation(fields: [cycleId], references: [id])
-  employee           Employee     @relation(fields: [employeeId], references: [id])
+  employee           Employee?    @relation(fields: [employeeId], references: [id])
 
   @@unique([cycleId, employeeId])
+  @@unique([cycleId, customerEmployeeId])
   @@index([organizationId, cycleId])
   @@map("payslip_snapshots")
+  @@schema("payroll")
+}
+
+/// Module 19-A — salary structure for customer employees (separate from workforce.SalaryAssignment).
+model CustomerSalaryAssignment {
+  id                 String    @id @default(uuid())
+  organizationId     String    @map("organization_id")
+  customerId         String    @map("customer_id")
+  customerEmployeeId String    @map("customer_employee_id")
+  basicSalary        Decimal   @map("basic_salary") @db.Decimal(14, 2)
+  currency           String    @default("TZS")
+  hourlyRate         Decimal?  @map("hourly_rate") @db.Decimal(14, 2)
+  allowances         Json?
+  /** Fixed monthly deductions e.g. union, advance recovery */
+  deductions         Json?
+  effectiveFrom      DateTime  @map("effective_from") @db.Date
+  effectiveUntil     DateTime? @map("effective_until") @db.Date
+  isActive           Boolean   @default(true) @map("is_active")
+  createdAt          DateTime  @default(now()) @map("created_at")
+  createdBy          String?   @map("created_by")
+
+  @@index([organizationId, customerId])
+  @@index([customerEmployeeId, isActive])
+  @@map("customer_salary_assignments")
   @@schema("payroll")
 }
 
@@ -1446,16 +1670,27 @@ model EmployeeLoan {
   organizationId     String            @map("organization_id")
   employeeId         String            @map("employee_id")
   loanNumber         String            @map("loan_number")
+  /** Module 17-A — typed loan catalog */
+  loanType           LoanType          @default(OTHER) @map("loan_type")
   principalAmount    Decimal           @map("principal_amount") @db.Decimal(14, 2)
   interestRate       Decimal           @default(0) @map("interest_rate") @db.Decimal(5, 2)
   termMonths         Int               @map("term_months")
   monthlyInstallment Decimal           @map("monthly_installment") @db.Decimal(14, 2)
   status             LoanStatus        @default(PENDING_APPROVAL)
-  purpose            String
+  purpose            String?
+  /** Item loans — boots, smartphone, uniform, equipment */
+  itemName           String?           @map("item_name")
+  supplierName       String?           @map("supplier_name")
+  itemCost           Decimal?          @map("item_cost") @db.Decimal(14, 2)
   approvalInstanceId String?           @map("approval_instance_id")
   approvedBy         String?           @map("approved_by")
   approvedAt         DateTime?         @map("approved_at")
+  issuedBy           String?           @map("issued_by")
+  issuedAt           DateTime?         @map("issued_at")
+  employeeAcknowledgedAt DateTime?     @map("employee_acknowledged_at")
   disbursedAt        DateTime?         @map("disbursed_at")
+  settledAt          DateTime?         @map("settled_at")
+  clearedBy          String?           @map("cleared_by")
   createdAt          DateTime          @default(now()) @map("created_at")
   createdBy          String            @map("created_by")
   employee           Employee          @relation(fields: [employeeId], references: [id])
@@ -1463,6 +1698,7 @@ model EmployeeLoan {
 
   @@unique([organizationId, loanNumber])
   @@index([employeeId, status])
+  @@index([organizationId, loanType])
   @@map("employee_loans")
   @@schema("employee_loans")
 }
@@ -1500,6 +1736,8 @@ model Invoice {
   amountPaid     Decimal          @default(0) @map("amount_paid") @db.Decimal(14, 2)
   currency       String           @default("TZS")
   status         InvoiceStatus    @default(DRAFT)
+  /** Module 21-A — commercial service this invoice covers (design §21). */
+  serviceType    String?          @map("service_type")
   notes          String?
   createdAt      DateTime         @default(now()) @map("created_at")
   createdBy      String           @map("created_by")
@@ -1508,6 +1746,7 @@ model Invoice {
 
   @@unique([organizationId, invoiceNumber])
   @@index([customerId, status])
+  @@index([organizationId, serviceType])
   @@map("invoices")
   @@schema("finance")
 }
@@ -1571,12 +1810,19 @@ model PettyCashVoucher {
   status             PettyCashVoucherStatus @default(PENDING)
   approvalInstanceId String?                @map("approval_instance_id")
   approvedBy         String?                @map("approved_by")
+  /** Module 22-A — cash issue after approval (imprest debit). */
+  issuedBy           String?                @map("issued_by")
+  issuedAt           DateTime?              @map("issued_at")
   reimbursedAt       DateTime?              @map("reimbursed_at")
+  branchId           String?                @map("branch_id")
+  department         String?
+  rejectedReason     String?                @map("rejected_reason")
   createdAt          DateTime               @default(now()) @map("created_at")
   createdBy          String                 @map("created_by")
   fund               PettyCashFund          @relation(fields: [fundId], references: [id])
 
   @@unique([organizationId, voucherNumber])
+  @@index([organizationId, status])
   @@map("petty_cash_vouchers")
   @@schema("finance")
 }
@@ -1606,21 +1852,65 @@ model PaymentVoucher {
 }
 
 model Supplier {
-  id             String          @id @default(uuid())
-  organizationId String          @map("organization_id")
-  code           String
-  name           String
-  email          String?
-  phone          String?
-  tin            String?
-  address        String?
-  status         SupplierStatus  @default(PENDING)
-  createdAt      DateTime        @default(now()) @map("created_at")
-  createdBy      String?         @map("created_by")
-  purchaseOrders PurchaseOrder[]
+  id                  String               @id @default(uuid())
+  organizationId      String               @map("organization_id")
+  code                String
+  name                String
+  email               String?
+  phone               String?
+  tin                 String?
+  vrn                 String?
+  address             String?
+  category            SupplierCategory     @default(GOODS)
+  bankName            String?              @map("bank_name")
+  bankAccountName     String?              @map("bank_account_name")
+  bankAccountRef      String?              @map("bank_account_ref")
+  mobileMoneyProvider String?              @map("mobile_money_provider")
+  mobileMoneyRef      String?              @map("mobile_money_ref")
+  contactPerson       String?              @map("contact_person")
+  contactPhone        String?              @map("contact_phone")
+  contactEmail        String?              @map("contact_email")
+  status              SupplierStatus       @default(PENDING)
+  rejectedReason      String?              @map("rejected_reason")
+  approvedBy          String?              @map("approved_by")
+  approvedAt          DateTime?            @map("approved_at")
+  createdAt           DateTime             @default(now()) @map("created_at")
+  createdBy           String?              @map("created_by")
+  purchaseOrders      PurchaseOrder[]
+  submissions         SupplierSubmission[]
 
   @@unique([organizationId, code])
+  @@index([organizationId, status])
   @@map("suppliers")
+  @@schema("procurement")
+}
+
+/** Module 24-A — supplier quotes / invoices / DNs / payment requests (own supplier only). */
+model SupplierSubmission {
+  id               String                   @id @default(uuid())
+  organizationId   String                   @map("organization_id")
+  supplierId       String                   @map("supplier_id")
+  purchaseOrderId  String?                  @map("purchase_order_id")
+  referenceNumber  String                   @map("reference_number")
+  kind             SupplierSubmissionKind
+  status           SupplierSubmissionStatus @default(SUBMITTED)
+  title            String
+  description      String?
+  amount           Decimal?                 @db.Decimal(14, 2)
+  currency         String                   @default("TZS")
+  paymentStatus    SupplierPaymentStatus    @default(NONE)
+  rejectedReason   String?                  @map("rejected_reason")
+  approvedBy       String?                  @map("approved_by")
+  approvedAt       DateTime?                @map("approved_at")
+  paidAt           DateTime?                @map("paid_at")
+  createdBy        String                   @map("created_by")
+  createdAt        DateTime                 @default(now()) @map("created_at")
+  supplier         Supplier                 @relation(fields: [supplierId], references: [id])
+
+  @@unique([organizationId, referenceNumber])
+  @@index([organizationId, supplierId, status])
+  @@index([organizationId, kind, status])
+  @@map("supplier_submissions")
   @@schema("procurement")
 }
 
@@ -1640,6 +1930,8 @@ model PurchaseOrder {
   receipts           GoodsReceipt[]
   lines              PurchaseOrderLine[]
   supplier           Supplier            @relation(fields: [supplierId], references: [id])
+  purchaseRequestId  String?             @map("purchase_request_id")
+  purchaseRequest    PurchaseRequest?    @relation(fields: [purchaseRequestId], references: [id])
 
   @@unique([organizationId, poNumber])
   @@map("purchase_orders")
@@ -1686,6 +1978,76 @@ model GoodsReceiptLine {
   goodsReceipt        GoodsReceipt @relation(fields: [goodsReceiptId], references: [id], onDelete: Cascade)
 
   @@map("goods_receipt_lines")
+  @@schema("procurement")
+}
+
+/** Module 25-A — department purchase request → quote comparison → PO. */
+model PurchaseRequest {
+  id                 String                   @id @default(uuid())
+  organizationId     String                   @map("organization_id")
+  requestNumber      String                   @map("request_number")
+  department         String
+  purpose            String
+  status             PurchaseRequestStatus    @default(DRAFT)
+  currency           String                   @default("TZS")
+  approvalInstanceId String?                  @map("approval_instance_id")
+  awardedQuoteId     String?                  @map("awarded_quote_id")
+  createdAt          DateTime                 @default(now()) @map("created_at")
+  createdBy          String                   @map("created_by")
+  lines              PurchaseRequestLine[]
+  quotes             PurchaseRequestQuote[]
+  purchaseOrders     PurchaseOrder[]
+
+  @@unique([organizationId, requestNumber])
+  @@index([organizationId, status])
+  @@map("purchase_requests")
+  @@schema("procurement")
+}
+
+model PurchaseRequestLine {
+  id                String                     @id @default(uuid())
+  purchaseRequestId String                     @map("purchase_request_id")
+  stockItemId       String?                    @map("stock_item_id")
+  description       String
+  quantity          Decimal                    @db.Decimal(10, 2)
+  unit              String                     @default("EA")
+  purchaseRequest   PurchaseRequest            @relation(fields: [purchaseRequestId], references: [id], onDelete: Cascade)
+  quoteLines        PurchaseRequestQuoteLine[]
+
+  @@map("purchase_request_lines")
+  @@schema("procurement")
+}
+
+model PurchaseRequestQuote {
+  id                String                     @id @default(uuid())
+  organizationId    String                     @map("organization_id")
+  purchaseRequestId String                     @map("purchase_request_id")
+  supplierId        String                     @map("supplier_id")
+  status            PurchaseRequestQuoteStatus @default(SUBMITTED)
+  totalAmount       Decimal                    @map("total_amount") @db.Decimal(14, 2)
+  currency          String                     @default("TZS")
+  notes             String?
+  createdAt         DateTime                   @default(now()) @map("created_at")
+  createdBy         String                     @map("created_by")
+  purchaseRequest   PurchaseRequest            @relation(fields: [purchaseRequestId], references: [id], onDelete: Cascade)
+  lines             PurchaseRequestQuoteLine[]
+
+  @@index([organizationId, purchaseRequestId, status])
+  @@map("purchase_request_quotes")
+  @@schema("procurement")
+}
+
+model PurchaseRequestQuoteLine {
+  id                     String               @id @default(uuid())
+  quoteId                String               @map("quote_id")
+  purchaseRequestLineId  String               @map("purchase_request_line_id")
+  unitPrice              Decimal              @map("unit_price") @db.Decimal(14, 2)
+  amount                 Decimal              @db.Decimal(14, 2)
+  quote                  PurchaseRequestQuote @relation(fields: [quoteId], references: [id], onDelete: Cascade)
+  requestLine            PurchaseRequestLine  @relation(fields: [purchaseRequestLineId], references: [id], onDelete: Cascade)
+
+  @@unique([quoteId, purchaseRequestLineId])
+  @@map("purchase_request_quote_lines")
   @@schema("procurement")
 }
 
@@ -2395,11 +2757,36 @@ enum VehicleType {
   @@schema("parking")
 }
 
+/** Module 13-I — registration taxonomy (party/use), distinct from VehicleType body class */
+enum ParkingCategory {
+  CUSTOMER
+  CUSTOMER_EMPLOYEE
+  VISITOR
+  COMPANY
+  PATROL
+  SUPPLIER
+  CONTRACTOR
+  EMERGENCY
+  TEMPORARY
+
+  @@schema("parking")
+}
+
 enum PermitType {
   EMPLOYEE
   VISITOR
   CONTRACTOR
+  SUPPLIER
   RESERVED
+
+  @@schema("parking")
+}
+
+/** Module 13-O — how unitRate × quantity is interpreted */
+enum ParkingBillingPeriod {
+  ONE_TIME
+  DAILY
+  MONTHLY
 
   @@schema("parking")
 }
@@ -2421,6 +2808,17 @@ enum ParkingEntryDirection {
   @@schema("parking")
 }
 
+/** Module 13-L — how the gate officer / device verified the vehicle */
+enum ParkingVerificationMethod {
+  MANUAL
+  RFID
+  ANPR
+  QR
+  OTHER
+
+  @@schema("parking")
+}
+
 enum ParkingDecision {
   ALLOW
   DENY
@@ -2431,10 +2829,73 @@ enum ParkingDecision {
 
 enum ViolationType {
   NO_PERMIT
+  UNAUTHORIZED
   EXPIRED_PERMIT
   WRONG_ZONE
+  RESTRICTED_AREA
+  EMERGENCY_ROUTE_BLOCKED
+  DOUBLE_PARKING
   OVERSTAY
+  ABANDONED_VEHICLE
+  UNSAFE_PARKING
   BLACKLISTED
+
+  @@schema("parking")
+}
+
+enum ParkingViolationStatus {
+  OPEN
+  CORRECTIVE_ACTION
+  PENDING_CLOSURE
+  CLOSED
+  /** Legacy — treat same as CLOSED in UI */
+  RESOLVED
+
+  @@schema("parking")
+}
+
+/** Module 13-J — bay purpose (allocation taxonomy) */
+enum ParkingSpaceType {
+  EMPLOYEE
+  VISITOR
+  VIP
+  CONTRACTOR
+  SUPPLIER
+  FLEET
+  RESERVED
+  DISABLED
+  TEMPORARY
+  OVERFLOW
+
+  @@schema("parking")
+}
+
+enum ParkingSpaceStatus {
+  AVAILABLE
+  OCCUPIED
+  RESERVED
+  OUT_OF_SERVICE
+
+  @@schema("parking")
+}
+
+enum ParkingAllocationMode {
+  MANUAL
+  AUTO
+
+  @@schema("parking")
+}
+
+/** Module 13-M — what the guard recorded on a parking inspection */
+enum ParkingPatrolObservationType {
+  IRREGULARITY
+  SECURITY_OBSERVATION
+  ACCIDENT
+  SUSPICIOUS_ACTIVITY
+  DAMAGE
+  ILLEGAL_PARKING
+  ABANDONED_VEHICLE
+  OTHER
 
   @@schema("parking")
 }
@@ -2542,6 +3003,16 @@ enum GuardSupplyUrgency {
   @@schema("recruitment")
 }
 
+/** Module 15-A — optional gender preference (legally acceptable use only) */
+enum GuardSupplyGenderPreference {
+  ANY
+  MALE
+  FEMALE
+  UNSPECIFIED
+
+  @@schema("recruitment")
+}
+
 enum GuardSupplyRequestStatus {
   SUBMITTED
   UNDER_REVIEW
@@ -2568,6 +3039,21 @@ enum PayrollCycleStatus {
   VOIDED
 
   @@schema("payroll")
+}
+
+enum LoanType {
+  SECURITY_BOOTS
+  SMARTPHONE
+  CASH
+  UNIFORM
+  EMERGENCY
+  SALARY_ADVANCE
+  EQUIPMENT
+  TRANSPORT_SUPPORT
+  MEDICAL_SUPPORT
+  OTHER
+
+  @@schema("employee_loans")
 }
 
 enum LoanStatus {
@@ -2597,6 +3083,8 @@ enum InvoiceStatus {
   PAID
   OVERDUE
   VOIDED
+  DISPUTED
+  CLOSED
 
   @@schema("finance")
 }
@@ -2614,6 +3102,7 @@ enum PaymentMethod {
 enum PettyCashVoucherStatus {
   PENDING
   APPROVED
+  ISSUED
   REIMBURSED
   REJECTED
 
@@ -2634,7 +3123,41 @@ enum PaymentVoucherStatus {
 enum SupplierStatus {
   PENDING
   APPROVED
+  REJECTED
   SUSPENDED
+
+  @@schema("procurement")
+}
+
+enum SupplierCategory {
+  GOODS
+  SERVICES
+  BOTH
+
+  @@schema("procurement")
+}
+
+enum SupplierSubmissionKind {
+  QUOTATION
+  INVOICE
+  DELIVERY_NOTE
+  PAYMENT_REQUEST
+
+  @@schema("procurement")
+}
+
+enum SupplierSubmissionStatus {
+  SUBMITTED
+  APPROVED
+  REJECTED
+
+  @@schema("procurement")
+}
+
+enum SupplierPaymentStatus {
+  NONE
+  UNPAID
+  PAID
 
   @@schema("procurement")
 }
@@ -2647,6 +3170,25 @@ enum PurchaseOrderStatus {
   PARTIALLY_RECEIVED
   RECEIVED
   CANCELLED
+
+  @@schema("procurement")
+}
+
+enum PurchaseRequestStatus {
+  DRAFT
+  PENDING_APPROVAL
+  APPROVED
+  REJECTED
+  CONVERTED
+  CANCELLED
+
+  @@schema("procurement")
+}
+
+enum PurchaseRequestQuoteStatus {
+  SUBMITTED
+  AWARDED
+  NOT_SELECTED
 
   @@schema("procurement")
 }

@@ -775,3 +775,95 @@ export const getCustomerPortalReport = (
     { token: opts?.token },
   );
 };
+
+export type CustomerPayrollCycle = {
+  id: string;
+  cycleCode: string;
+  periodStart: string;
+  periodEnd: string;
+  status: string;
+  tenantType: string;
+  customerId?: string | null;
+  paymentReference?: string | null;
+  createdAt: string;
+};
+
+export type CustomerPayslip = {
+  id: string;
+  cycleId: string;
+  employeeId?: string | null;
+  customerEmployeeId?: string | null;
+  employeeNumber: string;
+  employeeName: string;
+  grossPay: number;
+  totalDeductions: number;
+  netPay: number;
+  inputsSnapshot?: unknown;
+  allowancesSnapshot?: unknown;
+  deductionsSnapshot?: unknown;
+  calculationResult?: {
+    lines?: Array<{
+      code: string;
+      label: string;
+      amount: number;
+      type: 'EARNING' | 'DEDUCTION';
+    }>;
+    grossPay?: number;
+    totalDeductions?: number;
+    netPay?: number;
+  };
+  createdAt: string;
+};
+
+export const listCustomerPayrollCycles = (token?: string) =>
+  customerFetch<CustomerPayrollCycle[]>('/api/v1/customers/me/payroll/cycles', {
+    token,
+  });
+
+export const listCustomerPayrollPayslips = (
+  cycleId: string,
+  token?: string,
+) =>
+  customerFetch<CustomerPayslip[]>(
+    `/api/v1/customers/me/payroll/cycles/${cycleId}/payslips`,
+    { token },
+  );
+
+export const getCustomerPayrollPayslip = (payslipId: string, token?: string) =>
+  customerFetch<CustomerPayslip>(
+    `/api/v1/customers/me/payroll/payslips/${payslipId}`,
+    { token },
+  );
+
+export const listMyCustomerPayslips = (token?: string) =>
+  customerFetch<CustomerPayslip[]>(
+    '/api/v1/customers/me/payroll/my-payslips',
+    { token },
+  );
+
+export type CustomerPayrollDueAlert = {
+  id: string;
+  customerId: string;
+  customerName?: string;
+  customerCode?: string;
+  payrollCycleId: string;
+  cycleCode?: string;
+  invoiceNumber?: string | null;
+  payrollMonth: string;
+  invoiceAmountPaid: number;
+  employeesCovered: number;
+  payrollPortionDue: number;
+  currency: string;
+  dueDate: string;
+  invoicePaymentStatus: string;
+  payrollApprovalStatus: string;
+  payrollPaymentStatus: string;
+  responsibleOfficerName?: string | null;
+  status: string;
+};
+
+export const listCustomerPayrollDueAlerts = (token?: string) =>
+  customerFetch<CustomerPayrollDueAlert[]>(
+    '/api/v1/customers/me/payroll/due-alerts',
+    { token },
+  );

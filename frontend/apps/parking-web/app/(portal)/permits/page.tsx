@@ -3,21 +3,29 @@
 import {
   approvePermit,
   billPermit,
+  createPermit,
+  listParkingSiteOptions,
+  listParkingVisitorAppointmentOptions,
   listPermits,
   listVehicles,
   rejectPermit,
   updatePermit,
+  type ParkingBillingPeriod,
   type ParkingOpsPermit,
   type ParkingOpsVehicle,
+  type ParkingSiteOption,
+  type ParkingVisitorAppointmentOption,
 } from '@pssms/api-client';
 import {
   Check,
   LayoutGrid,
   List,
   MapPin,
+  Plus,
   Receipt,
   RefreshCw,
   Search,
+  Ticket,
   Wallet,
   X,
 } from 'lucide-react';
@@ -31,6 +39,29 @@ import {
 
 type StatusFilter = 'ALL' | 'PENDING' | 'ACTIVE' | 'REVOKED' | 'EXPIRED' | 'SUSPENDED';
 type ViewMode = 'cards' | 'table';
+type PermitKind =
+  | 'EMPLOYEE'
+  | 'VISITOR'
+  | 'CONTRACTOR'
+  | 'SUPPLIER'
+  | 'RESERVED';
+
+const PERMIT_TYPES: PermitKind[] = [
+  'EMPLOYEE',
+  'VISITOR',
+  'CONTRACTOR',
+  'SUPPLIER',
+  'RESERVED',
+];
+
+const BILLING_PERIODS: { id: ParkingBillingPeriod; label: string }[] = [
+  { id: 'ONE_TIME', label: 'One-time' },
+  { id: 'DAILY', label: 'Daily' },
+  { id: 'MONTHLY', label: 'Monthly' },
+];
+
+const fieldCls =
+  'mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 outline-none focus:border-teal-500 focus:ring-2 focus:ring-teal-500/20';
 
 function formatDate(iso: string): string {
   const d = new Date(iso);
@@ -83,6 +114,8 @@ function typeTone(type: string): string {
       return 'bg-sky-50 text-sky-800';
     case 'CONTRACTOR':
       return 'bg-orange-50 text-orange-800';
+    case 'SUPPLIER':
+      return 'bg-teal-50 text-teal-800';
     case 'RESERVED':
       return 'bg-violet-50 text-violet-800';
     default:
@@ -93,6 +126,10 @@ function typeTone(type: string): string {
 export default function PermitsPage() {
   const [permits, setPermits] = useState<ParkingOpsPermit[]>([]);
   const [vehicles, setVehicles] = useState<ParkingOpsVehicle[]>([]);
+  const [sites, setSites] = useState<ParkingSiteOption[]>([]);
+  const [appointments, setAppointments] = useState<
+    ParkingVisitorAppointmentOption[]
+  >([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
@@ -103,16 +140,54 @@ export default function PermitsPage() {
   const [feeEdit, setFeeEdit] = useState<ParkingOpsPermit | null>(null);
   const [feeDraft, setFeeDraft] = useState('');
   const [currencyDraft, setCurrencyDraft] = useState('TZS');
+  const [periodDraft, setPeriodDraft] =
+    useState<ParkingBillingPeriod>('ONE_TIME');
+  const [unitRateDraft, setUnitRateDraft] = useState('');
+  const [quantityDraft, setQuantityDraft] = useState('');
+  const [discountDraft, setDiscountDraft] = useState('');
+  const [penaltyDraft, setPenaltyDraft] = useState('');
   const [savingFee, setSavingFee] = useState(false);
   const [modalError, setModalError] = useState<string | null>(null);
+
+  const [showIssue, setShowIssue] = useState(true);
+  const [issueVehicleId, setIssueVehicleId] = useState('');
+  const [issueSiteId, setIssueSiteId] = useState('');
+  const [issueType, setIssueType] = useState<PermitKind>('EMPLOYEE');
+  const [issueAppointmentId, setIssueAppointmentId] = useState('');
+  const [issuePeriod, setIssuePeriod] =
+    useState<ParkingBillingPeriod>('ONE_TIME');
+  const [issueUnitRate, setIssueUnitRate] = useState('');
+  const [issueQuantity, setIssueQuantity] = useState('');
+  const [issueDiscount, setIssueDiscount] = useState('');
+  const [issuePenalty, setIssuePenalty] = useState('');
+  const [issueFee, setIssueFee] = useState('');
+  const [issuing, setIssuing] = useState(false);
+  const [issueError, setIssueError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
-      const [p, v] = await Promise.all([listPermits(), listVehicles()]);
+      const [p, v, s, a] = await Promise.all([
+        listPermits(),
+        listVehicles(),
+        listParkingSiteOptions().catch(() => [] as ParkingSiteOption[]),
+        listParkingVisitorAppointmentOptions().catch(
+          () => [] as ParkingVisitorAppointmentOption[],
+        ),
+      ]);
       setPermits(p);
-      setVehicles(v);
+      setVehicles(v.filter((x) => x.isActive));
+      setSites(s);
+      setAppointments(a);
+      setIssueSiteId((prev) =>
+        prev && s.some((x) => x.id === prev) ? prev : (s[0]?.id ?? ''),
+      );
+      setIssueVehicleId((prev) =>
+        prev && v.some((x) => x.id === prev && x.isActive)
+          ? prev
+          : (v.find((x) => x.isActive)?.id ?? ''),
+      );
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load permits');
     } finally {
@@ -124,6 +199,76 @@ export default function PermitsPage() {
     void load();
   }, [load]);
 
+  const appointmentChoices = useMemo(() => {
+    if (issueType !== 'VISITOR' && issueType !== 'CONTRACTOR') return [];
+    return appointments.filter((a) => !issueSiteId || a.siteId === issueSiteId);
+  }, [appointments, issueSiteId, issueType]);
+
+  async function onIssue(e: FormEvent) {
+    e.preventDefault();
+    setIssuing(true);
+    setIssueError(null);
+    try {
+      if (!issueVehicleId || !issueSiteId) {
+        setIssueError('Select vehicle and site');
+        return;
+      }
+      const parseOpt = (s: string) => {
+        const t = s.trim();
+        if (!t) return undefined;
+        const n = Number(t.replace(/,/g, ''));
+        if (Number.isNaN(n) || n < 0) return 'bad' as const;
+        return n;
+      };
+      const unitRate = parseOpt(issueUnitRate);
+      const quantity = parseOpt(issueQuantity);
+      const discountAmount = parseOpt(issueDiscount);
+      const penaltyAmount = parseOpt(issuePenalty);
+      const feeAmount = parseOpt(issueFee);
+      if (
+        unitRate === 'bad' ||
+        quantity === 'bad' ||
+        discountAmount === 'bad' ||
+        penaltyAmount === 'bad' ||
+        feeAmount === 'bad'
+      ) {
+        setIssueError('Charge fields must be non-negative numbers');
+        return;
+      }
+      const created = await createPermit({
+        vehicleId: issueVehicleId,
+        siteId: issueSiteId,
+        permitType: issueType,
+        billingPeriod: issuePeriod,
+        unitRate,
+        quantity,
+        discountAmount,
+        penaltyAmount,
+        feeAmount,
+        currency:
+          unitRate != null || feeAmount != null ? 'TZS' : undefined,
+        visitorAppointmentId:
+          (issueType === 'VISITOR' || issueType === 'CONTRACTOR') &&
+          issueAppointmentId
+            ? issueAppointmentId
+            : undefined,
+      });
+      setPermits((prev) => [created, ...prev]);
+      setIssueAppointmentId('');
+      setIssueFee('');
+      setIssueUnitRate('');
+      setIssueQuantity('');
+      setIssueDiscount('');
+      setIssuePenalty('');
+      setIssuePeriod('ONE_TIME');
+      setStatusFilter('PENDING');
+    } catch (err) {
+      setIssueError(err instanceof Error ? err.message : 'Issue failed');
+    } finally {
+      setIssuing(false);
+    }
+  }
+
   function openFeeEdit(p: ParkingOpsPermit) {
     setFeeEdit(p);
     setFeeDraft(
@@ -132,6 +277,25 @@ export default function PermitsPage() {
         : '',
     );
     setCurrencyDraft(p.currency?.trim() || 'TZS');
+    setPeriodDraft(
+      (p.billingPeriod as ParkingBillingPeriod) || 'ONE_TIME',
+    );
+    setUnitRateDraft(
+      p.unitRate != null && !Number.isNaN(p.unitRate) ? String(p.unitRate) : '',
+    );
+    setQuantityDraft(
+      p.quantity != null && !Number.isNaN(p.quantity) ? String(p.quantity) : '',
+    );
+    setDiscountDraft(
+      p.discountAmount != null && !Number.isNaN(p.discountAmount)
+        ? String(p.discountAmount)
+        : '',
+    );
+    setPenaltyDraft(
+      p.penaltyAmount != null && !Number.isNaN(p.penaltyAmount)
+        ? String(p.penaltyAmount)
+        : '',
+    );
     setModalError(null);
   }
 
@@ -141,14 +305,34 @@ export default function PermitsPage() {
     setSavingFee(true);
     setModalError(null);
     try {
-      const trimmed = feeDraft.trim();
-      const feeAmount =
-        trimmed === '' ? null : Number(trimmed.replace(/,/g, ''));
-      if (feeAmount != null && (Number.isNaN(feeAmount) || feeAmount < 0)) {
-        setModalError('Enter a valid fee amount (or leave blank to clear)');
+      const parseOpt = (s: string) => {
+        const t = s.trim();
+        if (!t) return null;
+        const n = Number(t.replace(/,/g, ''));
+        if (Number.isNaN(n) || n < 0) return 'bad' as const;
+        return n;
+      };
+      const unitRate = parseOpt(unitRateDraft);
+      const quantity = parseOpt(quantityDraft);
+      const discountAmount = parseOpt(discountDraft);
+      const penaltyAmount = parseOpt(penaltyDraft);
+      const feeAmount = parseOpt(feeDraft);
+      if (
+        unitRate === 'bad' ||
+        quantity === 'bad' ||
+        discountAmount === 'bad' ||
+        penaltyAmount === 'bad' ||
+        feeAmount === 'bad'
+      ) {
+        setModalError('Enter valid non-negative amounts');
         return;
       }
       await updatePermit(feeEdit.id, {
+        billingPeriod: periodDraft,
+        unitRate,
+        quantity,
+        discountAmount,
+        penaltyAmount,
         feeAmount,
         currency: currencyDraft.trim() || 'TZS',
       });
@@ -161,18 +345,21 @@ export default function PermitsPage() {
     }
   }
 
-  async function onBill(id: string) {
-    if (!window.confirm('Create a DRAFT finance invoice for this permit fee?')) {
-      return;
-    }
+  async function onBill(id: string, send = false) {
+    const msg = send
+      ? 'Create and SEND finance invoice for this permit charge?'
+      : 'Create a DRAFT finance invoice for this permit charge?';
+    if (!window.confirm(msg)) return;
     setBusyId(id);
     setError(null);
     try {
-      const billed = await billPermit(id);
+      const billed = await billPermit(id, { send });
       await load();
       if (billed.invoiceNumber) {
-        setError(null);
-        window.alert(`Draft invoice ${billed.invoiceNumber} created.`);
+        window.alert(
+          `${send ? 'Sent' : 'Draft'} invoice ${billed.invoiceNumber}` +
+            (billed.invoiceStatus ? ` · ${billed.invoiceStatus}` : ''),
+        );
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Bill failed');
@@ -229,7 +416,9 @@ export default function PermitsPage() {
         p.site.toLowerCase().includes(q) ||
         p.permitType.toLowerCase().includes(q) ||
         (p.owner ?? '').toLowerCase().includes(q) ||
-        (p.makeModel ?? '').toLowerCase().includes(q)
+        (p.makeModel ?? '').toLowerCase().includes(q) ||
+        (p.visitorReferenceNumber ?? '').toLowerCase().includes(q) ||
+        (p.visitorName ?? '').toLowerCase().includes(q)
       );
     });
   }, [enriched, statusFilter, typeFilter, search]);
@@ -272,24 +461,233 @@ export default function PermitsPage() {
     <div className="space-y-5">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h1 className="font-display text-2xl font-bold tracking-tight text-slate-900">
+          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">
+            Access · Module 13-O
+          </p>
+          <h1 className="mt-1 font-display text-2xl font-bold tracking-tight text-slate-900">
             Permits
           </h1>
           <p className="mt-1 text-sm text-slate-500">
-            Review authorizations — approve pending (creator ≠ approver). Set
-            fee and Bill to create a DRAFT invoice (Module 13-B).
+            Issue permits with daily/monthly/one-time charges, discounts and
+            penalties. Bill creates a finance invoice; track payment status on
+            the permit.
           </p>
         </div>
-        <button
-          type="button"
-          onClick={() => void load()}
-          disabled={loading}
-          className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-700 shadow-sm hover:bg-slate-50 disabled:opacity-60"
-        >
-          <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
-          Refresh
-        </button>
+        <div className="flex flex-wrap gap-2">
+          <button
+            type="button"
+            onClick={() => setShowIssue((v) => !v)}
+            className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-700 shadow-sm hover:bg-slate-50"
+          >
+            {showIssue ? <X className="h-4 w-4" /> : <Plus className="h-4 w-4" />}
+            {showIssue ? 'Hide issue' : 'Issue permit'}
+          </button>
+          <button
+            type="button"
+            onClick={() => void load()}
+            disabled={loading}
+            className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-700 shadow-sm hover:bg-slate-50 disabled:opacity-60"
+          >
+            <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
+            Refresh
+          </button>
+        </div>
       </div>
+
+      {showIssue ? (
+        <form
+          onSubmit={(ev) => void onIssue(ev)}
+          className="rounded-2xl border border-slate-800 bg-[#0f2744] p-5 text-white shadow-lg"
+        >
+          <h2 className="text-lg font-semibold">Issue permit</h2>
+          <p className="mt-1 text-xs text-slate-300">
+            Starts PENDING — another officer must approve.
+          </p>
+          <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            <label className="block">
+              <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400">
+                Vehicle *
+              </span>
+              <select
+                value={issueVehicleId}
+                onChange={(e) => setIssueVehicleId(e.target.value)}
+                required
+                className={fieldCls}
+              >
+                <option value="">Select…</option>
+                {vehicles.map((v) => (
+                  <option key={v.id} value={v.id}>
+                    {v.plateNumber}
+                    {v.ownerName ? ` · ${v.ownerName}` : ''}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="block">
+              <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400">
+                Site *
+              </span>
+              <select
+                value={issueSiteId}
+                onChange={(e) => {
+                  setIssueSiteId(e.target.value);
+                  setIssueAppointmentId('');
+                }}
+                required
+                className={fieldCls}
+              >
+                <option value="">Select…</option>
+                {sites.map((s) => (
+                  <option key={s.id} value={s.id}>
+                    {s.code} · {s.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="block">
+              <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400">
+                Type *
+              </span>
+              <select
+                value={issueType}
+                onChange={(e) => {
+                  const t = e.target.value as PermitKind;
+                  setIssueType(t);
+                  if (t !== 'VISITOR' && t !== 'CONTRACTOR') {
+                    setIssueAppointmentId('');
+                  }
+                }}
+                className={fieldCls}
+              >
+                {PERMIT_TYPES.map((t) => (
+                  <option key={t} value={t}>
+                    {t}
+                  </option>
+                ))}
+              </select>
+            </label>
+            {(issueType === 'VISITOR' || issueType === 'CONTRACTOR') && (
+              <label className="block sm:col-span-2">
+                <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400">
+                  Visitor appointment (optional)
+                </span>
+                <select
+                  value={issueAppointmentId}
+                  onChange={(e) => setIssueAppointmentId(e.target.value)}
+                  className={fieldCls}
+                >
+                  <option value="">— No link —</option>
+                  {appointmentChoices.map((a) => (
+                    <option key={a.id} value={a.id}>
+                      {a.referenceNumber} · {a.visitorName} · {a.status}
+                      {a.vehiclePlate ? ` · ${a.vehiclePlate}` : ''}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            )}
+            <label className="block">
+              <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400">
+                Billing period
+              </span>
+              <select
+                value={issuePeriod}
+                onChange={(e) =>
+                  setIssuePeriod(e.target.value as ParkingBillingPeriod)
+                }
+                className={fieldCls}
+              >
+                {BILLING_PERIODS.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="block">
+              <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400">
+                Unit rate (TZS)
+              </span>
+              <input
+                value={issueUnitRate}
+                onChange={(e) => setIssueUnitRate(e.target.value)}
+                inputMode="decimal"
+                placeholder={
+                  issuePeriod === 'DAILY'
+                    ? 'Per day'
+                    : issuePeriod === 'MONTHLY'
+                      ? 'Per month'
+                      : 'Flat rate'
+                }
+                className={fieldCls}
+              />
+            </label>
+            <label className="block">
+              <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400">
+                Qty (days/months)
+              </span>
+              <input
+                value={issueQuantity}
+                onChange={(e) => setIssueQuantity(e.target.value)}
+                inputMode="decimal"
+                placeholder="Auto from dates if blank"
+                className={fieldCls}
+              />
+            </label>
+            <label className="block">
+              <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400">
+                Discount
+              </span>
+              <input
+                value={issueDiscount}
+                onChange={(e) => setIssueDiscount(e.target.value)}
+                inputMode="decimal"
+                placeholder="0"
+                className={fieldCls}
+              />
+            </label>
+            <label className="block">
+              <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400">
+                Penalty
+              </span>
+              <input
+                value={issuePenalty}
+                onChange={(e) => setIssuePenalty(e.target.value)}
+                inputMode="decimal"
+                placeholder="0"
+                className={fieldCls}
+              />
+            </label>
+            <label className="block">
+              <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400">
+                Or flat fee (legacy)
+              </span>
+              <input
+                value={issueFee}
+                onChange={(e) => setIssueFee(e.target.value)}
+                inputMode="decimal"
+                placeholder="e.g. 150000"
+                className={fieldCls}
+              />
+            </label>
+          </div>
+          {issueError ? (
+            <p className="mt-3 rounded-lg border border-rose-400/40 bg-rose-500/15 px-3 py-2 text-sm text-rose-100">
+              {issueError}
+            </p>
+          ) : null}
+          <div className="mt-4 flex justify-end">
+            <button
+              type="submit"
+              disabled={issuing || !vehicles.length || !sites.length}
+              className="inline-flex items-center gap-2 rounded-lg bg-teal-500 px-4 py-2 text-sm font-bold text-white hover:bg-teal-400 disabled:opacity-60"
+            >
+              <Ticket className="h-4 w-4" />
+              {issuing ? 'Issuing…' : 'Issue permit'}
+            </button>
+          </div>
+        </form>
+      ) : null}
 
       {error ? (
         <p className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800">
@@ -463,6 +861,11 @@ export default function PermitsPage() {
                       >
                         {p.permitType}
                       </span>
+                      {p.visitorReferenceNumber ? (
+                        <span className="rounded-full bg-sky-50 px-2 py-0.5 text-[10px] font-bold uppercase text-sky-800 ring-1 ring-sky-200">
+                          {p.visitorReferenceNumber}
+                        </span>
+                      ) : null}
                     </div>
                     <p className="mt-1.5 font-mono text-lg font-bold tracking-wide text-slate-900">
                       {p.plate}
@@ -470,6 +873,7 @@ export default function PermitsPage() {
                     <p className="truncate text-xs font-semibold" style={{ color: meta.accent }}>
                       {meta.label}
                       {p.makeModel ? ` · ${p.makeModel}` : ''}
+                      {p.visitorName ? ` · ${p.visitorName}` : ''}
                     </p>
                   </div>
                 </div>
@@ -492,6 +896,9 @@ export default function PermitsPage() {
                       <span className="inline-flex items-center gap-1 rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-bold text-amber-900 ring-1 ring-amber-200">
                         <Wallet className="h-3 w-3" />
                         {formatFee(p.feeAmount, p.currency)}
+                        {p.billingPeriod && p.billingPeriod !== 'ONE_TIME'
+                          ? ` · ${p.billingPeriod}`
+                          : ''}
                       </span>
                     ) : (
                       <span className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">
@@ -502,6 +909,17 @@ export default function PermitsPage() {
                       <span className="inline-flex items-center gap-1 rounded-full bg-teal-50 px-2 py-0.5 font-mono text-[10px] font-bold text-teal-800 ring-1 ring-teal-200">
                         <Receipt className="h-3 w-3" />
                         {p.invoiceNumber}
+                        {p.invoiceStatus ? ` · ${p.invoiceStatus}` : ''}
+                      </span>
+                    ) : null}
+                    {p.balanceDue != null && p.balanceDue > 0 ? (
+                      <span className="rounded-full bg-rose-50 px-2 py-0.5 text-[10px] font-bold text-rose-800 ring-1 ring-rose-200">
+                        Due {formatFee(p.balanceDue, p.currency)}
+                      </span>
+                    ) : null}
+                    {p.invoiceStatus === 'PAID' ? (
+                      <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-bold text-emerald-800 ring-1 ring-emerald-200">
+                        Paid
                       </span>
                     ) : null}
                   </div>
@@ -558,15 +976,25 @@ export default function PermitsPage() {
                   p.feeAmount != null &&
                   p.feeAmount > 0 &&
                   !p.invoiceId ? (
-                    <button
-                      type="button"
-                      disabled={busyId === p.id}
-                      onClick={() => void onBill(p.id)}
-                      className="inline-flex flex-1 items-center justify-center gap-1.5 rounded-xl bg-[#0d9488] px-3 py-2 text-xs font-bold text-white hover:bg-teal-600 disabled:opacity-60"
-                    >
-                      <Receipt className="h-3.5 w-3.5" />
-                      {busyId === p.id ? '…' : 'Bill'}
-                    </button>
+                    <>
+                      <button
+                        type="button"
+                        disabled={busyId === p.id}
+                        onClick={() => void onBill(p.id, false)}
+                        className="inline-flex flex-1 items-center justify-center gap-1.5 rounded-xl bg-[#0d9488] px-3 py-2 text-xs font-bold text-white hover:bg-teal-600 disabled:opacity-60"
+                      >
+                        <Receipt className="h-3.5 w-3.5" />
+                        {busyId === p.id ? '…' : 'Bill draft'}
+                      </button>
+                      <button
+                        type="button"
+                        disabled={busyId === p.id}
+                        onClick={() => void onBill(p.id, true)}
+                        className="inline-flex items-center justify-center gap-1.5 rounded-xl border border-teal-300 bg-teal-50 px-3 py-2 text-xs font-bold text-teal-900 disabled:opacity-60"
+                      >
+                        Send invoice
+                      </button>
+                    </>
                   ) : null}
                 </div>
               </article>
@@ -683,18 +1111,31 @@ export default function PermitsPage() {
                         p.feeAmount != null &&
                         p.feeAmount > 0 &&
                         !p.invoiceId ? (
-                          <button
-                            type="button"
-                            disabled={busyId === p.id}
-                            onClick={() => void onBill(p.id)}
-                            className="rounded-lg bg-[#0d9488] px-2.5 py-1 text-[11px] font-bold text-white disabled:opacity-60"
-                          >
-                            Bill
-                          </button>
+                          <>
+                            <button
+                              type="button"
+                              disabled={busyId === p.id}
+                              onClick={() => void onBill(p.id, false)}
+                              className="rounded-lg bg-[#0d9488] px-2.5 py-1 text-[11px] font-bold text-white disabled:opacity-60"
+                            >
+                              Bill
+                            </button>
+                            <button
+                              type="button"
+                              disabled={busyId === p.id}
+                              onClick={() => void onBill(p.id, true)}
+                              className="rounded-lg border border-teal-300 bg-teal-50 px-2.5 py-1 text-[11px] font-bold text-teal-900 disabled:opacity-60"
+                            >
+                              Send
+                            </button>
+                          </>
                         ) : null}
                         {p.invoiceId ? (
                           <span className="text-[11px] font-semibold text-teal-700">
-                            Billed
+                            {p.invoiceStatus ?? 'Billed'}
+                            {p.balanceDue != null && p.balanceDue > 0
+                              ? ` · due ${p.balanceDue}`
+                              : ''}
                           </span>
                         ) : null}
                       </div>
@@ -717,10 +1158,10 @@ export default function PermitsPage() {
             <div className="flex items-start justify-between gap-3 border-b border-slate-100 px-5 py-4">
               <div>
                 <p className="text-xs font-bold uppercase tracking-wider text-slate-400">
-                  Module 13-B
+                  Module 13-O
                 </p>
                 <h2 className="mt-0.5 text-lg font-bold text-slate-900">
-                  Edit permit fee
+                  Edit charges
                 </h2>
                 <p className="mt-1 font-mono text-sm text-slate-600">
                   {feeEdit.permitNumber}
@@ -734,7 +1175,10 @@ export default function PermitsPage() {
                 <X className="h-5 w-5" />
               </button>
             </div>
-            <form onSubmit={(e) => void onSaveFee(e)} className="space-y-4 px-5 py-4">
+            <form
+              onSubmit={(e) => void onSaveFee(e)}
+              className="max-h-[70vh] space-y-3 overflow-y-auto px-5 py-4"
+            >
               {modalError ? (
                 <p className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-800">
                   {modalError}
@@ -742,14 +1186,78 @@ export default function PermitsPage() {
               ) : null}
               <div>
                 <label className="text-xs font-bold uppercase tracking-wider text-slate-500">
-                  Fee amount
+                  Billing period
+                </label>
+                <select
+                  value={periodDraft}
+                  onChange={(e) =>
+                    setPeriodDraft(e.target.value as ParkingBillingPeriod)
+                  }
+                  className="mt-1.5 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm outline-none focus:border-[#2563eb] focus:bg-white"
+                >
+                  {BILLING_PERIODS.map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {p.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-xs font-bold uppercase tracking-wider text-slate-500">
+                    Unit rate
+                  </label>
+                  <input
+                    value={unitRateDraft}
+                    onChange={(e) => setUnitRateDraft(e.target.value)}
+                    inputMode="decimal"
+                    className="mt-1.5 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 font-mono text-sm outline-none focus:border-[#2563eb] focus:bg-white"
+                  />
+                </div>
+                <div>
+                  <label className="text-xs font-bold uppercase tracking-wider text-slate-500">
+                    Quantity
+                  </label>
+                  <input
+                    value={quantityDraft}
+                    onChange={(e) => setQuantityDraft(e.target.value)}
+                    inputMode="decimal"
+                    className="mt-1.5 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 font-mono text-sm outline-none focus:border-[#2563eb] focus:bg-white"
+                  />
+                </div>
+                <div>
+                  <label className="text-xs font-bold uppercase tracking-wider text-slate-500">
+                    Discount
+                  </label>
+                  <input
+                    value={discountDraft}
+                    onChange={(e) => setDiscountDraft(e.target.value)}
+                    inputMode="decimal"
+                    className="mt-1.5 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 font-mono text-sm outline-none focus:border-[#2563eb] focus:bg-white"
+                  />
+                </div>
+                <div>
+                  <label className="text-xs font-bold uppercase tracking-wider text-slate-500">
+                    Penalty
+                  </label>
+                  <input
+                    value={penaltyDraft}
+                    onChange={(e) => setPenaltyDraft(e.target.value)}
+                    inputMode="decimal"
+                    className="mt-1.5 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 font-mono text-sm outline-none focus:border-[#2563eb] focus:bg-white"
+                  />
+                </div>
+              </div>
+              <div>
+                <label className="text-xs font-bold uppercase tracking-wider text-slate-500">
+                  Flat fee override (optional)
                 </label>
                 <input
                   value={feeDraft}
                   onChange={(e) => setFeeDraft(e.target.value)}
                   inputMode="decimal"
-                  placeholder="e.g. 150000"
-                  className="mt-1.5 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 font-mono text-sm outline-none focus:border-[#2563eb] focus:bg-white focus:ring-2 focus:ring-[#2563eb]/15"
+                  placeholder="Leave blank to calc from rate × qty"
+                  className="mt-1.5 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 font-mono text-sm outline-none focus:border-[#2563eb] focus:bg-white"
                 />
               </div>
               <div>
@@ -758,14 +1266,16 @@ export default function PermitsPage() {
                 </label>
                 <input
                   value={currencyDraft}
-                  onChange={(e) => setCurrencyDraft(e.target.value.toUpperCase())}
+                  onChange={(e) =>
+                    setCurrencyDraft(e.target.value.toUpperCase())
+                  }
                   maxLength={3}
-                  className="mt-1.5 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 font-mono text-sm uppercase outline-none focus:border-[#2563eb] focus:bg-white focus:ring-2 focus:ring-[#2563eb]/15"
+                  className="mt-1.5 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 font-mono text-sm uppercase outline-none focus:border-[#2563eb] focus:bg-white"
                 />
               </div>
               <p className="text-xs text-slate-500">
-                Approve does not bill. Use Bill on an ACTIVE permit with a fee
-                and vehicle customer to create a DRAFT invoice.
+                Net fee = rate × qty − discount + penalty. Bill draft or send
+                invoice after ACTIVE.
               </p>
               <div className="flex justify-end gap-2 pt-1">
                 <button
@@ -780,7 +1290,7 @@ export default function PermitsPage() {
                   disabled={savingFee}
                   className="rounded-xl bg-[#2563eb] px-4 py-2 text-sm font-bold text-white disabled:opacity-60"
                 >
-                  {savingFee ? 'Saving…' : 'Save fee'}
+                  {savingFee ? 'Saving…' : 'Save charges'}
                 </button>
               </div>
             </form>

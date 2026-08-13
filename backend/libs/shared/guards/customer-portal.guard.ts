@@ -35,6 +35,7 @@ const EMPLOYEE_ALLOWED_GET_EXACT = [
   '/api/v1/access/entries',
   '/api/v1/customers/me',
   '/api/v1/customers/me/sites',
+  '/api/v1/customers/me/payroll/my-payslips',
   '/api/v1/auth/me',
 ];
 

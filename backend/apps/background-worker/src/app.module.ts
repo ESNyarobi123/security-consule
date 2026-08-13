@@ -8,6 +8,7 @@ import { ContractExpiryJob } from './jobs/contract-expiry.job';
 import { InvoiceOverdueJob } from './jobs/invoice-overdue.job';
 import { AlertnessMissJob } from './jobs/alertness-miss.job';
 import { PatrolMissJob } from './jobs/patrol-miss.job';
+import { PayrollDueJob } from './jobs/payroll-due.job';
 import { HealthController } from './health.controller';
 
 @Module({
@@ -21,6 +22,7 @@ import { HealthController } from './health.controller';
     InvoiceOverdueJob,
     AlertnessMissJob,
     PatrolMissJob,
+    PayrollDueJob,
   ],
 })
 export class AppModule {}

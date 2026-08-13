@@ -2,6 +2,8 @@ import {
   Body,
   Controller,
   Get,
+  Param,
+  Patch,
   Post,
   Query,
   UseGuards,
@@ -26,6 +28,7 @@ import {
   CreateStockMovementDto,
   StockItemResponseDto,
   StockMovementResponseDto,
+  UpdateStockItemDto,
 } from './dto/inventory.dto';
 
 @ApiTags('Inventory')
@@ -48,6 +51,26 @@ export class InventoryController {
   @ApiOkResponse({ type: [StockItemResponseDto] })
   listItems(@CurrentUser() user: AuthUser) {
     return this.service.listItems(user.organizationId);
+  }
+
+  @Get('alerts')
+  @ApiOperation({
+    summary: 'Stock items at or below reorder level',
+  })
+  @ApiOkResponse({ type: [StockItemResponseDto] })
+  listAlerts(@CurrentUser() user: AuthUser) {
+    return this.service.listAlerts(user.organizationId);
+  }
+
+  @Patch('items/:id')
+  @ApiOperation({ summary: 'Update stock item (reorder level, category, active)' })
+  @ApiOkResponse({ type: StockItemResponseDto })
+  updateItem(
+    @Param('id') id: string,
+    @Body() dto: UpdateStockItemDto,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.service.updateItem(id, dto, user);
   }
 
   @Post('movements')

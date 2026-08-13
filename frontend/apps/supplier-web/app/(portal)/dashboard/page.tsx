@@ -2,9 +2,11 @@
 
 import {
   getSupplierMe,
+  listMySupplierSubmissions,
   listSupplierOrders,
   type SupplierProfile,
   type SupplierPurchaseOrder,
+  type SupplierSubmission,
 } from '@pssms/api-client';
 import {
   ArrowRight,
@@ -40,6 +42,7 @@ function isOpenStatus(status: string) {
 export default function DashboardPage() {
   const [me, setMe] = useState<SupplierProfile | null>(null);
   const [orders, setOrders] = useState<SupplierPurchaseOrder[]>([]);
+  const [submissions, setSubmissions] = useState<SupplierSubmission[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -47,12 +50,14 @@ export default function DashboardPage() {
     setLoading(true);
     setError(null);
     try {
-      const [profile, pos] = await Promise.all([
+      const [profile, pos, docs] = await Promise.all([
         getSupplierMe(),
         listSupplierOrders(),
+        listMySupplierSubmissions().catch(() => [] as SupplierSubmission[]),
       ]);
       setMe(profile);
       setOrders(pos);
+      setSubmissions(docs);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load dashboard');
     } finally {
@@ -92,7 +97,7 @@ export default function DashboardPage() {
       <PortalHero
         eyebrow="Portal 35.17 · Supplier"
         title={me ? `Welcome, ${me.name}` : 'Supplier overview'}
-        subtitle="Track purchase orders issued to your company and keep your registration details current."
+        subtitle="Track purchase orders, quotes, invoices and payment status for your company only."
         actions={
           <button
             type="button"
@@ -119,14 +124,19 @@ export default function DashboardPage() {
         <PortalStat
           label="Open / in progress"
           value={loading ? '—' : stats.open}
-          hint="Awaiting fulfilment"
+          hint={
+            loading
+              ? 'Awaiting fulfilment'
+              : `${money(stats.openValue, stats.currency)} open value`
+          }
           href="/orders"
           tone="sky"
         />
         <PortalStat
-          label="Open PO value"
-          value={loading ? '—' : money(stats.openValue, stats.currency)}
-          hint={stats.currency}
+          label="Submissions"
+          value={loading ? '—' : submissions.length}
+          hint={`${submissions.filter((s) => s.status === 'SUBMITTED').length} awaiting review`}
+          href="/submissions"
           tone="emerald"
         />
         <PortalStat
@@ -244,6 +254,21 @@ export default function DashboardPage() {
               <Package className="ml-auto h-4 w-4 text-[#c8c6c4] transition group-hover:text-[#ea580c]" />
             </Link>
             <Link
+              href="/submissions"
+              className="group flex items-start gap-3 rounded-2xl border border-[#e1dfdd] bg-white p-4 shadow-sm transition hover:-translate-y-0.5 hover:border-amber-300 hover:shadow-md"
+            >
+              <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-orange-50 text-[#ea580c]">
+                <ClipboardList className="h-5 w-5" />
+              </span>
+              <div>
+                <p className="font-semibold text-[#1b1a19]">Quotes & invoices</p>
+                <p className="mt-0.5 text-xs text-[#605e5c]">
+                  Quotes, invoices, DNs, payment status
+                </p>
+              </div>
+              <ArrowRight className="ml-auto h-4 w-4 text-[#c8c6c4] transition group-hover:text-[#ea580c]" />
+            </Link>
+            <Link
               href="/profile"
               className="group flex items-start gap-3 rounded-2xl border border-[#e1dfdd] bg-white p-4 shadow-sm transition hover:-translate-y-0.5 hover:border-amber-300 hover:shadow-md"
             >
@@ -253,7 +278,7 @@ export default function DashboardPage() {
               <div>
                 <p className="font-semibold text-[#1b1a19]">Company profile</p>
                 <p className="mt-0.5 text-xs text-[#605e5c]">
-                  TIN, address, contact details
+                  TIN, VRN, bank, licence uploads
                 </p>
               </div>
               <ArrowRight className="ml-auto h-4 w-4 text-[#c8c6c4] transition group-hover:text-[#ea580c]" />
@@ -261,11 +286,6 @@ export default function DashboardPage() {
           </div>
         </div>
       </div>
-
-      <p className="mt-6 text-center text-[11px] text-[#605e5c]">
-        Read-only portal · Quotes upload & delivery confirmation come in a later
-        slice
-      </p>
     </>
   );
 }

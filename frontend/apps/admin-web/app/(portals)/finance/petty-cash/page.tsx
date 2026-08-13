@@ -3,12 +3,15 @@
 import {
   approvePettyCashVoucher,
   getDocumentDownloadUrl,
+  issuePettyCashVoucher,
   listDocuments,
+  listPettyCashFunds,
   listPettyCashVouchers,
   rejectPettyCashVoucher,
   reimbursePettyCashVoucher,
   uploadDocument,
   type DocumentObject,
+  type PettyCashFund,
   type PettyCashVoucher,
 } from '@pssms/api-client';
 import { getSessionUser } from '@pssms/auth';
@@ -21,6 +24,7 @@ import {
   inputCls,
 } from '@pssms/ui';
 import {
+  Banknote,
   CheckCircle2,
   Clock3,
   RefreshCw,
@@ -40,13 +44,20 @@ import {
   PettyCashRoster,
 } from '../_components/PettyCashRoster';
 
-type StatusFilter = 'ALL' | 'PENDING' | 'APPROVED' | 'REIMBURSED' | 'REJECTED';
+type StatusFilter =
+  | 'ALL'
+  | 'PENDING'
+  | 'APPROVED'
+  | 'ISSUED'
+  | 'REIMBURSED'
+  | 'REJECTED';
 
 const FILTERS: { id: StatusFilter; label: string }[] = [
   { id: 'ALL', label: 'All' },
   { id: 'PENDING', label: 'Pending' },
   { id: 'APPROVED', label: 'Approved' },
-  { id: 'REIMBURSED', label: 'Reimbursed' },
+  { id: 'ISSUED', label: 'Issued' },
+  { id: 'REIMBURSED', label: 'Retired' },
   { id: 'REJECTED', label: 'Rejected' },
 ];
 
@@ -107,12 +118,14 @@ function shortId(id: string) {
 
 export default function FinancePettyCashPage() {
   const [rows, setRows] = useState<PettyCashVoucher[]>([]);
+  const [funds, setFunds] = useState<PettyCashFund[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [rejectTarget, setRejectTarget] = useState<PettyCashVoucher | null>(
     null,
   );
+  const [issueTarget, setIssueTarget] = useState<PettyCashVoucher | null>(null);
   const [reimburseTarget, setReimburseTarget] =
     useState<PettyCashVoucher | null>(null);
   const [receiptsTarget, setReceiptsTarget] =
@@ -125,7 +138,12 @@ export default function FinancePettyCashPage() {
     setLoading(true);
     setError(null);
     try {
-      setRows(await listPettyCashVouchers());
+      const [vouchers, fundRows] = await Promise.all([
+        listPettyCashVouchers(),
+        listPettyCashFunds(),
+      ]);
+      setRows(vouchers);
+      setFunds(fundRows);
     } catch (err) {
       setError(formatApiError(err));
     } finally {
@@ -137,14 +155,21 @@ export default function FinancePettyCashPage() {
     void load();
   }, [load]);
 
+  const imprestBalance = useMemo(
+    () => funds.reduce((sum, f) => sum + Number(f.currentBalance ?? 0), 0),
+    [funds],
+  );
+
   const counts = useMemo(() => {
     const c = {
       ALL: rows.length,
       PENDING: 0,
       APPROVED: 0,
+      ISSUED: 0,
       REIMBURSED: 0,
       REJECTED: 0,
       pendingAmount: 0,
+      issuedAmount: 0,
       reimbursedAmount: 0,
     };
     for (const r of rows) {
@@ -152,7 +177,10 @@ export default function FinancePettyCashPage() {
         c.PENDING += 1;
         c.pendingAmount += r.amount;
       } else if (r.status === 'APPROVED') c.APPROVED += 1;
-      else if (r.status === 'REIMBURSED') {
+      else if (r.status === 'ISSUED') {
+        c.ISSUED += 1;
+        c.issuedAmount += r.amount;
+      } else if (r.status === 'REIMBURSED') {
         c.REIMBURSED += 1;
         c.reimbursedAmount += r.amount;
       } else if (r.status === 'REJECTED') c.REJECTED += 1;
@@ -169,6 +197,9 @@ export default function FinancePettyCashPage() {
         r.voucherNumber.toLowerCase().includes(q) ||
         r.purpose.toLowerCase().includes(q) ||
         r.category.toLowerCase().includes(q) ||
+        (r.department ?? '').toLowerCase().includes(q) ||
+        (r.branchCode ?? '').toLowerCase().includes(q) ||
+        (r.branchName ?? '').toLowerCase().includes(q) ||
         r.status.toLowerCase().includes(q)
       );
     });
@@ -195,7 +226,7 @@ export default function FinancePettyCashPage() {
     <>
       <PageHeader
         title="Petty cash"
-        description="Approve requests, then mark reimbursed with a MinIO receipt (pdf/png/jpeg/webp), URL, or notes. Employees apply via ESS."
+        description="Request → approve → issue cash (debits imprest) → retire with receipt. No petty cash is issued without approval. Creator cannot approve, issue, or retire their own voucher."
         actions={
           <div className="flex flex-wrap gap-2">
             <Link href="/ess/petty-cash" className={btnSecondary}>
@@ -219,11 +250,15 @@ export default function FinancePettyCashPage() {
         }
       />
 
-      <div className="mb-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="mb-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
         <StatCard
-          label="Total vouchers"
-          value={counts.ALL}
-          hint="Org-wide imprest requests"
+          label="Imprest balance"
+          value={formatMoney(imprestBalance)}
+          hint={
+            funds[0]?.name
+              ? `${funds.length} fund${funds.length === 1 ? '' : 's'} · ${funds[0].name}`
+              : 'Active petty cash funds'
+          }
           accent="blue"
           icon={<Wallet className="h-5 w-5" />}
         />
@@ -241,14 +276,25 @@ export default function FinancePettyCashPage() {
         <StatCard
           label="Approved"
           value={counts.APPROVED}
-          hint="Ready to reimburse + receipt"
+          hint="Ready to issue — not yet debited"
           accent="sky"
           icon={<CheckCircle2 className="h-5 w-5" />}
         />
         <StatCard
-          label="Reimbursed"
+          label="Issued"
+          value={counts.ISSUED}
+          hint={
+            counts.issuedAmount > 0
+              ? `${formatMoney(counts.issuedAmount)} outstanding`
+              : 'Cash out, awaiting receipt'
+          }
+          accent="violet"
+          icon={<Banknote className="h-5 w-5" />}
+        />
+        <StatCard
+          label="Retired"
           value={formatMoney(counts.reimbursedAmount)}
-          hint={`${counts.REIMBURSED} settled`}
+          hint={`${counts.REIMBURSED} closed with receipt`}
           accent="emerald"
           icon={<Wallet className="h-5 w-5" />}
         />
@@ -272,8 +318,8 @@ export default function FinancePettyCashPage() {
             </span>
           </div>
           <p className="mt-0.5 text-[11px] text-[#605e5c]">
-            Approve · attach MinIO receipt · mark reimbursed · ESS requests land
-            here
+            Approve · issue cash (debits balance) · attach MinIO receipt · retire
+            · ESS requests land here
           </p>
         </div>
       </div>
@@ -284,12 +330,17 @@ export default function FinancePettyCashPage() {
         busyId={busyId}
         onApprove={(r) => void onApprove(r)}
         onReject={setRejectTarget}
+        onIssue={setIssueTarget}
         onReimburse={setReimburseTarget}
         onReceipts={setReceiptsTarget}
         canAct={(r) => {
           const isOwn =
             !!sessionUser?.id && r.createdBy === sessionUser.id;
-          if (r.status === 'PENDING' || r.status === 'APPROVED') {
+          if (
+            r.status === 'PENDING' ||
+            r.status === 'APPROVED' ||
+            r.status === 'ISSUED'
+          ) {
             if (isOwn) return 'own';
             return true;
           }
@@ -302,7 +353,7 @@ export default function FinancePettyCashPage() {
               <input
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
-                placeholder="Search voucher #, purpose, category…"
+                placeholder="Search voucher #, purpose, branch, department…"
                 className="w-full min-w-0 bg-transparent text-[13px] outline-none placeholder:text-[#a19f9d]"
               />
             </label>
@@ -339,7 +390,7 @@ export default function FinancePettyCashPage() {
             title={rows.length === 0 ? 'No vouchers yet' : 'No matches'}
             description={
               rows.length === 0
-                ? 'Employees request imprest via ESS. Approve here, attach a MinIO receipt, then mark reimbursed (creator ≠ reimburser).'
+                ? 'Employees request via ESS. Approve here, issue cash (creator ≠ issuer), then retire with a receipt.'
                 : 'Try another search or status filter.'
             }
           />
@@ -357,6 +408,17 @@ export default function FinancePettyCashPage() {
           onClose={() => setRejectTarget(null)}
           onRejected={async () => {
             setRejectTarget(null);
+            await load();
+          }}
+        />
+      ) : null}
+
+      {issueTarget ? (
+        <IssueModal
+          voucher={issueTarget}
+          onClose={() => setIssueTarget(null)}
+          onIssued={async () => {
+            setIssueTarget(null);
             await load();
           }}
         />
@@ -438,6 +500,65 @@ function RejectModal({
           </button>
           <button type="submit" className={btnPrimary} disabled={submitting}>
             {submitting ? 'Rejecting…' : 'Reject'}
+          </button>
+        </div>
+      </form>
+    </Modal>
+  );
+}
+
+function IssueModal({
+  voucher,
+  onClose,
+  onIssued,
+}: {
+  voucher: PettyCashVoucher;
+  onClose: () => void;
+  onIssued: () => Promise<void>;
+}) {
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function onSubmit(e: FormEvent) {
+    e.preventDefault();
+    setSubmitting(true);
+    setError(null);
+    try {
+      await issuePettyCashVoucher(voucher.id);
+      await onIssued();
+    } catch (err) {
+      setError(formatApiError(err));
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  return (
+    <Modal
+      title={`Issue cash — ${voucher.voucherNumber}`}
+      description="Debits the imprest fund. No petty cash is issued without approval. The requester cannot issue their own voucher."
+      onClose={onClose}
+    >
+      <form onSubmit={(e) => void onSubmit(e)} className="space-y-3">
+        <p className="text-sm text-[#605e5c]">
+          Amount {formatMoney(voucher.amount)} · {voucher.purpose}
+        </p>
+        <p className="text-xs text-[#8a8886]">
+          {[voucher.branchCode ?? voucher.branchName, voucher.department]
+            .filter(Boolean)
+            .join(' · ') || 'HQ imprest'}
+        </p>
+        {error ? (
+          <p className="rounded-md bg-rose-50 px-3 py-2 text-sm text-rose-700">
+            {error}
+          </p>
+        ) : null}
+        <div className="flex justify-end gap-2">
+          <button type="button" onClick={onClose} className={btnSecondary}>
+            Cancel
+          </button>
+          <button type="submit" className={btnPrimary} disabled={submitting}>
+            {submitting ? 'Issuing…' : 'Issue cash'}
           </button>
         </div>
       </form>
@@ -696,8 +817,8 @@ function ReimburseModal({
 
   return (
     <Modal
-      title={`Mark reimbursed — ${voucher.voucherNumber}`}
-      description="Closes the retire/receipt loop. Imprest was already debited on approve. Attach a MinIO file and/or notes."
+      title={`Retire — ${voucher.voucherNumber}`}
+      description="Closes the voucher after cash was issued. Imprest was already debited on issue. Attach a MinIO receipt and/or notes."
       onClose={onClose}
     >
       <form onSubmit={(e) => void onSubmit(e)} className="space-y-3">
@@ -784,7 +905,7 @@ function ReimburseModal({
             Cancel
           </button>
           <button type="submit" className={btnPrimary} disabled={submitting}>
-            {submitting ? 'Saving…' : 'Mark reimbursed'}
+            {submitting ? 'Saving…' : 'Retire voucher'}
           </button>
         </div>
       </form>

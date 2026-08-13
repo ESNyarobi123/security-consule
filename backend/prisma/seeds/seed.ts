@@ -1367,6 +1367,9 @@ async function main() {
       userId: vehicleOwnerUser.id,
       ownerName: 'Amina Vehicle Owner',
       rfidTagRef: 'RFID-DEMO-T123',
+      parkingCategory: 'CUSTOMER',
+      driverName: 'Amina Vehicle Owner',
+      driverPhone: '+255755000100',
     },
     create: {
       organizationId: org.id,
@@ -1374,11 +1377,14 @@ async function main() {
       userId: vehicleOwnerUser.id,
       plateNumber: 'T123ABC',
       vehicleType: 'CAR',
+      parkingCategory: 'CUSTOMER',
       make: 'Toyota',
       model: 'Corolla',
       color: 'White',
       ownerName: 'Amina Vehicle Owner',
       ownerPhone: '+255755000100',
+      driverName: 'Amina Vehicle Owner',
+      driverPhone: '+255755000100',
       rfidTagRef: 'RFID-DEMO-T123',
       createdBy: admin.id,
     },
@@ -1399,9 +1405,14 @@ async function main() {
       status: 'ACTIVE',
       validFrom: permitValidFrom,
       validUntil: permitValidUntil,
-      // Module 13-B — demo fee (not billed until ops Bill action)
+      // Module 13-B / 13-O — demo monthly subscription fee
       feeAmount: 150000,
       currency: 'TZS',
+      billingPeriod: 'MONTHLY',
+      unitRate: 150000,
+      quantity: 1,
+      discountAmount: null,
+      penaltyAmount: null,
     },
     create: {
       organizationId: org.id,
@@ -1414,9 +1425,138 @@ async function main() {
       validUntil: permitValidUntil,
       feeAmount: 150000,
       currency: 'TZS',
+      billingPeriod: 'MONTHLY',
+      unitRate: 150000,
+      quantity: 1,
       createdBy: admin.id,
     },
   });
+
+  // Module 13-J — demo parking bays at warehouse (manual + AUTO mix)
+  const demoSpaces: Array<{
+    code: string;
+    spaceType:
+      | 'EMPLOYEE'
+      | 'VISITOR'
+      | 'VIP'
+      | 'CONTRACTOR'
+      | 'SUPPLIER'
+      | 'FLEET'
+      | 'RESERVED'
+      | 'DISABLED'
+      | 'TEMPORARY'
+      | 'OVERFLOW';
+    allocationMode: 'MANUAL' | 'AUTO';
+    label: string;
+  }> = [
+    {
+      code: 'W-E01',
+      spaceType: 'EMPLOYEE',
+      allocationMode: 'AUTO',
+      label: 'Employee bay 1',
+    },
+    {
+      code: 'W-E02',
+      spaceType: 'EMPLOYEE',
+      allocationMode: 'MANUAL',
+      label: 'Employee bay 2',
+    },
+    {
+      code: 'W-V01',
+      spaceType: 'VISITOR',
+      allocationMode: 'AUTO',
+      label: 'Visitor bay 1',
+    },
+    {
+      code: 'W-VIP1',
+      spaceType: 'VIP',
+      allocationMode: 'MANUAL',
+      label: 'VIP bay',
+    },
+    {
+      code: 'W-C01',
+      spaceType: 'CONTRACTOR',
+      allocationMode: 'AUTO',
+      label: 'Contractor bay',
+    },
+    {
+      code: 'W-S01',
+      spaceType: 'SUPPLIER',
+      allocationMode: 'MANUAL',
+      label: 'Supplier bay',
+    },
+    {
+      code: 'W-F01',
+      spaceType: 'FLEET',
+      allocationMode: 'AUTO',
+      label: 'Fleet bay',
+    },
+    {
+      code: 'W-R01',
+      spaceType: 'RESERVED',
+      allocationMode: 'MANUAL',
+      label: 'Reserved bay',
+    },
+    {
+      code: 'W-D01',
+      spaceType: 'DISABLED',
+      allocationMode: 'MANUAL',
+      label: 'Accessible bay',
+    },
+    {
+      code: 'W-T01',
+      spaceType: 'TEMPORARY',
+      allocationMode: 'AUTO',
+      label: 'Temporary bay',
+    },
+    {
+      code: 'W-O01',
+      spaceType: 'OVERFLOW',
+      allocationMode: 'AUTO',
+      label: 'Overflow bay',
+    },
+  ];
+  for (const sp of demoSpaces) {
+    const sharedTypes = new Set([
+      'FLEET',
+      'OVERFLOW',
+      'DISABLED',
+      'TEMPORARY',
+    ]);
+    const bayCustomerId = sharedTypes.has(sp.spaceType) ? null : customer.id;
+    const exists = await prisma.parkingSpace.findFirst({
+      where: {
+        organizationId: org.id,
+        siteId: site.id,
+        code: sp.code,
+      },
+    });
+    if (exists) {
+      await prisma.parkingSpace.update({
+        where: { id: exists.id },
+        data: {
+          spaceType: sp.spaceType,
+          allocationMode: sp.allocationMode,
+          label: sp.label,
+          customerId: bayCustomerId,
+          isActive: true,
+        },
+      });
+    } else {
+      await prisma.parkingSpace.create({
+        data: {
+          organizationId: org.id,
+          siteId: site.id,
+          customerId: bayCustomerId,
+          code: sp.code,
+          label: sp.label,
+          spaceType: sp.spaceType,
+          allocationMode: sp.allocationMode,
+          createdBy: admin.id,
+        },
+      });
+    }
+  }
 
   // ── Rich CUST-DEMO data for Customer Portal UI showcase ──
   const siteOffice = await prisma.site.upsert({
@@ -1561,6 +1701,19 @@ async function main() {
       sla: 'Draft — pending commercial approval',
       paymentTerms: 'NET_30',
     },
+    {
+      contractNumber: 'CTR-DEMO-PAYROLL-2026',
+      title: 'Customer employee payroll service — CUST-DEMO',
+      serviceType: 'CUSTOMER_PAYROLL',
+      serviceTypes: ['CUSTOMER_PAYROLL'],
+      status: ContractStatus.ACTIVE,
+      monthlyFee: 930_000,
+      guardCount: 0,
+      startOffsetDays: -90,
+      endOffsetDays: 275,
+      sla: 'Payslips generated by 25th · e-payroll due 1st if invoice paid',
+      paymentTerms: 'NET_30',
+    },
   ];
 
   for (const c of contractSeeds) {
@@ -1638,6 +1791,7 @@ async function main() {
           'CTR-DEMO-VISITOR-2026',
           'CTR-DEMO-PARK-2026',
           'CTR-DEMO-ACCESS-DRAFT',
+          'CTR-DEMO-PAYROLL-2026',
         ],
       },
     },
@@ -2666,6 +2820,32 @@ async function main() {
     },
   });
 
+  // Module 13-M — demo parking patrol observation (guard mobile)
+  const patrolObsSeedKey = 'seed:parking-patrol-ILLEGAL-T123';
+  const existingPatrolObs = await prisma.parkingPatrolObservation.findFirst({
+    where: {
+      organizationId: org.id,
+      notes: { contains: patrolObsSeedKey },
+    },
+  });
+  if (!existingPatrolObs) {
+    await prisma.parkingPatrolObservation.create({
+      data: {
+        organizationId: org.id,
+        siteId: site.id,
+        guardId: guardProfile.id,
+        inspectedAt: new Date(Date.now() - 90 * 60_000),
+        parkingArea: 'Warehouse Lot A · Visitor bay',
+        observationType: 'ILLEGAL_PARKING',
+        plateNumber: 'T123ABC',
+        vehicleId: vehicle.id,
+        notes: `[${patrolObsSeedKey}] Demo illegal parking noted on parking patrol`,
+        severity: 'MEDIUM',
+        createdBy: guardUser.id,
+      },
+    });
+  }
+
   // G2: link ACTIVE warehouse deployment to CTR-DEMO-GUARD-2026 (idempotent)
   const guardDemoContract = await prisma.contract.findFirst({
     where: {
@@ -3095,6 +3275,10 @@ async function main() {
       guardProfileId: guardProfile.id,
       userId: guardUser.id,
       fullName: 'John Guard',
+      bankAccountRef: '0123456789',
+      bankName: 'CRDB Bank',
+      mobileMoneyRef: '+255712345678',
+      mobileMoneyProvider: 'M-PESA',
     },
     create: {
       organizationId: org.id,
@@ -3123,7 +3307,7 @@ async function main() {
         basicSalary: 850000,
         currency: 'TZS',
         hourlyRate: 5000,
-        allowances: { TRANSPORT: 50000, RISK: 75000 },
+        allowances: { TRANSPORT: 50000, RISK: 75000, SITE: 25000 },
         effectiveFrom: salaryFrom,
         createdBy: admin.id,
       },
@@ -3156,6 +3340,44 @@ async function main() {
       employmentType: 'SUPERVISOR',
       hireDate: new Date('2023-06-01'),
       createdBy: admin.id,
+    },
+  });
+
+  const supervisorEmployee = await prisma.employee.findFirstOrThrow({
+    where: { organizationId: org.id, employeeNumber: 'OFF-SUP-001' },
+    select: { id: true },
+  });
+
+  // Module 17-A — APPROVED boots loan ready for HR issue demo
+  await prisma.employeeLoan.upsert({
+    where: {
+      organizationId_loanNumber: {
+        organizationId: org.id,
+        loanNumber: 'LN-DEMO-001',
+      },
+    },
+    update: {
+      status: 'APPROVED',
+      loanType: 'SECURITY_BOOTS',
+      itemName: 'Security boots size 43',
+      approvedBy: admin.id,
+      approvedAt: new Date(),
+    },
+    create: {
+      organizationId: org.id,
+      employeeId: supervisorEmployee.id,
+      loanNumber: 'LN-DEMO-001',
+      loanType: 'SECURITY_BOOTS',
+      principalAmount: 180000,
+      interestRate: 0,
+      termMonths: 6,
+      monthlyInstallment: 30000,
+      status: 'APPROVED',
+      purpose: 'Field duty boots replacement',
+      itemName: 'Security boots size 43',
+      createdBy: supervisorUser.id,
+      approvedBy: admin.id,
+      approvedAt: new Date(),
     },
   });
 
@@ -3219,12 +3441,27 @@ async function main() {
     where: {
       organizationId_code: { organizationId: org.id, code: 'ANNUAL' },
     },
-    update: {},
+    update: { isPaidLeave: true },
     create: {
       organizationId: org.id,
       code: 'ANNUAL',
       name: 'Annual Leave',
       annualQuotaDays: 21,
+      isPaidLeave: true,
+    },
+  });
+
+  await prisma.leaveType.upsert({
+    where: {
+      organizationId_code: { organizationId: org.id, code: 'UNPAID' },
+    },
+    update: { isPaidLeave: false },
+    create: {
+      organizationId: org.id,
+      code: 'UNPAID',
+      name: 'Unpaid Leave',
+      annualQuotaDays: 0,
+      isPaidLeave: false,
     },
   });
 
@@ -3245,12 +3482,207 @@ async function main() {
           nssfEmployeeRate: 0.1,
           payeRate: 0.1,
           currency: 'TZS',
+          standardHoursPerMonth: 176,
+          otMultiplier: 1.5,
+          alertnessConfirmBonus: 500,
+          alertnessMissPenalty: 2000,
+          alertnessLatePenalty: 500,
+          dailyRateDivisor: 22,
+          defaultSiteAllowance: 25000,
         },
         effectiveFrom: new Date('2024-01-01'),
         isCurrent: true,
         createdBy: admin.id,
       },
     });
+  } else {
+    await prisma.payrollRuleVersion.update({
+      where: { id: existingRule.id },
+      data: {
+        rules: {
+          nssfEmployeeRate: 0.1,
+          payeRate: 0.1,
+          currency: 'TZS',
+          standardHoursPerMonth: 176,
+          otMultiplier: 1.5,
+          alertnessConfirmBonus: 500,
+          alertnessMissPenalty: 2000,
+          alertnessLatePenalty: 500,
+          dailyRateDivisor: 22,
+          defaultSiteAllowance: 25000,
+        },
+      },
+    });
+  }
+
+  // Module 19-A — customer employee payroll service (CUST-DEMO / Jane)
+  const janePayrollEmp = await prisma.customerEmployee.findFirst({
+    where: {
+      organizationId: org.id,
+      customerId: customer.id,
+      employeeNumber: 'EMP-1001',
+    },
+  });
+  if (janePayrollEmp) {
+    await prisma.customerEmployee.update({
+      where: { id: janePayrollEmp.id },
+      data: {
+        bankAccountRef: '0123456789012',
+        bankName: 'CRDB Bank',
+        mobileMoneyRef: '+255755000100',
+        mobileMoneyProvider: 'M-Pesa',
+      },
+    });
+
+    const existingCustSalary = await prisma.customerSalaryAssignment.findFirst({
+      where: {
+        organizationId: org.id,
+        customerEmployeeId: janePayrollEmp.id,
+      },
+    });
+    if (!existingCustSalary) {
+      await prisma.customerSalaryAssignment.create({
+        data: {
+          organizationId: org.id,
+          customerId: customer.id,
+          customerEmployeeId: janePayrollEmp.id,
+          basicSalary: 850_000,
+          currency: 'TZS',
+          allowances: { TRANSPORT: 50_000, MEAL: 30_000 },
+          deductions: { UNION: 10_000 },
+          effectiveFrom: new Date('2024-01-01'),
+          createdBy: admin.id,
+        },
+      });
+    }
+
+    const cpayPeriodStart = new Date();
+    cpayPeriodStart.setDate(1);
+    cpayPeriodStart.setHours(0, 0, 0, 0);
+    const cpayPeriodEnd = new Date(cpayPeriodStart);
+    cpayPeriodEnd.setMonth(cpayPeriodEnd.getMonth() + 1);
+    cpayPeriodEnd.setDate(0);
+    cpayPeriodEnd.setHours(23, 59, 59, 999);
+    const cpayPeriodKey = cpayPeriodStart
+      .toISOString()
+      .slice(0, 7)
+      .replace(/-/g, '');
+    const cpayCycleCode = `CPAY-CUST-DEMO-${cpayPeriodKey}`;
+
+    const cpayRule = await prisma.payrollRuleVersion.findFirst({
+      where: { organizationId: org.id, isCurrent: true },
+    });
+
+    let cpayCycle = await prisma.payrollCycle.findFirst({
+      where: { organizationId: org.id, cycleCode: cpayCycleCode },
+    });
+
+    if (!cpayCycle && cpayRule) {
+      cpayCycle = await prisma.payrollCycle.create({
+        data: {
+          organizationId: org.id,
+          tenantType: 'CUSTOMER_MANAGED_PAYROLL',
+          customerId: customer.id,
+          cycleCode: cpayCycleCode,
+          periodStart: cpayPeriodStart,
+          periodEnd: cpayPeriodEnd,
+          status: 'CALCULATED',
+          ruleVersionId: cpayRule.id,
+          createdBy: admin.id,
+          reviewedBy: admin.id,
+        },
+      });
+
+      for (let d = 1; d <= 5; d++) {
+        const day = new Date(cpayPeriodStart);
+        day.setDate(d);
+        day.setHours(8, 0, 0, 0);
+        const clientEventId = `seed-cpay-jane-checkin-${cpayPeriodKey}-${d}`;
+        const existsEntry = await prisma.accessEntry.findFirst({
+          where: { organizationId: org.id, clientEventId },
+        });
+        if (!existsEntry) {
+          await prisma.accessEntry.create({
+            data: {
+              organizationId: org.id,
+              customerId: customer.id,
+              employeeId: janePayrollEmp.id,
+              siteId: site.id,
+              gateId: gate.id,
+              entryType: 'CHECK_IN',
+              accessMethod: 'QR',
+              recordedBy: admin.id,
+              clientEventId,
+              recordedAt: day,
+            },
+          });
+        }
+      }
+
+      const grossPay = 930_000;
+      const totalDeductions = 203_000;
+      const netPay = grossPay - totalDeductions;
+
+      const existingCpaySlip = await prisma.payslipSnapshot.findFirst({
+        where: {
+          cycleId: cpayCycle.id,
+          customerEmployeeId: janePayrollEmp.id,
+        },
+      });
+      if (!existingCpaySlip) {
+        await prisma.payslipSnapshot.create({
+          data: {
+            organizationId: org.id,
+            cycleId: cpayCycle.id,
+            customerEmployeeId: janePayrollEmp.id,
+            employeeNumber: 'EMP-1001',
+            employeeName: 'Jane Doe',
+            inputsSnapshot: {
+              daysPresent: 5,
+              absentDays: 17,
+              totalHours: 40,
+              source: 'access.AccessEntry',
+            },
+            allowancesSnapshot: [
+              { code: 'TRANSPORT', amount: 50_000 },
+              { code: 'MEAL', amount: 30_000 },
+            ],
+            deductionsSnapshot: [{ code: 'UNION', amount: 10_000 }],
+            calculationResult: {
+              grossPay,
+              totalDeductions,
+              netPay,
+              lines: [
+                { code: 'BASIC', label: 'Basic salary', amount: 850_000, type: 'EARNING' },
+                { code: 'TRANSPORT', label: 'Transport', amount: 50_000, type: 'EARNING' },
+                { code: 'MEAL', label: 'Meal', amount: 30_000, type: 'EARNING' },
+                { code: 'UNION', label: 'Union', amount: 10_000, type: 'DEDUCTION' },
+                { code: 'NSSF', label: 'NSSF', amount: 93_000, type: 'DEDUCTION' },
+                { code: 'PAYE', label: 'PAYE', amount: 100_000, type: 'DEDUCTION' },
+              ],
+            },
+            grossPay,
+            totalDeductions,
+            netPay,
+            ruleVersionId: cpayRule.id,
+            createdBy: admin.id,
+          },
+        });
+      }
+
+      const payrollInvoice = await prisma.invoice.findFirst({
+        where: {
+          organizationId: org.id,
+          invoiceNumber: 'INV-DEMO-PAYROLL-001',
+        },
+      });
+      if (payrollInvoice && cpayCycle) {
+        await prisma.payrollCycle.update({
+          where: { id: cpayCycle.id },
+          data: { billingInvoiceId: payrollInvoice.id },
+        });
+      }
+    }
   }
 
   await prisma.jobPosting.upsert({
@@ -3705,6 +4137,7 @@ async function main() {
   await ensureWorkflow('petty-cash-approval', 'Petty Cash Approval');
   await ensureWorkflow('payment-voucher-approval', 'Payment Voucher Approval');
   await ensureWorkflow('purchase-order-approval', 'Purchase Order Approval');
+  await ensureWorkflow('purchase-request-approval', 'Purchase Request Approval');
   await ensureWorkflow('employee-transfer-approval', 'Employee Transfer Approval');
   await ensureWorkflow('employee-exit-approval', 'Employee Exit Approval');
 
@@ -3921,6 +4354,81 @@ async function main() {
     }
   }
 
+  // §18 Module 18-A — payroll-approval: HR → Finance → GM → CEO.
+  {
+    const payrollDesc =
+      'Payroll approval: Payroll/HR → Finance → General Manager → CEO (§18 company payroll)';
+    const def = await prisma.workflowDefinition.upsert({
+      where: {
+        organizationId_code: {
+          organizationId: org.id,
+          code: 'payroll-approval',
+        },
+      },
+      update: { description: payrollDesc },
+      create: {
+        organizationId: org.id,
+        code: 'payroll-approval',
+        name: 'Payroll Approval',
+        description: payrollDesc,
+      },
+    });
+    const ver = await prisma.workflowVersion.findFirst({
+      where: { definitionId: def.id, isCurrent: true },
+      include: { steps: { orderBy: { stepOrder: 'asc' } } },
+    });
+    const payrollOk =
+      !!ver &&
+      ver.steps.length === 4 &&
+      ver.steps[0]?.requiredRole === 'HR_OFFICER' &&
+      ver.steps[1]?.requiredRole === 'ACCOUNTS_OFFICER' &&
+      ver.steps[2]?.requiredRole === 'GENERAL_MANAGER' &&
+      ver.steps[3]?.requiredRole === 'CEO';
+    if (!payrollOk) {
+      if (ver) {
+        await prisma.workflowVersion.update({
+          where: { id: ver.id },
+          data: { isCurrent: false },
+        });
+      }
+      await prisma.workflowVersion.create({
+        data: {
+          definitionId: def.id,
+          version: (ver?.version ?? 0) + 1,
+          isCurrent: true,
+          steps: {
+            create: [
+              {
+                stepOrder: 1,
+                name: 'HR Review',
+                requiredRole: 'HR_OFFICER',
+                minApprovers: 1,
+              },
+              {
+                stepOrder: 2,
+                name: 'Finance Review',
+                requiredRole: 'ACCOUNTS_OFFICER',
+                minApprovers: 1,
+              },
+              {
+                stepOrder: 3,
+                name: 'General Manager Review',
+                requiredRole: 'GENERAL_MANAGER',
+                minApprovers: 1,
+              },
+              {
+                stepOrder: 4,
+                name: 'CEO Approval',
+                requiredRole: 'CEO',
+                minApprovers: 1,
+              },
+            ],
+          },
+        },
+      });
+    }
+  }
+
   // Thin policy-change: CO drafts/submits; GM alone publishes (CEO/CMD deferred).
   // Avoid CO→GM two-step deadlock when the only CO is also the submitter (creator≠approver).
   {
@@ -4089,13 +4597,35 @@ async function main() {
     where: {
       organizationId_code: { organizationId: org.id, code: 'SUP-UNIFORM' },
     },
-    update: { status: 'APPROVED' },
+    update: {
+      status: 'APPROVED',
+      tin: '100-123-456',
+      vrn: '40-123456-A',
+      category: 'GOODS',
+      address: 'Nyerere Road, Dar es Salaam',
+      bankName: 'CRDB Bank',
+      bankAccountName: 'Tanzania Uniform Supplies Ltd',
+      bankAccountRef: '0150123456780',
+      contactPerson: 'Uniform Supplies Portal',
+      contactPhone: '+255712345678',
+      contactEmail: 'portal@uniforms.co.tz',
+    },
     create: {
       organizationId: org.id,
       code: 'SUP-UNIFORM',
       name: 'Tanzania Uniform Supplies Ltd',
       email: 'orders@uniforms.co.tz',
       phone: '+255712345678',
+      tin: '100-123-456',
+      vrn: '40-123456-A',
+      category: 'GOODS',
+      address: 'Nyerere Road, Dar es Salaam',
+      bankName: 'CRDB Bank',
+      bankAccountName: 'Tanzania Uniform Supplies Ltd',
+      bankAccountRef: '0150123456780',
+      contactPerson: 'Uniform Supplies Portal',
+      contactPhone: '+255712345678',
+      contactEmail: 'portal@uniforms.co.tz',
       status: 'APPROVED',
       createdBy: admin.id,
     },
@@ -4105,7 +4635,7 @@ async function main() {
     where: {
       organizationId_sku: { organizationId: org.id, sku: 'UNIFORM-L' },
     },
-    update: {},
+    update: { reorderLevel: 10, category: 'UNIFORMS' },
     create: {
       organizationId: org.id,
       sku: 'UNIFORM-L',
@@ -4116,6 +4646,75 @@ async function main() {
       createdBy: admin.id,
     },
   });
+
+  const bootsItem = await prisma.stockItem.upsert({
+    where: {
+      organizationId_sku: { organizationId: org.id, sku: 'BOOTS-42' },
+    },
+    update: { reorderLevel: 8, category: 'BOOTS' },
+    create: {
+      organizationId: org.id,
+      sku: 'BOOTS-42',
+      name: 'Security boots — size 42',
+      category: 'BOOTS',
+      unit: 'EA',
+      reorderLevel: 8,
+      createdBy: admin.id,
+    },
+  });
+  const radioItem = await prisma.stockItem.upsert({
+    where: {
+      organizationId_sku: { organizationId: org.id, sku: 'RADIO-H' },
+    },
+    update: { reorderLevel: 5, category: 'RADIOS' },
+    create: {
+      organizationId: org.id,
+      sku: 'RADIO-H',
+      name: 'Handheld radio',
+      category: 'RADIOS',
+      unit: 'EA',
+      reorderLevel: 5,
+      createdBy: admin.id,
+    },
+  });
+  const bootsOnHand = await prisma.stockMovement.findFirst({
+    where: {
+      organizationId: org.id,
+      stockItemId: bootsItem.id,
+      notes: 'SEED-BOOTS-OPENING',
+    },
+  });
+  if (!bootsOnHand) {
+    await prisma.stockMovement.create({
+      data: {
+        organizationId: org.id,
+        stockItemId: bootsItem.id,
+        movementType: 'ADJUST',
+        quantity: 2,
+        notes: 'SEED-BOOTS-OPENING',
+        createdBy: admin.id,
+      },
+    });
+  }
+  const radioOnHand = await prisma.stockMovement.findFirst({
+    where: {
+      organizationId: org.id,
+      stockItemId: radioItem.id,
+      notes: 'SEED-RADIO-OPENING',
+    },
+  });
+  if (!radioOnHand) {
+    await prisma.stockMovement.create({
+      data: {
+        organizationId: org.id,
+        stockItemId: radioItem.id,
+        movementType: 'ADJUST',
+        quantity: 20,
+        notes: 'SEED-RADIO-OPENING',
+        createdBy: admin.id,
+      },
+    });
+  }
 
   const supplierPortalRole = await prisma.role.findFirstOrThrow({
     where: { organizationId: org.id, code: 'SUPPLIER_PORTAL' },
@@ -4166,7 +4765,186 @@ async function main() {
     });
   }
 
+  const supplierPortalUser = await prisma.user.findUniqueOrThrow({
+    where: { email: 'portal@uniforms.co.tz' },
+  });
+  const uniformPo = await prisma.purchaseOrder.findFirstOrThrow({
+    where: {
+      organizationId: org.id,
+      supplierId: supplier.id,
+      poNumber: 'PO-DEMO-UNIFORM-001',
+    },
+  });
+  await prisma.supplierSubmission.upsert({
+    where: {
+      organizationId_referenceNumber: {
+        organizationId: org.id,
+        referenceNumber: 'INV-DEMO-UNIFORM-001',
+      },
+    },
+    update: {},
+    create: {
+      organizationId: org.id,
+      supplierId: supplier.id,
+      purchaseOrderId: uniformPo.id,
+      referenceNumber: 'INV-DEMO-UNIFORM-001',
+      kind: 'INVOICE',
+      status: 'SUBMITTED',
+      title: 'Uniforms PO-DEMO-UNIFORM-001',
+      description: 'Invoice for 5 × Security Uniform — Large',
+      amount: 400000,
+      currency: 'TZS',
+      paymentStatus: 'UNPAID',
+      createdBy: supplierPortalUser.id,
+    },
+  });
+
+  const procurementOfficer = await prisma.user.findUnique({
+    where: { email: 'procurement1@highlink.co.tz' },
+  });
+  await prisma.supplier.upsert({
+    where: {
+      organizationId_code: { organizationId: org.id, code: 'SUP-PENDING' },
+    },
+    update: {},
+    create: {
+      organizationId: org.id,
+      code: 'SUP-PENDING',
+      name: 'Coastal Boot Factory Ltd',
+      email: 'sales@coastal-boots.example',
+      phone: '+255755000310',
+      tin: '100-999-001',
+      category: 'GOODS',
+      status: 'PENDING',
+      contactPerson: 'Juma Coastal',
+      createdBy: procurementOfficer?.id ?? admin.id,
+    },
+  });
+
+  const radioSupplier = await prisma.supplier.upsert({
+    where: {
+      organizationId_code: { organizationId: org.id, code: 'SUP-RADIO' },
+    },
+    update: { status: 'APPROVED', category: 'GOODS' },
+    create: {
+      organizationId: org.id,
+      code: 'SUP-RADIO',
+      name: 'Coastal Radio Systems Ltd',
+      email: 'sales@coastal-radio.example',
+      phone: '+255755000311',
+      category: 'GOODS',
+      status: 'APPROVED',
+      createdBy: admin.id,
+    },
+  });
+  const deptHeadUser = await prisma.user.findUnique({
+    where: { email: 'depthead1@highlink.co.tz' },
+  });
+  const existingPr = await prisma.purchaseRequest.findFirst({
+    where: {
+      organizationId: org.id,
+      requestNumber: 'PR-DEMO-001',
+    },
+  });
+  if (!existingPr) {
+    const pr = await prisma.purchaseRequest.create({
+      data: {
+        organizationId: org.id,
+        requestNumber: 'PR-DEMO-001',
+        department: 'Operations',
+        purpose: 'Restock warehouse uniforms',
+        status: 'APPROVED',
+        createdBy: deptHeadUser?.id ?? admin.id,
+        lines: {
+          create: [
+            {
+              description: 'Security Uniform — Large',
+              quantity: 10,
+              unit: 'EA',
+              stockItemId: stockItem.id,
+            },
+          ],
+        },
+      },
+      include: { lines: true },
+    });
+    const prLineId = pr.lines[0]!.id;
+    const q1 = await prisma.purchaseRequestQuote.create({
+      data: {
+        organizationId: org.id,
+        purchaseRequestId: pr.id,
+        supplierId: supplier.id,
+        status: 'AWARDED',
+        totalAmount: 800000,
+        createdBy: procurementOfficer?.id ?? admin.id,
+        lines: {
+          create: [
+            {
+              purchaseRequestLineId: prLineId,
+              unitPrice: 80000,
+              amount: 800000,
+            },
+          ],
+        },
+      },
+    });
+    await prisma.purchaseRequestQuote.create({
+      data: {
+        organizationId: org.id,
+        purchaseRequestId: pr.id,
+        supplierId: radioSupplier.id,
+        status: 'NOT_SELECTED',
+        totalAmount: 850000,
+        createdBy: procurementOfficer?.id ?? admin.id,
+        lines: {
+          create: [
+            {
+              purchaseRequestLineId: prLineId,
+              unitPrice: 85000,
+              amount: 850000,
+            },
+          ],
+        },
+      },
+    });
+    await prisma.purchaseRequest.update({
+      where: { id: pr.id },
+      data: { awardedQuoteId: q1.id },
+    });
+  }
+
   // Portal 35.14 / §15 — B2B other security company (thin guard supply).
+  const oscCustomer = await prisma.customer.upsert({
+    where: {
+      organizationId_code: { organizationId: org.id, code: 'CUST-OSC' },
+    },
+    update: {
+      name: 'Demo Partner Security Ltd',
+      email: 'partner@demo-security.co.tz',
+      billingEmail: 'partner@demo-security.co.tz',
+      phone: '+255755000900',
+      status: 'ACTIVE',
+      serviceTypes: ['RECRUITMENT'],
+      paymentTerms: 'NET_30',
+      currency: 'TZS',
+      isActive: true,
+    },
+    create: {
+      organizationId: org.id,
+      code: 'CUST-OSC',
+      name: 'Demo Partner Security Ltd',
+      email: 'partner@demo-security.co.tz',
+      billingEmail: 'partner@demo-security.co.tz',
+      phone: '+255755000900',
+      status: 'ACTIVE',
+      serviceTypes: ['RECRUITMENT'],
+      paymentTerms: 'NET_30',
+      currency: 'TZS',
+      isActive: true,
+      createdBy: admin.id,
+    },
+  });
+
   const b2bPartner = await prisma.b2bSecurityPartner.upsert({
     where: {
       organizationId_code: { organizationId: org.id, code: 'OSC-DEMO' },
@@ -4175,6 +4953,7 @@ async function main() {
       name: 'Demo Partner Security Ltd',
       email: 'partner@demo-security.co.tz',
       status: 'APPROVED',
+      customerId: oscCustomer.id,
     },
     create: {
       organizationId: org.id,
@@ -4183,6 +4962,7 @@ async function main() {
       email: 'partner@demo-security.co.tz',
       phone: '+255755000900',
       status: 'APPROVED',
+      customerId: oscCustomer.id,
       createdBy: admin.id,
     },
   });
@@ -4240,18 +5020,141 @@ async function main() {
     });
   }
 
-  const pettyFund = await prisma.pettyCashFund.findFirst({
+  const hrOfficer = await prisma.user.findFirst({
+    where: { email: 'hr1@highlink.co.tz', organizationId: org.id },
+    select: { id: true },
+  });
+
+  await prisma.guardSupplyRequest.upsert({
+    where: {
+      organizationId_referenceNumber: {
+        organizationId: org.id,
+        referenceNumber: 'GSR-00002',
+      },
+    },
+    update: {
+      status: 'ACCEPTED',
+      unitRatePerGuard: 850000,
+      discountAmount: 0,
+      serviceFeeAmount: 850000 * 8,
+      currency: 'TZS',
+      processedBy: hrOfficer?.id ?? admin.id,
+      processedAt: new Date(),
+      staffNotes: 'Accepted for billing demo (Module 15-B)',
+    },
+    create: {
+      organizationId: org.id,
+      partnerId: b2bPartner.id,
+      referenceNumber: 'GSR-00002',
+      guardCount: 8,
+      siteLocation: 'Mwanza — Port logistics yard',
+      startDate: new Date('2026-10-01'),
+      endDate: new Date('2026-12-15'),
+      qualifications: 'Licensed guards, English/Swahili',
+      urgency: 'HIGH',
+      serviceTerms: '8-week cover, billed on acceptance',
+      unitRatePerGuard: 850000,
+      discountAmount: 0,
+      serviceFeeAmount: 850000 * 8,
+      currency: 'TZS',
+      status: 'ACCEPTED',
+      createdBy: partnerUser.id,
+      processedBy: hrOfficer?.id ?? admin.id,
+      processedAt: new Date(),
+      staffNotes: 'Accepted for billing demo (Module 15-B)',
+    },
+  });
+
+  let pettyFund = await prisma.pettyCashFund.findFirst({
     where: { organizationId: org.id, name: 'HQ Petty Cash' },
   });
   if (!pettyFund) {
-    await prisma.pettyCashFund.create({
+    pettyFund = await prisma.pettyCashFund.create({
       data: {
         organizationId: org.id,
         name: 'HQ Petty Cash',
+        branchId: branch.id,
         imprestAmount: 500000,
         currentBalance: 500000,
         custodianId: admin.id,
         createdBy: admin.id,
+      },
+    });
+  } else if (!pettyFund.branchId) {
+    pettyFund = await prisma.pettyCashFund.update({
+      where: { id: pettyFund.id },
+      data: { branchId: branch.id },
+    });
+  }
+
+  const gmUser = await prisma.user.findFirst({
+    where: { email: 'gm@highlink.co.tz', organizationId: org.id },
+  });
+  const issuerId = gmUser?.id ?? admin.id;
+  const pcNow = new Date();
+  const pcDemos: {
+    voucherNumber: string;
+    status: 'PENDING' | 'APPROVED' | 'ISSUED' | 'REIMBURSED';
+    amount: number;
+    purpose: string;
+  }[] = [
+    {
+      voucherNumber: 'PCV-DEMO-001',
+      status: 'PENDING',
+      amount: 45_000,
+      purpose: 'Taxi to warehouse inspection — Module 22-A request',
+    },
+    {
+      voucherNumber: 'PCV-DEMO-002',
+      status: 'APPROVED',
+      amount: 28_000,
+      purpose: 'Stationery for branch ops — approved, awaiting cash issue',
+    },
+    {
+      voucherNumber: 'PCV-DEMO-003',
+      status: 'ISSUED',
+      amount: 35_000,
+      purpose: 'Airtime for field officer — issued, awaiting retirement',
+    },
+  ];
+  for (const row of pcDemos) {
+    await prisma.pettyCashVoucher.upsert({
+      where: {
+        organizationId_voucherNumber: {
+          organizationId: org.id,
+          voucherNumber: row.voucherNumber,
+        },
+      },
+      update: {
+        fundId: pettyFund.id,
+        status: row.status,
+        amount: row.amount,
+        purpose: row.purpose,
+        category: 'TRANSPORT',
+        branchId: branch.id,
+        department: 'Operations',
+        approvedBy:
+          row.status === 'PENDING' ? null : admin.id,
+        issuedBy: row.status === 'ISSUED' || row.status === 'REIMBURSED' ? issuerId : null,
+        issuedAt: row.status === 'ISSUED' || row.status === 'REIMBURSED' ? pcNow : null,
+        reimbursedAt: row.status === 'REIMBURSED' ? pcNow : null,
+        createdBy: supervisorUser.id,
+      },
+      create: {
+        organizationId: org.id,
+        fundId: pettyFund.id,
+        voucherNumber: row.voucherNumber,
+        amount: row.amount,
+        purpose: row.purpose,
+        category: 'TRANSPORT',
+        status: row.status,
+        branchId: branch.id,
+        department: 'Operations',
+        approvedBy:
+          row.status === 'PENDING' ? null : admin.id,
+        issuedBy: row.status === 'ISSUED' || row.status === 'REIMBURSED' ? issuerId : null,
+        issuedAt: row.status === 'ISSUED' || row.status === 'REIMBURSED' ? pcNow : null,
+        createdBy: supervisorUser.id,
       },
     });
   }
@@ -4275,6 +5178,7 @@ async function main() {
   const demoInvoices: {
     invoiceNumber: string;
     contractNumber?: string;
+    serviceType: string;
     status: 'DRAFT' | 'SENT' | 'PARTIALLY_PAID' | 'PAID' | 'OVERDUE';
     total: number;
     paid: number;
@@ -4284,6 +5188,7 @@ async function main() {
     {
       invoiceNumber: 'INV-DEMO-001',
       contractNumber: 'CTR-DEMO-GUARD-2026',
+      serviceType: 'SECURITY_GUARD',
       status: 'DRAFT',
       total: 2_500_000,
       paid: 0,
@@ -4293,6 +5198,7 @@ async function main() {
     {
       invoiceNumber: 'INV-DEMO-002',
       contractNumber: 'CTR-DEMO-GUARD-2026',
+      serviceType: 'SECURITY_GUARD',
       status: 'SENT',
       total: 4_800_000,
       paid: 0,
@@ -4302,6 +5208,7 @@ async function main() {
     {
       invoiceNumber: 'INV-DEMO-003',
       contractNumber: 'CTR-DEMO-CCTV-2026',
+      serviceType: 'CCTV_MONITORING',
       status: 'PARTIALLY_PAID',
       total: 3_600_000,
       paid: 1_200_000,
@@ -4311,6 +5218,7 @@ async function main() {
     {
       invoiceNumber: 'INV-DEMO-004',
       contractNumber: 'CTR-DEMO-VISITOR-2026',
+      serviceType: 'VISITOR_MANAGEMENT',
       status: 'PAID',
       total: 1_500_000,
       paid: 1_500_000,
@@ -4320,6 +5228,7 @@ async function main() {
     {
       invoiceNumber: 'INV-DEMO-005',
       contractNumber: 'CTR-DEMO-PARK-2026',
+      serviceType: 'PARKING',
       status: 'OVERDUE',
       total: 980_000,
       paid: 0,
@@ -4329,11 +5238,22 @@ async function main() {
     {
       invoiceNumber: 'INV-DEMO-006',
       contractNumber: 'CTR-DEMO-VISITOR-2026',
+      serviceType: 'VISITOR_MANAGEMENT',
       status: 'SENT',
       total: 650_000,
       paid: 0,
       dueOffset: -3,
       line: 'Visitor appointment & gate verification (past due → scan→OVERDUE)',
+    },
+    {
+      invoiceNumber: 'INV-DEMO-PAYROLL-001',
+      contractNumber: 'CTR-DEMO-PAYROLL-2026',
+      serviceType: 'CUSTOMER_PAYROLL',
+      status: 'PAID',
+      total: 930_000,
+      paid: 930_000,
+      dueOffset: -2,
+      line: 'Customer employee payroll service — CUST-DEMO (Module 20-A paid gate)',
     },
   ];
   for (const inv of demoInvoices) {
@@ -4357,6 +5277,7 @@ async function main() {
         totalAmount: inv.total,
         amountPaid: inv.paid,
         status: inv.status,
+        serviceType: inv.serviceType,
         notes: 'Seed demo invoice for Customer + Finance portals',
       },
       create: {
@@ -4372,6 +5293,7 @@ async function main() {
         amountPaid: inv.paid,
         currency: 'TZS',
         status: inv.status,
+        serviceType: inv.serviceType,
         notes: 'Seed demo invoice for Customer + Finance portals',
         createdBy: admin.id,
         lines: {
@@ -4385,6 +5307,24 @@ async function main() {
           ],
         },
       },
+    });
+  }
+
+  const payrollInvoiceAfter = await prisma.invoice.findFirst({
+    where: { organizationId: org.id, invoiceNumber: 'INV-DEMO-PAYROLL-001' },
+  });
+  const cpayForLink = await prisma.payrollCycle.findFirst({
+    where: {
+      organizationId: org.id,
+      tenantType: 'CUSTOMER_MANAGED_PAYROLL',
+      customerId: customer.id,
+    },
+    orderBy: { periodStart: 'desc' },
+  });
+  if (payrollInvoiceAfter && cpayForLink) {
+    await prisma.payrollCycle.update({
+      where: { id: cpayForLink.id },
+      data: { billingInvoiceId: payrollInvoiceAfter.id },
     });
   }
 
@@ -4420,6 +5360,39 @@ async function main() {
       bodyTemplate: 'Invoice {{invoiceNumber}} for {{amount}} has been sent.',
     },
   });
+  for (const tpl of [
+    {
+      code: 'INVOICE_OVERDUE',
+      subject: 'Overdue invoice {{invoiceNumber}}',
+      body: 'Invoice {{invoiceNumber}} is overdue. Please arrange payment.',
+    },
+    {
+      code: 'INVOICE_UNPAID',
+      subject: 'Unpaid invoice {{invoiceNumber}}',
+      body: 'Invoice {{invoiceNumber}} is issued and unpaid.',
+    },
+    {
+      code: 'INVOICE_PAID',
+      subject: 'Payment received — invoice {{invoiceNumber}}',
+      body: 'Payment for invoice {{invoiceNumber}} is complete.',
+    },
+    {
+      code: 'INVOICE_SUSPENSION_RISK',
+      subject: 'Service suspension risk — invoice {{invoiceNumber}}',
+      body: 'Invoice {{invoiceNumber}} remains unpaid. Related services may be suspended.',
+    },
+  ] as const) {
+    await prisma.notificationTemplate.upsert({
+      where: { code: tpl.code },
+      update: {},
+      create: {
+        code: tpl.code,
+        channel: 'EMAIL',
+        subjectTemplate: tpl.subject,
+        bodyTemplate: tpl.body,
+      },
+    });
+  }
   await prisma.notificationTemplate.upsert({
     where: { code: 'CUSTOMER_PORTAL_INVITE' },
     update: {},
@@ -4441,6 +5414,18 @@ async function main() {
       subjectTemplate: 'HIGHLINK employee access — {{customerName}}',
       bodyTemplate:
         'You have been invited to HIGHLINK employee self-access. Sign in with the temporary password provided by your HIGHLINK administrator.',
+    },
+  });
+
+  await prisma.notificationTemplate.upsert({
+    where: { code: 'EPAYROLL_DUE' },
+    update: {},
+    create: {
+      code: 'EPAYROLL_DUE',
+      channel: 'EMAIL',
+      subjectTemplate: 'E-payroll due — {{customerCode}} {{payrollMonth}}',
+      bodyTemplate:
+        'Customer invoice is fully paid. Process the customer payroll disbursement for the payroll month. See due date, employees covered, and approval status in the alert.',
     },
   });
 
@@ -4533,6 +5518,7 @@ async function main() {
   console.log('  gm@highlink.co.tz / ChangeMe123!');
   console.log('  portal@demo-mfg.co.tz / ChangeMe123! (CUSTOMER_PORTAL → CUST-DEMO)');
   console.log('  portal@uniforms.co.tz / ChangeMe123! (SUPPLIER_PORTAL → SUP-UNIFORM)');
+  console.log('  SUP-PENDING Coastal Boot Factory (created by procurement1 — SoD approve)');
   console.log('  partner@demo-security.co.tz / ChangeMe123! (OTHER_SECURITY_COMPANY → OSC-DEMO · Portal 35.14)');
   console.log('  guard1@highlink.co.tz / ChangeMe123! (GUARD self-scope; site SITE-WAREHOUSE-A; no ops.manage)');
   console.log('  gate1@highlink.co.tz / ChangeMe123! (GATE_OFFICER)');
@@ -4568,6 +5554,7 @@ async function main() {
   console.log('  Contracts↔Sites (B2): CTR-DEMO-* linked to SITE-WAREHOUSE-A / SITE-OFFICE-DEMO');
   console.log('  Demo employee login: jane.doe@demo-mfg.co.tz / ChangeMe123! (CUSTOMER_EMPLOYEE · EMP-1001 · Portal 35.9)');
   console.log('  Demo vehicle T123ABC RFID-DEMO-T123 permit PRM-DEMO-001 (owner1 · Amina Vehicle Owner)');
+  console.log('  Demo parking spaces W-E01…W-O01 at SITE-WAREHOUSE-A (Module 13-J allocation)');
   console.log('  Parking fleet demo: 10× CAR / MOTORCYCLE / TRUCK / BUS (+ ACTIVE permits)');
   console.log('  HR: employee GRD-0001 (John Guard), salary 850k TZS, job posting open');
   console.log('  Branch Ops: ACTIVE deployment GRD-0001 → SITE-WAREHOUSE-A under CTR-DEMO-GUARD-2026 (G2); G3 readiness GRD-0001 OK + firearm, GRD-0002 training only; open FieldAlert; today open attendance seed-branch-att-today-open; EOB demo ×2 at SITE-WAREHOUSE-A');

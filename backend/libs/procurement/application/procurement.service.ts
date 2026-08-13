@@ -1,6 +1,5 @@
 import {
   BadRequestException,
-  ForbiddenException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
@@ -10,149 +9,18 @@ import {
   StockMovementType,
   SupplierStatus,
 } from '@prisma/client';
-import {
-  PrismaService,
-  AuthUser,
-  requireSupplierScope,
-} from '@pssms/shared';
 import { AuditService } from '@pssms/audit';
 import { ApprovalsService } from '@pssms/approvals';
+import { AuthUser, PrismaService } from '@pssms/shared';
 import {
   CreateGoodsReceiptDto,
   CreatePurchaseOrderDto,
-  CreateSupplierDto,
   GoodsReceiptResponseDto,
   PurchaseOrderResponseDto,
-  SupplierResponseDto,
   ThreeWayMatchResultDto,
 } from '../presentation/dto/procurement.dto';
 
-@Injectable()
-export class SuppliersService {
-  constructor(
-    private readonly prisma: PrismaService,
-    private readonly audit: AuditService,
-  ) {}
-
-  async create(
-    dto: CreateSupplierDto,
-    user: AuthUser,
-  ): Promise<SupplierResponseDto> {
-    if (user.supplierId) {
-      throw new ForbiddenException({
-        error: 'SUPPLIER_SCOPE_DENIED',
-        message: 'Supplier portal users cannot create suppliers',
-      });
-    }
-
-    const exists = await this.prisma.supplier.findFirst({
-      where: { organizationId: user.organizationId, code: dto.code },
-    });
-    if (exists) throw new BadRequestException('Supplier code already exists');
-
-    const supplier = await this.prisma.supplier.create({
-      data: {
-        organizationId: user.organizationId,
-        code: dto.code,
-        name: dto.name,
-        email: dto.email,
-        phone: dto.phone,
-        tin: dto.tin,
-        address: dto.address,
-        createdBy: user.id,
-      },
-    });
-
-    await this.audit.record({
-      organizationId: user.organizationId,
-      actorId: user.id,
-      action: 'supplier.created',
-      resourceType: 'Supplier',
-      resourceId: supplier.id,
-      after: supplier,
-    });
-
-    return this.toDto(supplier);
-  }
-
-  async me(user: AuthUser): Promise<SupplierResponseDto> {
-    const supplierId = requireSupplierScope(user);
-    const supplier = await this.prisma.supplier.findFirst({
-      where: { id: supplierId, organizationId: user.organizationId },
-    });
-    if (!supplier) throw new NotFoundException('Supplier not found');
-    return this.toDto(supplier);
-  }
-
-  async list(
-    organizationId: string,
-    supplierId?: string,
-  ): Promise<SupplierResponseDto[]> {
-    const rows = await this.prisma.supplier.findMany({
-      where: {
-        organizationId,
-        ...(supplierId ? { id: supplierId } : {}),
-      },
-      orderBy: { createdAt: 'desc' },
-      take: 100,
-    });
-    return rows.map((s) => this.toDto(s));
-  }
-
-  async approve(id: string, user: AuthUser): Promise<SupplierResponseDto> {
-    const supplier = await this.findOrThrow(id, user.organizationId);
-    if (supplier.status === SupplierStatus.APPROVED) {
-      throw new BadRequestException('Supplier already approved');
-    }
-    const updated = await this.prisma.supplier.update({
-      where: { id },
-      data: { status: SupplierStatus.APPROVED },
-    });
-    await this.audit.record({
-      organizationId: user.organizationId,
-      actorId: user.id,
-      action: 'supplier.approved',
-      resourceType: 'Supplier',
-      resourceId: id,
-      after: updated,
-    });
-    return this.toDto(updated);
-  }
-
-  private async findOrThrow(id: string, organizationId: string) {
-    const supplier = await this.prisma.supplier.findFirst({
-      where: { id, organizationId },
-    });
-    if (!supplier) throw new NotFoundException('Supplier not found');
-    return supplier;
-  }
-
-  private toDto(s: {
-    id: string;
-    organizationId: string;
-    code: string;
-    name: string;
-    email: string | null;
-    phone: string | null;
-    tin: string | null;
-    address: string | null;
-    status: SupplierStatus;
-    createdAt: Date;
-  }): SupplierResponseDto {
-    return {
-      id: s.id,
-      organizationId: s.organizationId,
-      code: s.code,
-      name: s.name,
-      email: s.email,
-      phone: s.phone,
-      tin: s.tin,
-      address: s.address,
-      status: s.status,
-      createdAt: s.createdAt,
-    };
-  }
-}
+export { SuppliersService } from './suppliers.service';
 
 @Injectable()
 export class PurchaseOrdersService {
@@ -179,6 +47,16 @@ export class PurchaseOrdersService {
     });
     if (exists) throw new BadRequestException('PO number already exists');
 
+    if (dto.purchaseRequestId) {
+      const pr = await this.prisma.purchaseRequest.findFirst({
+        where: {
+          id: dto.purchaseRequestId,
+          organizationId: user.organizationId,
+        },
+      });
+      if (!pr) throw new NotFoundException('Purchase request not found');
+    }
+
     let totalAmount = new Prisma.Decimal(0);
     const lineData = dto.lines.map((l) => {
       const amount = new Prisma.Decimal(l.quantity * l.unitPrice);
@@ -202,6 +80,7 @@ export class PurchaseOrdersService {
         expectedDelivery: dto.expectedDelivery
           ? new Date(dto.expectedDelivery)
           : undefined,
+        purchaseRequestId: dto.purchaseRequestId || null,
         createdBy: user.id,
         lines: { create: lineData },
       },
@@ -313,7 +192,9 @@ export class PurchaseOrdersService {
     dto: CreateGoodsReceiptDto,
     user: AuthUser,
   ): Promise<GoodsReceiptResponseDto> {
-    const po = await this.findOrThrow(dto.purchaseOrderId, user.organizationId);
+    const poId = dto.purchaseOrderId;
+    if (!poId) throw new BadRequestException('purchaseOrderId is required');
+    const po = await this.findOrThrow(poId, user.organizationId);
     if (
       po.status !== PurchaseOrderStatus.ORDERED &&
       po.status !== PurchaseOrderStatus.PARTIALLY_RECEIVED
@@ -529,5 +410,50 @@ export class PurchaseOrdersService {
       })),
       createdAt: po.createdAt,
     };
+  }
+
+  async listReceiving(organizationId: string) {
+    const rows = await this.prisma.purchaseOrder.findMany({
+      where: {
+        organizationId,
+        status: {
+          in: [
+            PurchaseOrderStatus.ORDERED,
+            PurchaseOrderStatus.PARTIALLY_RECEIVED,
+          ],
+        },
+      },
+      include: { lines: true, supplier: { select: { code: true, name: true } } },
+      orderBy: { createdAt: 'desc' },
+      take: 100,
+    });
+    return rows.map((p) => ({
+      ...this.toDto(p),
+      supplierCode: p.supplier.code,
+      supplierName: p.supplier.name,
+    }));
+  }
+
+  async listGoodsReceipts(purchaseOrderId: string, organizationId: string) {
+    await this.findOrThrow(purchaseOrderId, organizationId);
+    const rows = await this.prisma.goodsReceipt.findMany({
+      where: { purchaseOrderId, organizationId },
+      include: { lines: true },
+      orderBy: { createdAt: 'desc' },
+    });
+    return rows.map((g) => ({
+      id: g.id,
+      organizationId: g.organizationId,
+      purchaseOrderId: g.purchaseOrderId,
+      grnNumber: g.grnNumber,
+      receivedAt: g.receivedAt,
+      notes: g.notes,
+      createdAt: g.createdAt,
+      lines: g.lines.map((l) => ({
+        id: l.id,
+        purchaseOrderLineId: l.purchaseOrderLineId,
+        quantityReceived: Number(l.quantityReceived),
+      })),
+    }));
   }
 }

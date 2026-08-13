@@ -1,4 +1,12 @@
-import { Body, Controller, Get, Param, Patch, Post, Query } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  Param,
+  Patch,
+  Post,
+  Query,
+} from '@nestjs/common';
 import {
   ApiBearerAuth,
   ApiCreatedResponse,
@@ -7,8 +15,13 @@ import {
   ApiQuery,
   ApiTags,
 } from '@nestjs/swagger';
-import { JobPostingStatus } from '@prisma/client';
-import { AuthUser, CurrentUser, Public } from '@pssms/shared';
+import { ApplicationStatus, JobPostingStatus } from '@prisma/client';
+import {
+  AuthUser,
+  CurrentUser,
+  Public,
+  RequirePermissions,
+} from '@pssms/shared';
 import { RecruitmentService } from '../application/recruitment.service';
 import {
   CreateJobApplicationDto,
@@ -53,7 +66,8 @@ export class RecruitmentController {
 
   @Post('postings')
   @ApiBearerAuth()
-  @ApiOperation({ summary: 'Create job posting' })
+  @RequirePermissions('recruitment.manage')
+  @ApiOperation({ summary: 'Create job posting (Module 14 · HR)' })
   @ApiCreatedResponse({ type: JobPostingResponseDto })
   createPosting(
     @Body() dto: CreateJobPostingDto,
@@ -64,6 +78,7 @@ export class RecruitmentController {
 
   @Get('postings')
   @ApiBearerAuth()
+  @RequirePermissions('recruitment.manage')
   @ApiOperation({ summary: 'List job postings (admin — all statuses)' })
   @ApiQuery({ name: 'status', required: false, enum: JobPostingStatus })
   @ApiOkResponse({ type: [JobPostingResponseDto] })
@@ -101,19 +116,33 @@ export class RecruitmentController {
 
   @Get('applications')
   @ApiBearerAuth()
-  @ApiOperation({ summary: 'List applications' })
+  @RequirePermissions('recruitment.manage')
+  @ApiOperation({
+    summary: 'List applications (Module 14-A · HR inbox)',
+  })
   @ApiQuery({ name: 'postingId', required: false })
+  @ApiQuery({ name: 'status', required: false, enum: ApplicationStatus })
   @ApiOkResponse({ type: [JobApplicationResponseDto] })
   listApplications(
     @CurrentUser() user: AuthUser,
     @Query('postingId') postingId?: string,
+    @Query('status') status?: ApplicationStatus,
   ) {
-    return this.service.listApplications(user.organizationId, postingId);
+    return this.service.listApplications(
+      user.organizationId,
+      postingId,
+      status,
+    );
   }
 
   @Patch('applications/:id/status')
   @ApiBearerAuth()
-  @ApiOperation({ summary: 'Update application status' })
+  @RequirePermissions('recruitment.manage')
+  @ApiOperation({
+    summary:
+      'Advance / reject application (Module 14-A · transition matrix; hire via /hire)',
+  })
+  @ApiOkResponse({ type: JobApplicationResponseDto })
   updateStatus(
     @Param('id') id: string,
     @Body() dto: UpdateApplicationStatusDto,
@@ -129,7 +158,10 @@ export class RecruitmentController {
 
   @Post('applications/:id/hire')
   @ApiBearerAuth()
-  @ApiOperation({ summary: 'Hire applicant → create employee record' })
+  @RequirePermissions('recruitment.manage')
+  @ApiOperation({
+    summary: 'Hire OFFERED applicant → Employee (Module 14-A)',
+  })
   @ApiOkResponse({ type: JobApplicationResponseDto })
   hire(
     @Param('id') id: string,

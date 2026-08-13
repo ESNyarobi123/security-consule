@@ -1,9 +1,13 @@
 'use client';
 
 import {
+  INVOICE_SERVICE_TYPES,
+  closeInvoice,
   createInvoice,
+  disputeInvoice,
   listContracts,
   listCustomers,
+  listInvoiceAlerts,
   listInvoices,
   recordInvoicePayment,
   scanOverdueInvoices,
@@ -12,6 +16,7 @@ import {
   type Contract,
   type Customer,
   type Invoice,
+  type InvoiceAlertsPack,
 } from '@pssms/api-client';
 import {
   Modal,
@@ -23,6 +28,8 @@ import {
 } from '@pssms/ui';
 import {
   AlarmClock,
+  AlertTriangle,
+  Bell,
   Clock,
   FileText,
   Plus,
@@ -65,7 +72,12 @@ const norm = (s: string) => s.trim().toLowerCase().replace(/[\s-]+/g, '_');
 
 const isOpen = (status: string) => {
   const s = norm(status);
-  return s !== 'paid' && s !== 'voided' && s !== 'cancelled';
+  return (
+    s !== 'paid' &&
+    s !== 'voided' &&
+    s !== 'cancelled' &&
+    s !== 'closed'
+  );
 };
 
 type StatusFilter =
@@ -74,26 +86,45 @@ type StatusFilter =
   | 'sent'
   | 'partial'
   | 'overdue'
+  | 'disputed'
   | 'paid'
+  | 'closed'
   | 'voided';
 
 const FILTERS: { id: StatusFilter; label: string }[] = [
   { id: 'all', label: 'All' },
   { id: 'draft', label: 'Draft' },
-  { id: 'sent', label: 'Sent' },
+  { id: 'sent', label: 'Issued' },
   { id: 'partial', label: 'Partial' },
   { id: 'overdue', label: 'Overdue' },
-  { id: 'paid', label: 'Paid' },
-  { id: 'voided', label: 'Voided' },
+  { id: 'disputed', label: 'Disputed' },
+  { id: 'paid', label: 'Fully paid' },
+  { id: 'closed', label: 'Closed' },
+  { id: 'voided', label: 'Cancelled' },
 ];
 
 function matchesFilter(status: string, filter: StatusFilter): boolean {
   if (filter === 'all') return true;
   const s = norm(status);
   if (filter === 'partial') return s === 'partially_paid';
+  if (filter === 'sent') return s === 'sent';
   if (filter === 'voided') return s === 'voided' || s === 'cancelled';
+  if (filter === 'paid') return s === 'paid';
   return s === filter;
 }
+
+const SERVICE_LABEL: Record<string, string> = {
+  SECURITY_GUARD: 'Security guard',
+  CCTV_MONITORING: 'CCTV monitoring',
+  ACCESS_CONTROL: 'Access control',
+  VISITOR_MANAGEMENT: 'Visitor management',
+  PARKING: 'Parking',
+  RECRUITMENT: 'Recruitment',
+  CUSTOMER_PAYROLL: 'Payroll services',
+  ALARM_RESPONSE: 'Alarm response',
+  TECHNICAL: 'Technical security',
+  OTHER: 'Other',
+};
 
 export default function FinancePage() {
   const [rows, setRows] = useState<Invoice[]>([]);
@@ -107,6 +138,8 @@ export default function FinancePage() {
   const [payRef, setPayRef] = useState('');
   const [voidTarget, setVoidTarget] = useState<Invoice | null>(null);
   const [voidReason, setVoidReason] = useState('');
+  const [disputeTarget, setDisputeTarget] = useState<Invoice | null>(null);
+  const [disputeReason, setDisputeReason] = useState('');
   const [scanning, setScanning] = useState(false);
   const [saving, setSaving] = useState(false);
   const [query, setQuery] = useState('');
@@ -114,25 +147,29 @@ export default function FinancePage() {
   const [createOpen, setCreateOpen] = useState(false);
   const [formCustomerId, setFormCustomerId] = useState('');
   const [formContractId, setFormContractId] = useState('');
+  const [formServiceType, setFormServiceType] = useState('');
   const [formNumber, setFormNumber] = useState('');
   const [formIssue, setFormIssue] = useState(todayIso);
   const [formDue, setFormDue] = useState(() => plusDaysIso(30));
   const [formLine, setFormLine] = useState('');
   const [formQty, setFormQty] = useState('1');
   const [formUnit, setFormUnit] = useState('');
+  const [alerts, setAlerts] = useState<InvoiceAlertsPack | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
-      const [invoices, custs, ctrs] = await Promise.all([
+      const [invoices, custs, ctrs, pack] = await Promise.all([
         listInvoices(),
         listCustomers().catch(() => [] as Customer[]),
         listContracts().catch(() => [] as Contract[]),
+        listInvoiceAlerts().catch(() => null),
       ]);
       setRows(invoices);
       setCustomers(custs);
       setContracts(ctrs);
+      setAlerts(pack);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load invoices');
     } finally {
@@ -180,7 +217,9 @@ export default function FinancePage() {
       sent: 0,
       partial: 0,
       overdue: 0,
+      disputed: 0,
       paid: 0,
+      closed: 0,
       voided: 0,
     };
     for (const r of rows) {
@@ -189,7 +228,9 @@ export default function FinancePage() {
       else if (s === 'sent') c.sent += 1;
       else if (s === 'partially_paid') c.partial += 1;
       else if (s === 'overdue') c.overdue += 1;
+      else if (s === 'disputed') c.disputed += 1;
       else if (s === 'paid') c.paid += 1;
+      else if (s === 'closed') c.closed += 1;
       else if (s === 'voided' || s === 'cancelled') c.voided += 1;
     }
     return c;
@@ -206,6 +247,7 @@ export default function FinancePage() {
         name.includes(q) ||
         r.invoiceNumber.toLowerCase().includes(q) ||
         ctr.includes(q) ||
+        (r.serviceType ?? '').toLowerCase().includes(q) ||
         r.status.toLowerCase().includes(q)
       );
     });
@@ -215,6 +257,7 @@ export default function FinancePage() {
     const first = customers[0]?.id ?? '';
     setFormCustomerId(first);
     setFormContractId('');
+    setFormServiceType('');
     setFormNumber(`INV-${new Date().getFullYear()}-${String(Date.now()).slice(-4)}`);
     setFormIssue(todayIso());
     setFormDue(plusDaysIso(30));
@@ -254,6 +297,15 @@ export default function FinancePage() {
     });
   }, [createOpen, formCustomerId, contracts]);
 
+  useEffect(() => {
+    if (!formContractId) return;
+    const match = contracts.find((c) => c.id === formContractId);
+    const st = match?.serviceType?.trim().toUpperCase();
+    if (st && (INVOICE_SERVICE_TYPES as readonly string[]).includes(st)) {
+      setFormServiceType(st);
+    }
+  }, [formContractId, contracts]);
+
   const submitCreate = useCallback(
     async (e: FormEvent) => {
       e.preventDefault();
@@ -274,6 +326,7 @@ export default function FinancePage() {
           issueDate: formIssue,
           dueDate: formDue,
           currency: 'TZS',
+          ...(formServiceType ? { serviceType: formServiceType } : {}),
           lines: [
             {
               description: formLine.trim(),
@@ -298,6 +351,7 @@ export default function FinancePage() {
       formLine,
       formNumber,
       formQty,
+      formServiceType,
       formUnit,
       load,
     ],
@@ -330,6 +384,11 @@ export default function FinancePage() {
     setVoidReason('');
   }, []);
 
+  const openDispute = useCallback((inv: Invoice) => {
+    setDisputeTarget(inv);
+    setDisputeReason('');
+  }, []);
+
   const submitVoid = useCallback(
     async (e: FormEvent) => {
       e.preventDefault();
@@ -351,17 +410,67 @@ export default function FinancePage() {
     [load, voidReason, voidTarget],
   );
 
+  const submitDispute = useCallback(
+    async (e: FormEvent) => {
+      e.preventDefault();
+      if (!disputeTarget) return;
+      setSaving(true);
+      setError(null);
+      try {
+        await disputeInvoice(disputeTarget.id, {
+          reason: disputeReason.trim() || undefined,
+        });
+        setDisputeTarget(null);
+        await load();
+      } catch (err) {
+        setError(err instanceof Error ? err.message : 'Dispute failed');
+      } finally {
+        setSaving(false);
+      }
+    },
+    [disputeReason, disputeTarget, load],
+  );
+
+  const handleClose = useCallback(
+    async (inv: Invoice) => {
+      setBusyId(inv.id);
+      setError(null);
+      try {
+        await closeInvoice(inv.id);
+        await load();
+      } catch (err) {
+        setError(err instanceof Error ? err.message : 'Close failed');
+      } finally {
+        setBusyId(null);
+      }
+    },
+    [load],
+  );
+
   const handleScanOverdue = useCallback(async () => {
     setScanning(true);
     setError(null);
     try {
       const res = await scanOverdueInvoices();
       await load();
+      const extra = [
+        res.overdueNotified ? `${res.overdueNotified} overdue EMAIL` : null,
+        res.unpaidReminders ? `${res.unpaidReminders} unpaid reminder` : null,
+        res.suspensionRisks ? `${res.suspensionRisks} suspension-risk` : null,
+      ]
+        .filter(Boolean)
+        .join(', ');
       if (res.markedOverdue === 0) {
-        setError('Scan complete — no past-due SENT/PARTIALLY_PAID invoices.');
+        setError(
+          extra
+            ? `Scan complete — no new overdue. Queued: ${extra}.`
+            : 'Scan complete — no past-due issued/partial invoices.',
+        );
       } else {
         setError(
-          `Marked ${res.markedOverdue} overdue: ${res.invoiceNumbers.join(', ')}`,
+          `Marked ${res.markedOverdue} overdue: ${res.invoiceNumbers.join(', ')}${
+            extra ? ` · ${extra}` : ''
+          }`,
         );
       }
     } catch (err) {
@@ -399,7 +508,7 @@ export default function FinancePage() {
     <>
       <PageHeader
         title="Finance"
-        description="Customer invoices — create, send, void, record payments, and scan past-due to OVERDUE. Imprest is under Petty cash."
+        description="Invoices for all HIGHLINK services — issue, collect, dispute, close. Alerts cover overdue, unpaid, payments, payroll-due, contract expiry, and suspension risk."
         actions={
           <div className="flex flex-wrap gap-2">
             <Link href="/finance/petty-cash" className={btnSecondary}>
@@ -472,6 +581,59 @@ export default function FinancePage() {
         </p>
       ) : null}
 
+      {alerts ? (
+        <div className="mt-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+          {(
+            [
+              ['Overdue', alerts.overdue, 'rose'],
+              ['Unpaid', alerts.unpaid, 'amber'],
+              ['Payments (30d)', alerts.completedPayments, 'emerald'],
+              ['Payroll-due invoices', alerts.payrollDueInvoices, 'sky'],
+              ['Contract expiry', alerts.contractExpiry, 'slate'],
+              ['Suspension risk', alerts.suspensionRisk, 'orange'],
+            ] as const
+          ).map(([label, items, tone]) => (
+            <div
+              key={label}
+              className={`rounded-xl border px-3 py-2.5 ${
+                tone === 'rose'
+                  ? 'border-rose-200 bg-rose-50/70'
+                  : tone === 'amber'
+                    ? 'border-amber-200 bg-amber-50/70'
+                    : tone === 'emerald'
+                      ? 'border-emerald-200 bg-emerald-50/60'
+                      : tone === 'sky'
+                        ? 'border-sky-200 bg-sky-50/70'
+                        : tone === 'orange'
+                          ? 'border-orange-200 bg-orange-50/70'
+                          : 'border-[#e1dfdd] bg-white'
+              }`}
+            >
+              <div className="flex items-center justify-between gap-2">
+                <p className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide text-[#605e5c]">
+                  {tone === 'orange' || tone === 'rose' ? (
+                    <AlertTriangle className="h-3.5 w-3.5" />
+                  ) : (
+                    <Bell className="h-3.5 w-3.5" />
+                  )}
+                  {label}
+                </p>
+                <span className="text-[12px] font-semibold tabular-nums text-[#1b1a19]">
+                  {items.length}
+                </span>
+              </div>
+              {items[0] ? (
+                <p className="mt-1 truncate text-[11px] text-[#323130]">
+                  {items[0].message}
+                </p>
+              ) : (
+                <p className="mt-1 text-[11px] text-[#8a8886]">None</p>
+              )}
+            </div>
+          ))}
+        </div>
+      ) : null}
+
       <section className="mt-8">
         <div className="mb-2.5 flex flex-wrap items-end justify-between gap-2">
           <div>
@@ -485,8 +647,7 @@ export default function FinancePage() {
               </span>
             </div>
             <p className="mt-0.5 text-[11px] text-[#605e5c]">
-              Send drafts · record customer payments · imprest stays under Petty
-              cash
+              Send drafts · record payments · dispute / close · alerts above
             </p>
           </div>
         </div>
@@ -500,6 +661,8 @@ export default function FinancePage() {
           onSend={(inv) => void handleSend(inv)}
           onPay={openPayment}
           onVoid={openVoid}
+          onDispute={openDispute}
+          onClose={(inv) => void handleClose(inv)}
           toolbar={
             <div className="flex flex-col gap-2.5 sm:flex-row sm:items-center sm:justify-between">
               <label className="flex min-w-0 flex-1 items-center gap-2 rounded-lg border border-[#e1dfdd] bg-white px-3 py-2 shadow-sm focus-within:border-[#0078d4] focus-within:ring-1 focus-within:ring-[#0078d4]">
@@ -574,6 +737,7 @@ export default function FinancePage() {
                 onChange={(e) => {
                   setFormCustomerId(e.target.value);
                   setFormContractId('');
+                  setFormServiceType('');
                   setFormLine('');
                   setFormUnit('');
                 }}
@@ -618,6 +782,23 @@ export default function FinancePage() {
                   No APPROVED / ACTIVE / EXPIRING contracts for this customer.
                 </p>
               ) : null}
+            </div>
+            <div>
+              <label className="text-sm font-medium text-[#323130]">
+                Service type
+              </label>
+              <select
+                className={inputCls}
+                value={formServiceType}
+                onChange={(e) => setFormServiceType(e.target.value)}
+              >
+                <option value="">From contract / Other</option>
+                {INVOICE_SERVICE_TYPES.map((t) => (
+                  <option key={t} value={t}>
+                    {SERVICE_LABEL[t] ?? t.replace(/_/g, ' ')}
+                  </option>
+                ))}
+              </select>
             </div>
             <div>
               <label className="text-sm font-medium text-[#323130]">
@@ -715,8 +896,8 @@ export default function FinancePage() {
 
       {voidTarget ? (
         <Modal
-          title="Void invoice"
-          description={`Void ${voidTarget.invoiceNumber} — unpaid DRAFT/SENT/OVERDUE only.`}
+          title="Cancel invoice"
+          description={`Cancel ${voidTarget.invoiceNumber} — unpaid draft, issued, overdue, or disputed only. Stored as VOIDED.`}
           onClose={() => setVoidTarget(null)}
         >
           <form onSubmit={(e) => void submitVoid(e)} className="space-y-4">
@@ -738,10 +919,45 @@ export default function FinancePage() {
                 onClick={() => setVoidTarget(null)}
                 className={btnSecondary}
               >
-                Cancel
+                Back
               </button>
               <button type="submit" className={btnPrimary} disabled={saving}>
-                {saving ? 'Voiding…' : 'Confirm void'}
+                {saving ? 'Cancelling…' : 'Confirm cancel'}
+              </button>
+            </div>
+          </form>
+        </Modal>
+      ) : null}
+
+      {disputeTarget ? (
+        <Modal
+          title="Dispute invoice"
+          description={`Mark ${disputeTarget.invoiceNumber} as disputed. Payments can still be recorded.`}
+          onClose={() => setDisputeTarget(null)}
+        >
+          <form onSubmit={(e) => void submitDispute(e)} className="space-y-4">
+            <div>
+              <label className="text-sm font-medium text-[#323130]">
+                Reason (optional)
+              </label>
+              <input
+                className={inputCls}
+                value={disputeReason}
+                onChange={(e) => setDisputeReason(e.target.value)}
+                placeholder="Customer disputes hours / rates…"
+                autoFocus
+              />
+            </div>
+            <div className="flex justify-end gap-2 pt-2">
+              <button
+                type="button"
+                onClick={() => setDisputeTarget(null)}
+                className={btnSecondary}
+              >
+                Back
+              </button>
+              <button type="submit" className={btnPrimary} disabled={saving}>
+                {saving ? 'Saving…' : 'Mark disputed'}
               </button>
             </div>
           </form>

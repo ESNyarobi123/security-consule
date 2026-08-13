@@ -3,6 +3,7 @@ import { AccessControlModule } from '@pssms/access-control';
 import { AuditModule } from '@pssms/audit';
 import { EnterpriseModule } from '@pssms/enterprise';
 import { NotificationsModule } from '@pssms/notifications';
+import { PayrollModule } from '@pssms/payroll';
 import { CustomersService } from './application/customers.service';
 import { CustomerComplaintsService } from './application/customer-complaints.service';
 import { CustomerContactsService } from './application/customer-contacts.service';
@@ -20,6 +21,7 @@ import { CustomersController } from './presentation/customers.controller';
     NotificationsModule,
     EnterpriseModule,
     AccessControlModule,
+    PayrollModule,
   ],
   controllers: [CustomersController],
   providers: [

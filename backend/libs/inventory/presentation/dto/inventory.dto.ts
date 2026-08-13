@@ -1,6 +1,7 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { StockMovementType } from '@prisma/client';
 import {
+  IsBoolean,
   IsEnum,
   IsNumber,
   IsOptional,
@@ -44,7 +45,35 @@ export class StockItemResponseDto {
   @ApiPropertyOptional() reorderLevel?: number | null;
   @ApiProperty() isActive!: boolean;
   @ApiProperty() onHand!: number;
+  @ApiProperty() belowReorder!: boolean;
   @ApiProperty() createdAt!: Date;
+}
+
+export class UpdateStockItemDto {
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  name?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  category?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  unit?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsNumber()
+  reorderLevel?: number | null;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsBoolean()
+  isActive?: boolean;
 }
 
 export class CreateStockMovementDto {

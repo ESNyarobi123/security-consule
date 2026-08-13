@@ -1,6 +1,6 @@
 'use client';
 
-import type { PurchaseOrder, Supplier } from '@pssms/api-client';
+import type { PurchaseOrder, Supplier, SupplierSubmission } from '@pssms/api-client';
 import { btnPrimary, btnSecondary } from '@pssms/ui';
 import { ClipboardList, Mail, Phone, Truck } from 'lucide-react';
 import type { ReactNode } from 'react';
@@ -187,14 +187,24 @@ export function SupplierRoster({
   rows,
   loading,
   busyId,
+  sessionUserId,
+  isSuperAdmin,
   onApprove,
+  onReject,
+  onSuspend,
+  onDocs,
   toolbar,
   empty,
 }: {
   rows: Supplier[];
   loading?: boolean;
   busyId?: string | null;
+  sessionUserId?: string | null;
+  isSuperAdmin?: boolean;
   onApprove?: (s: Supplier) => void;
+  onReject?: (s: Supplier) => void;
+  onSuspend?: (s: Supplier) => void;
+  onDocs?: (s: Supplier) => void;
   toolbar?: ReactNode;
   empty?: ReactNode;
 }) {
@@ -222,9 +232,60 @@ export function SupplierRoster({
       <ul className="divide-y divide-[#f3f2f1]">
         {rows.map((r) => {
           const bg = avatarColor(r.id);
+          const st = r.status.trim().toUpperCase();
+          const own =
+            !!sessionUserId &&
+            !!r.createdBy &&
+            r.createdBy === sessionUserId &&
+            !isSuperAdmin;
           const canApprove =
-            r.status.trim().toUpperCase() !== 'APPROVED' &&
-            r.status.trim().toUpperCase() !== 'ACTIVE';
+            (st === 'PENDING' || st === 'REJECTED') && !own;
+          const canReject = st === 'PENDING' && !own;
+          const canSuspend = st === 'APPROVED';
+
+          const actions = (
+            <div className="flex flex-wrap justify-end gap-1">
+              {onDocs ? (
+                <button
+                  type="button"
+                  className={btnSecondary}
+                  onClick={() => onDocs(r)}
+                >
+                  Docs
+                </button>
+              ) : null}
+              {canReject ? (
+                <button
+                  type="button"
+                  className={btnSecondary}
+                  disabled={busyId === r.id}
+                  onClick={() => onReject?.(r)}
+                >
+                  Reject
+                </button>
+              ) : null}
+              {canApprove ? (
+                <button
+                  type="button"
+                  className={btnPrimary}
+                  disabled={busyId === r.id}
+                  onClick={() => onApprove?.(r)}
+                >
+                  {busyId === r.id ? 'Approving…' : 'Approve'}
+                </button>
+              ) : null}
+              {canSuspend ? (
+                <button
+                  type="button"
+                  className={btnSecondary}
+                  disabled={busyId === r.id}
+                  onClick={() => onSuspend?.(r)}
+                >
+                  Suspend
+                </button>
+              ) : null}
+            </div>
+          );
 
           return (
             <li key={r.id}>
@@ -253,19 +314,11 @@ export function SupplierRoster({
                       </div>
                       <p className="mt-2 truncate text-[12px] text-[#605e5c]">
                         {r.email || r.phone || 'No contact'}
+                        {r.tin ? ` · TIN ${r.tin}` : ''}
                       </p>
                     </div>
                   </div>
-                  {canApprove ? (
-                    <button
-                      type="button"
-                      className={btnPrimary}
-                      disabled={busyId === r.id}
-                      onClick={() => onApprove?.(r)}
-                    >
-                      {busyId === r.id ? 'Approving…' : 'Approve'}
-                    </button>
-                  ) : null}
+                  {actions}
                 </div>
 
                 <div
@@ -310,20 +363,7 @@ export function SupplierRoster({
 
                   <StatusPill status={r.status} kind="supplier" />
 
-                  <div className="flex justify-end">
-                    {canApprove ? (
-                      <button
-                        type="button"
-                        className={btnPrimary}
-                        disabled={busyId === r.id}
-                        onClick={() => onApprove?.(r)}
-                      >
-                        {busyId === r.id ? 'Approving…' : 'Approve'}
-                      </button>
-                    ) : (
-                      <span className="text-[11px] text-[#c8c6c4]">—</span>
-                    )}
-                  </div>
+                  <div className="flex justify-end">{actions}</div>
                 </div>
               </div>
             </li>
@@ -530,5 +570,137 @@ export function ProcurementEmpty({
       <p className="text-sm font-medium text-[#323130]">{title}</p>
       <p className="max-w-sm text-xs text-[#605e5c]">{description}</p>
     </div>
+  );
+}
+
+export function SubmissionRoster({
+  rows,
+  loading,
+  busyId,
+  sessionUserId,
+  isSuperAdmin,
+  onApprove,
+  onReject,
+  onMarkPaid,
+  toolbar,
+  empty,
+}: {
+  rows: SupplierSubmission[];
+  loading?: boolean;
+  busyId?: string | null;
+  sessionUserId?: string | null;
+  isSuperAdmin?: boolean;
+  onApprove?: (row: SupplierSubmission) => void;
+  onReject?: (row: SupplierSubmission) => void;
+  onMarkPaid?: (row: SupplierSubmission) => void;
+  toolbar?: ReactNode;
+  empty?: ReactNode;
+}) {
+  const grid =
+    'md:grid-cols-[minmax(0,1.6fr)_minmax(0,1fr)_auto_auto_auto]';
+  const showEmpty = !loading && rows.length === 0;
+
+  return (
+    <RosterShell
+      toolbar={toolbar}
+      loading={loading}
+      empty={empty}
+      rowsEmpty={showEmpty || (!!loading && rows.length === 0)}
+      header={
+        <div
+          className={`hidden border-b border-[#edebe9] bg-[#faf9f8]/90 px-4 py-2.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-[#8a8886] md:grid md:items-center md:gap-3 ${grid}`}
+        >
+          <span>Submission</span>
+          <span>Supplier</span>
+          <span>Amount</span>
+          <span>Status</span>
+          <span className="text-right"> </span>
+        </div>
+      }
+    >
+      <ul className="divide-y divide-[#f3f2f1]">
+        {rows.map((r) => {
+          const own =
+            !!sessionUserId &&
+            r.createdBy === sessionUserId &&
+            !isSuperAdmin;
+          const canApprove = r.status === 'SUBMITTED' && !own;
+          const canReject = r.status === 'SUBMITTED' && !own;
+          const payable =
+            r.status === 'APPROVED' &&
+            (r.kind === 'INVOICE' || r.kind === 'PAYMENT_REQUEST') &&
+            r.paymentStatus === 'UNPAID';
+
+          return (
+            <li key={r.id} className="px-4 py-3.5">
+              <div
+                className={`grid items-center gap-3 md:grid ${grid}`}
+              >
+                <div>
+                  <p className="font-mono text-[12px] text-[#8a8886]">
+                    {r.referenceNumber}
+                    {r.poNumber ? ` · ${r.poNumber}` : ''}
+                  </p>
+                  <p className="text-[13.5px] font-semibold text-[#1b1a19]">
+                    {r.kind.replace(/_/g, ' ')} · {r.title}
+                  </p>
+                  {r.rejectedReason ? (
+                    <p className="mt-0.5 text-[11px] text-rose-700">
+                      {r.rejectedReason}
+                    </p>
+                  ) : null}
+                </div>
+                <p className="text-[13px] text-[#323130]">
+                  {r.supplierName ?? r.supplierCode ?? '—'}
+                </p>
+                <span className="text-[13px] font-semibold tabular-nums">
+                  {r.amount != null
+                    ? formatMoney(r.amount, r.currency)
+                    : '—'}
+                </span>
+                <div className="flex flex-wrap gap-1">
+                  <StatusPill status={r.status} kind="supplier" />
+                  {r.paymentStatus && r.paymentStatus !== 'NONE' ? (
+                    <StatusPill status={r.paymentStatus} kind="po" />
+                  ) : null}
+                </div>
+                <div className="flex flex-wrap justify-end gap-1">
+                  {canReject ? (
+                    <button
+                      type="button"
+                      className={btnSecondary}
+                      disabled={busyId === r.id}
+                      onClick={() => onReject?.(r)}
+                    >
+                      Reject
+                    </button>
+                  ) : null}
+                  {canApprove ? (
+                    <button
+                      type="button"
+                      className={btnPrimary}
+                      disabled={busyId === r.id}
+                      onClick={() => onApprove?.(r)}
+                    >
+                      Approve
+                    </button>
+                  ) : null}
+                  {payable ? (
+                    <button
+                      type="button"
+                      className={btnPrimary}
+                      disabled={busyId === r.id}
+                      onClick={() => onMarkPaid?.(r)}
+                    >
+                      Mark paid
+                    </button>
+                  ) : null}
+                </div>
+              </div>
+            </li>
+          );
+        })}
+      </ul>
+    </RosterShell>
   );
 }

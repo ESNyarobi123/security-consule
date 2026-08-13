@@ -171,6 +171,11 @@ export default function HomeScreen() {
             <Text style={styles.secondaryText}>Patrol</Text>
           </Pressable>
         </Link>
+        <Link href="/(app)/parking-patrol" asChild>
+          <Pressable style={styles.secondary}>
+            <Text style={styles.secondaryText}>Parking patrol</Text>
+          </Pressable>
+        </Link>
         <Link href="/(app)/outbox" asChild>
           <Pressable style={styles.secondary}>
             <Text style={styles.secondaryText}>Outbox</Text>

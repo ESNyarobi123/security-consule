@@ -1,5 +1,6 @@
 import { supplierAuthHeaders } from '@pssms/auth';
 import type { LoginResult } from './index';
+import type { SupplierSubmission } from './admin';
 
 const coreUrl = () =>
   process.env.NEXT_PUBLIC_CORE_API_URL ??
@@ -39,8 +40,19 @@ export type SupplierProfile = {
   email?: string | null;
   phone?: string | null;
   tin?: string | null;
+  vrn?: string | null;
   address?: string | null;
+  category?: string;
+  bankName?: string | null;
+  bankAccountName?: string | null;
+  bankAccountRef?: string | null;
+  mobileMoneyProvider?: string | null;
+  mobileMoneyRef?: string | null;
+  contactPerson?: string | null;
+  contactPhone?: string | null;
+  contactEmail?: string | null;
   status: string;
+  rejectedReason?: string | null;
   createdAt: string;
 };
 
@@ -68,7 +80,6 @@ export type SupplierPurchaseOrder = {
   createdAt: string;
 };
 
-/** Supplier portal login → core-api POST /auth/login */
 export async function supplierLogin(email: string, password: string) {
   const res = await fetch(`${coreUrl()}/api/v1/auth/login`, {
     method: 'POST',
@@ -78,15 +89,91 @@ export async function supplierLogin(email: string, password: string) {
   return parseEnvelope<LoginResult>(res);
 }
 
-/** GET /procurement/suppliers/me */
+export async function registerSupplier(body: {
+  companyName: string;
+  contactName: string;
+  email: string;
+  password: string;
+  phone?: string;
+  tin?: string;
+  vrn?: string;
+  address?: string;
+  category?: string;
+}) {
+  const res = await fetch(`${coreUrl()}/api/v1/procurement/suppliers/register`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  return parseEnvelope<{
+    supplierId: string;
+    code: string;
+    name: string;
+    status: string;
+    email: string;
+    message: string;
+  }>(res);
+}
+
 export const getSupplierMe = (token?: string) =>
   supplierFetch<SupplierProfile>('/api/v1/procurement/suppliers/me', {
     token,
   });
 
-/** GET /procurement/purchase-orders (supplier-scoped by JWT) */
+export const updateSupplierMe = (
+  body: Partial<{
+    name: string;
+    email: string;
+    phone: string;
+    tin: string;
+    vrn: string;
+    address: string;
+    category: string;
+    bankName: string;
+    bankAccountName: string;
+    bankAccountRef: string;
+    mobileMoneyProvider: string;
+    mobileMoneyRef: string;
+    contactPerson: string;
+    contactPhone: string;
+    contactEmail: string;
+  }>,
+  token?: string,
+) =>
+  supplierFetch<SupplierProfile>('/api/v1/procurement/suppliers/me', {
+    method: 'PATCH',
+    body: JSON.stringify(body),
+    token,
+  });
+
 export const listSupplierOrders = (token?: string) =>
   supplierFetch<SupplierPurchaseOrder[]>(
     '/api/v1/procurement/purchase-orders',
     { token },
+  );
+
+export const listMySupplierSubmissions = (token?: string) =>
+  supplierFetch<SupplierSubmission[]>(
+    '/api/v1/procurement/suppliers/me/submissions',
+    { token },
+  );
+
+export const createMySupplierSubmission = (
+  body: {
+    kind: string;
+    title: string;
+    description?: string;
+    amount?: number;
+    currency?: string;
+    purchaseOrderId?: string;
+  },
+  token?: string,
+) =>
+  supplierFetch<SupplierSubmission>(
+    '/api/v1/procurement/suppliers/me/submissions',
+    {
+      method: 'POST',
+      body: JSON.stringify(body),
+      token,
+    },
   );

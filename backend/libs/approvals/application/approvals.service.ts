@@ -9,6 +9,8 @@ import {
   ContractStatus,
   IamChangeRequestStatus,
   LeaveRequestStatus,
+  PayrollCycleStatus,
+  PurchaseRequestStatus,
 } from '@prisma/client';
 import { PrismaService, AuthUser } from '@pssms/shared';
 import { AuditService } from '@pssms/audit';
@@ -22,6 +24,8 @@ import {
 const CONTRACT_RESOURCE = 'Contract';
 const LEAVE_RESOURCE = 'LeaveRequest';
 const IAM_CHANGE_RESOURCE = 'IamChangeRequest';
+const PAYROLL_RESOURCE = 'PayrollCycle';
+const PURCHASE_REQUEST_RESOURCE = 'PurchaseRequest';
 
 type StepLike = {
   stepOrder: number;
@@ -221,6 +225,20 @@ export class ApprovalsService {
           status,
           user.id,
           dto.remarks,
+        );
+      } else if (instance.resourceType === PAYROLL_RESOURCE) {
+        await this.syncPayrollOnTerminal(
+          instance.organizationId,
+          instance.resourceId,
+          status,
+          user.id,
+        );
+      } else if (instance.resourceType === PURCHASE_REQUEST_RESOURCE) {
+        await this.syncPurchaseRequestOnTerminal(
+          instance.organizationId,
+          instance.resourceId,
+          status,
+          user.id,
         );
       }
     }
@@ -581,6 +599,63 @@ export class ApprovalsService {
     }
   }
 
+  /** Sync PayrollCycle when approval completes via /approvals queue. */
+  private async syncPayrollOnTerminal(
+    organizationId: string,
+    cycleId: string,
+    approvalStatus: ApprovalStatus,
+    actorId: string,
+  ): Promise<void> {
+    if (approvalStatus === ApprovalStatus.APPROVED) {
+      const result = await this.prisma.payrollCycle.updateMany({
+        where: {
+          id: cycleId,
+          organizationId,
+          status: PayrollCycleStatus.PENDING_APPROVAL,
+        },
+        data: {
+          status: PayrollCycleStatus.APPROVED,
+          approvedBy: actorId,
+        },
+      });
+      if (result.count > 0) {
+        await this.audit.record({
+          organizationId,
+          actorId,
+          action: 'payroll.approved',
+          resourceType: PAYROLL_RESOURCE,
+          resourceId: cycleId,
+          after: { status: PayrollCycleStatus.APPROVED, via: 'approvals.act' },
+        });
+      }
+      return;
+    }
+
+    if (approvalStatus === ApprovalStatus.REJECTED) {
+      const result = await this.prisma.payrollCycle.updateMany({
+        where: {
+          id: cycleId,
+          organizationId,
+          status: PayrollCycleStatus.PENDING_APPROVAL,
+        },
+        data: {
+          status: PayrollCycleStatus.CALCULATED,
+          approvalInstanceId: null,
+        },
+      });
+      if (result.count > 0) {
+        await this.audit.record({
+          organizationId,
+          actorId,
+          action: 'payroll.approval_rejected',
+          resourceType: PAYROLL_RESOURCE,
+          resourceId: cycleId,
+          after: { status: PayrollCycleStatus.CALCULATED, via: 'approvals.act' },
+        });
+      }
+    }
+  }
+
   /**
    * Thin sync so Contract does not stay PENDING_APPROVAL after the approval
    * instance is already APPROVED/REJECTED via the generic Approvals API.
@@ -640,6 +715,55 @@ export class ApprovalsService {
             status: ContractStatus.DRAFT,
             via: 'approvals.act',
           },
+        });
+      }
+    }
+  }
+
+  private async syncPurchaseRequestOnTerminal(
+    organizationId: string,
+    requestId: string,
+    approvalStatus: ApprovalStatus,
+    actorId: string,
+  ): Promise<void> {
+    if (approvalStatus === ApprovalStatus.APPROVED) {
+      const result = await this.prisma.purchaseRequest.updateMany({
+        where: {
+          id: requestId,
+          organizationId,
+          status: PurchaseRequestStatus.PENDING_APPROVAL,
+        },
+        data: { status: PurchaseRequestStatus.APPROVED },
+      });
+      if (result.count > 0) {
+        await this.audit.record({
+          organizationId,
+          actorId,
+          action: 'purchase_request.approved',
+          resourceType: PURCHASE_REQUEST_RESOURCE,
+          resourceId: requestId,
+          after: { status: PurchaseRequestStatus.APPROVED, via: 'approvals.act' },
+        });
+      }
+      return;
+    }
+    if (approvalStatus === ApprovalStatus.REJECTED) {
+      const result = await this.prisma.purchaseRequest.updateMany({
+        where: {
+          id: requestId,
+          organizationId,
+          status: PurchaseRequestStatus.PENDING_APPROVAL,
+        },
+        data: { status: PurchaseRequestStatus.REJECTED },
+      });
+      if (result.count > 0) {
+        await this.audit.record({
+          organizationId,
+          actorId,
+          action: 'purchase_request.rejected',
+          resourceType: PURCHASE_REQUEST_RESOURCE,
+          resourceId: requestId,
+          after: { status: PurchaseRequestStatus.REJECTED, via: 'approvals.act' },
         });
       }
     }

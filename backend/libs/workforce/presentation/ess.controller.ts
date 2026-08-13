@@ -94,6 +94,18 @@ export class EssController {
     return this.service.applyLoan(dto, user);
   }
 
+  @Get('loans/:id/statement')
+  @ApiOperation({ summary: 'My loan statement — balance and repayment schedule' })
+  loanStatement(@Param('id') id: string, @CurrentUser() user: AuthUser) {
+    return this.service.getMyLoanStatement(id, user);
+  }
+
+  @Post('loans/:id/acknowledge')
+  @ApiOperation({ summary: 'Acknowledge receipt of item loan' })
+  acknowledgeLoan(@Param('id') id: string, @CurrentUser() user: AuthUser) {
+    return this.service.acknowledgeMyLoan(id, user);
+  }
+
   @Get('equipment')
   @ApiOperation({ summary: 'Equipment currently assigned to me' })
   @ApiOkResponse({ type: [EssEquipmentResponseDto] })
@@ -124,7 +136,7 @@ export class EssController {
   @Post('petty-cash')
   @ApiOperation({
     summary:
-      'Request petty cash (self; fund auto-selected; finance approves separately)',
+      'Request petty cash (self; fund auto-selected). Cash is issued only after finance approval.',
   })
   @ApiCreatedResponse({ type: EssPettyCashVoucherResponseDto })
   applyPettyCash(

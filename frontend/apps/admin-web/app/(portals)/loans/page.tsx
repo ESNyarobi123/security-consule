@@ -3,14 +3,20 @@
 import {
   approveLoan,
   createLoan,
+  getLoanStatement,
+  issueLoan,
+  isItemLoanType,
   listLoanEmployeeOptions,
   listLoanInstallments,
   listLoans,
+  LOAN_TYPE_OPTIONS,
   rejectLoan,
   type CreateLoanBody,
   type EmployeeLoan,
   type LoanEmployeeOption,
   type LoanInstallment,
+  type LoanStatement,
+  type LoanType,
 } from '@pssms/api-client';
 import { getSessionUser } from '@pssms/auth';
 import {
@@ -112,6 +118,10 @@ export default function LoansAdminPage() {
   const [scheduleTarget, setScheduleTarget] = useState<EmployeeLoan | null>(
     null,
   );
+  const [issueTarget, setIssueTarget] = useState<EmployeeLoan | null>(null);
+  const [statementTarget, setStatementTarget] = useState<EmployeeLoan | null>(
+    null,
+  );
   const [query, setQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
   const sessionUser = useMemo(() => getSessionUser(), []);
@@ -184,7 +194,9 @@ export default function LoansAdminPage() {
       return (
         name.includes(q) ||
         r.loanNumber.toLowerCase().includes(q) ||
-        r.purpose.toLowerCase().includes(q)
+        (r.purpose ?? '').toLowerCase().includes(q) ||
+        (r.itemName ?? '').toLowerCase().includes(q) ||
+        (r.loanType ?? '').toLowerCase().includes(q)
       );
     });
   }, [loans, query, statusFilter, employeeName]);
@@ -306,8 +318,21 @@ export default function LoansAdminPage() {
         onApprove={(id) => void onApprove(id)}
         onReject={setRejectTarget}
         onSchedule={setScheduleTarget}
+        onIssue={setIssueTarget}
+        onStatement={setStatementTarget}
         canAct={(r) => {
           if (norm(r.status) !== 'pending_approval') return false;
+          const isOwn =
+            !!sessionUser?.id &&
+            !!r.createdBy &&
+            r.createdBy === sessionUser.id;
+          const isSuperAdmin =
+            sessionUser?.roles?.includes('SUPER_ADMIN') ?? false;
+          if (isOwn && !isSuperAdmin) return 'own';
+          return true;
+        }}
+        canIssue={(r) => {
+          if (norm(r.status) !== 'approved') return false;
           const isOwn =
             !!sessionUser?.id &&
             !!r.createdBy &&
@@ -409,6 +434,31 @@ export default function LoansAdminPage() {
           onClose={() => setScheduleTarget(null)}
         />
       ) : null}
+
+      {issueTarget ? (
+        <IssueLoanModal
+          loan={issueTarget}
+          employeeName={
+            employeeName.get(issueTarget.employeeId) ?? issueTarget.employeeId
+          }
+          onClose={() => setIssueTarget(null)}
+          onIssued={async () => {
+            setIssueTarget(null);
+            await refresh();
+          }}
+        />
+      ) : null}
+
+      {statementTarget ? (
+        <StatementModal
+          loan={statementTarget}
+          employeeName={
+            employeeName.get(statementTarget.employeeId) ??
+            statementTarget.employeeId
+          }
+          onClose={() => setStatementTarget(null)}
+        />
+      ) : null}
     </>
   );
 }
@@ -423,12 +473,15 @@ function CreateLoanModal({
   onCreated: () => Promise<void>;
 }) {
   const [employeeId, setEmployeeId] = useState(employees[0]?.id ?? '');
+  const [loanType, setLoanType] = useState<LoanType>('CASH');
   const [principalAmount, setPrincipalAmount] = useState('500000');
   const [termMonths, setTermMonths] = useState('6');
   const [interestRate, setInterestRate] = useState('');
   const [purpose, setPurpose] = useState('');
+  const [itemName, setItemName] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const itemRequired = isItemLoanType(loanType);
 
   async function onSubmit(e: FormEvent) {
     e.preventDefault();
@@ -437,10 +490,12 @@ function CreateLoanModal({
     try {
       const body: CreateLoanBody = {
         employeeId,
+        loanType,
         principalAmount: Number(principalAmount),
         termMonths: Number(termMonths),
-        purpose: purpose.trim(),
       };
+      if (purpose.trim()) body.purpose = purpose.trim();
+      if (itemRequired && itemName.trim()) body.itemName = itemName.trim();
       if (interestRate.trim() !== '') {
         body.interestRate = Number(interestRate);
       }
@@ -462,6 +517,33 @@ function CreateLoanModal({
     >
       <form onSubmit={onSubmit} className="space-y-3">
         <div className="grid gap-3 sm:grid-cols-2">
+          <label className="block text-sm font-medium text-[#323130] sm:col-span-2">
+            Loan type
+            <select
+              value={loanType}
+              onChange={(e) => setLoanType(e.target.value as LoanType)}
+              className={inputCls}
+              required
+            >
+              {LOAN_TYPE_OPTIONS.map((t) => (
+                <option key={t.value} value={t.value}>
+                  {t.label}
+                </option>
+              ))}
+            </select>
+          </label>
+          {itemRequired ? (
+            <label className="block text-sm font-medium text-[#323130] sm:col-span-2">
+              Item name
+              <input
+                value={itemName}
+                onChange={(e) => setItemName(e.target.value)}
+                className={inputCls}
+                placeholder="e.g. Security boots size 42"
+                required
+              />
+            </label>
+          ) : null}
           <label className="block text-sm font-medium text-[#323130] sm:col-span-2">
             Employee
             <select
@@ -519,14 +601,12 @@ function CreateLoanModal({
           </label>
         </div>
         <label className="block text-sm font-medium text-[#323130]">
-          Purpose
+          Notes (optional)
           <textarea
             value={purpose}
             onChange={(e) => setPurpose(e.target.value)}
             className={`${inputCls} min-h-[72px]`}
-            placeholder="Boots, uniform, emergency, salary advance…"
-            required
-            minLength={3}
+            placeholder="Optional notes for approver"
           />
         </label>
         {error ? (
@@ -665,7 +745,7 @@ function ScheduleModal({
         <p className="py-6 text-center text-sm text-[#605e5c]">Loading…</p>
       ) : rows.length === 0 ? (
         <p className="py-6 text-center text-sm text-[#605e5c]">
-          No installments yet. Approve the loan to generate the schedule.
+          No installments yet. Issue the approved loan to generate the schedule.
         </p>
       ) : (
         <div className="max-h-[360px] overflow-auto rounded border border-[#e1dfdd]">
@@ -704,6 +784,238 @@ function ScheduleModal({
           </table>
         </div>
       )}
+      <div className="mt-4 flex justify-end">
+        <button type="button" onClick={onClose} className={btnSecondary}>
+          Close
+        </button>
+      </div>
+    </Modal>
+  );
+}
+
+function IssueLoanModal({
+  loan,
+  employeeName,
+  onClose,
+  onIssued,
+}: {
+  loan: EmployeeLoan;
+  employeeName: string;
+  onClose: () => void;
+  onIssued: () => Promise<void>;
+}) {
+  const itemLoan = isItemLoanType(String(loan.loanType));
+  const [itemName, setItemName] = useState(loan.itemName ?? '');
+  const [supplierName, setSupplierName] = useState(loan.supplierName ?? '');
+  const [itemCost, setItemCost] = useState(
+    loan.itemCost != null ? String(loan.itemCost) : String(loan.principalAmount),
+  );
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function onSubmit(e: FormEvent) {
+    e.preventDefault();
+    setSubmitting(true);
+    setError(null);
+    try {
+      await issueLoan(loan.id, {
+        itemName: itemLoan ? itemName.trim() : undefined,
+        supplierName: itemLoan ? supplierName.trim() || undefined : undefined,
+        itemCost: itemLoan && itemCost.trim() ? Number(itemCost) : undefined,
+      });
+      await onIssued();
+    } catch (err) {
+      setError(formatApiError(err));
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  return (
+    <Modal
+      title="Issue loan"
+      description={`${employeeName} · ${loan.loanNumber} · ${formatMoney(loan.principalAmount)}`}
+      onClose={onClose}
+      size="lg"
+    >
+      <form onSubmit={onSubmit} className="space-y-3">
+        <p className="text-xs text-[#605e5c]">
+          Issue records cash or item disbursement and generates the payroll
+          deduction schedule. Creator cannot issue their own application.
+        </p>
+        {itemLoan ? (
+          <>
+            <label className="block text-sm font-medium text-[#323130]">
+              Item name
+              <input
+                value={itemName}
+                onChange={(e) => setItemName(e.target.value)}
+                className={inputCls}
+                required
+              />
+            </label>
+            <label className="block text-sm font-medium text-[#323130]">
+              Supplier
+              <input
+                value={supplierName}
+                onChange={(e) => setSupplierName(e.target.value)}
+                className={inputCls}
+                placeholder="Optional supplier name"
+              />
+            </label>
+            <label className="block text-sm font-medium text-[#323130]">
+              Item cost (TZS)
+              <input
+                type="number"
+                min={0}
+                value={itemCost}
+                onChange={(e) => setItemCost(e.target.value)}
+                className={inputCls}
+              />
+            </label>
+          </>
+        ) : (
+          <p className="rounded-md bg-[#f3f9fd] px-3 py-2 text-sm text-[#323130]">
+            Cash/support loan — disbursement date will be recorded on issue.
+          </p>
+        )}
+        {error ? (
+          <p className="rounded-md bg-rose-50 px-3 py-2 text-sm text-rose-700">
+            {error}
+          </p>
+        ) : null}
+        <div className="flex justify-end gap-2 pt-1">
+          <button type="button" onClick={onClose} className={btnSecondary}>
+            Cancel
+          </button>
+          <button type="submit" className={btnPrimary} disabled={submitting}>
+            {submitting ? 'Issuing…' : 'Issue loan'}
+          </button>
+        </div>
+      </form>
+    </Modal>
+  );
+}
+
+function StatementModal({
+  loan,
+  employeeName,
+  onClose,
+}: {
+  loan: EmployeeLoan;
+  employeeName: string;
+  onClose: () => void;
+}) {
+  const [data, setData] = useState<LoanStatement | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      setLoading(true);
+      setError(null);
+      try {
+        const stmt = await getLoanStatement(loan.id);
+        if (!cancelled) setData(stmt);
+      } catch (err) {
+        if (!cancelled) setError(formatApiError(err));
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [loan.id]);
+
+  return (
+    <Modal
+      title="Loan statement"
+      description={`${employeeName} · ${loan.loanNumber}`}
+      onClose={onClose}
+      size="lg"
+    >
+      {error ? (
+        <p className="mb-3 rounded-md bg-rose-50 px-3 py-2 text-sm text-rose-700">
+          {error}
+        </p>
+      ) : null}
+      {loading ? (
+        <p className="py-6 text-center text-sm text-[#605e5c]">Loading…</p>
+      ) : data ? (
+        <div className="space-y-3">
+          <div className="grid gap-2 sm:grid-cols-3">
+            <div className="rounded-lg bg-[#faf9f8] px-3 py-2">
+              <p className="text-[10px] uppercase text-[#8a8886]">Total due</p>
+              <p className="text-sm font-semibold tabular-nums">
+                {formatMoney(data.totalDue)}
+              </p>
+            </div>
+            <div className="rounded-lg bg-[#faf9f8] px-3 py-2">
+              <p className="text-[10px] uppercase text-[#8a8886]">Paid</p>
+              <p className="text-sm font-semibold tabular-nums">
+                {formatMoney(data.totalPaid)}
+              </p>
+            </div>
+            <div className="rounded-lg bg-[#faf9f8] px-3 py-2">
+              <p className="text-[10px] uppercase text-[#8a8886]">Outstanding</p>
+              <p className="text-sm font-semibold tabular-nums">
+                {formatMoney(data.outstandingBalance)}
+              </p>
+            </div>
+          </div>
+          {data.isSettled ? (
+            <p className="text-xs font-medium text-emerald-700">
+              Settled / cleared
+              {data.loan.settledAt
+                ? ` · ${formatDate(String(data.loan.settledAt))}`
+                : ''}
+            </p>
+          ) : null}
+          {data.installments.length > 0 ? (
+            <div className="max-h-[280px] overflow-auto rounded border border-[#e1dfdd]">
+              <table className="w-full text-left text-xs">
+                <thead className="sticky top-0 bg-[#faf9f8] text-[11px] uppercase tracking-wide text-[#605e5c]">
+                  <tr>
+                    <th className="px-3 py-2 font-semibold">#</th>
+                    <th className="px-3 py-2 font-semibold">Due</th>
+                    <th className="px-3 py-2 font-semibold">Due amt</th>
+                    <th className="px-3 py-2 font-semibold">Paid</th>
+                    <th className="px-3 py-2 font-semibold">Status</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {data.installments.map((i) => (
+                    <tr
+                      key={i.installmentNumber}
+                      className="border-t border-[#edebe9]"
+                    >
+                      <td className="px-3 py-2 font-mono">
+                        {i.installmentNumber}
+                      </td>
+                      <td className="px-3 py-2">{formatDate(i.dueDate)}</td>
+                      <td className="px-3 py-2 tabular-nums">
+                        {formatMoney(i.amountDue)}
+                      </td>
+                      <td className="px-3 py-2 tabular-nums">
+                        {formatMoney(i.amountPaid)}
+                      </td>
+                      <td className="px-3 py-2">
+                        <StatusBadge status={i.status} />
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <p className="text-sm text-[#605e5c]">
+              No repayment schedule yet — issue the loan first.
+            </p>
+          )}
+        </div>
+      ) : null}
       <div className="mt-4 flex justify-end">
         <button type="button" onClick={onClose} className={btnSecondary}>
           Close

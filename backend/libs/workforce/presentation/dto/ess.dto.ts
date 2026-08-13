@@ -1,6 +1,7 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import {
   IsDateString,
+  IsEnum,
   IsInt,
   IsNumber,
   IsOptional,
@@ -8,8 +9,16 @@ import {
   IsUUID,
   Min,
   MinLength,
+  ValidateIf,
 } from 'class-validator';
-import { EmployeeStatus, EmploymentType } from '@prisma/client';
+import { EmployeeStatus, EmploymentType, LoanType } from '@prisma/client';
+
+const ESS_ITEM_LOAN_TYPES: LoanType[] = [
+  LoanType.SECURITY_BOOTS,
+  LoanType.SMARTPHONE,
+  LoanType.UNIFORM,
+  LoanType.EQUIPMENT,
+];
 
 export class EssProfileResponseDto {
   @ApiProperty() id!: string;
@@ -50,6 +59,10 @@ export class EssApplyLeaveDto {
 }
 
 export class EssApplyLoanDto {
+  @ApiProperty({ enum: LoanType })
+  @IsEnum(LoanType)
+  loanType!: LoanType;
+
   @ApiProperty({ example: 500000 })
   @IsNumber()
   @Min(1)
@@ -65,10 +78,17 @@ export class EssApplyLoanDto {
   @IsNumber()
   interestRate?: number;
 
-  @ApiProperty()
+  @ApiPropertyOptional()
+  @IsOptional()
   @IsString()
   @MinLength(3)
-  purpose!: string;
+  purpose?: string;
+
+  @ApiPropertyOptional({ example: 'Security boots size 42' })
+  @ValidateIf((o: EssApplyLoanDto) => ESS_ITEM_LOAN_TYPES.includes(o.loanType))
+  @IsString()
+  @MinLength(2)
+  itemName?: string;
 }
 
 /** Design: Requesting Employee creates petty cash voucher (not AP payment voucher). */
@@ -92,6 +112,17 @@ export class EssApplyPettyCashDto {
   @IsOptional()
   @IsString()
   receiptUrl?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsUUID()
+  branchId?: string;
+
+  @ApiPropertyOptional({ example: 'Operations' })
+  @IsOptional()
+  @IsString()
+  @MinLength(2)
+  department?: string;
 }
 
 export class EssPettyCashVoucherResponseDto {
@@ -103,8 +134,16 @@ export class EssPettyCashVoucherResponseDto {
   @ApiProperty() purpose!: string;
   @ApiProperty() category!: string;
   @ApiProperty() status!: string;
+  @ApiPropertyOptional() receiptUrl?: string | null;
   @ApiPropertyOptional() approvalInstanceId?: string | null;
   @ApiPropertyOptional() approvedBy?: string | null;
+  @ApiPropertyOptional() issuedBy?: string | null;
+  @ApiPropertyOptional() issuedAt?: Date | null;
+  @ApiPropertyOptional() reimbursedAt?: Date | null;
+  @ApiPropertyOptional() branchId?: string | null;
+  @ApiPropertyOptional() branchCode?: string | null;
+  @ApiPropertyOptional() branchName?: string | null;
+  @ApiPropertyOptional() department?: string | null;
   @ApiProperty() createdBy!: string;
   @ApiProperty() createdAt!: Date;
 }

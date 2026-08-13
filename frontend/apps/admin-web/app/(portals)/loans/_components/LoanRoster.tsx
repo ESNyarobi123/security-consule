@@ -102,9 +102,12 @@ export function LoanRoster({
   employeeName,
   busyId,
   canAct,
+  canIssue,
   onApprove,
   onReject,
   onSchedule,
+  onIssue,
+  onStatement,
   toolbar,
   empty,
 }: {
@@ -113,9 +116,12 @@ export function LoanRoster({
   employeeName: Map<string, string>;
   busyId?: string | null;
   canAct?: (r: EmployeeLoan) => boolean | 'own';
+  canIssue?: (r: EmployeeLoan) => boolean | 'own';
   onApprove?: (id: string) => void;
   onReject?: (r: EmployeeLoan) => void;
   onSchedule?: (r: EmployeeLoan) => void;
+  onIssue?: (r: EmployeeLoan) => void;
+  onStatement?: (r: EmployeeLoan) => void;
   toolbar?: ReactNode;
   empty?: ReactNode;
 }) {
@@ -139,7 +145,7 @@ export function LoanRoster({
         <span>Loan</span>
         <span>Principal</span>
         <span>Installment</span>
-        <span>Purpose</span>
+        <span>Purpose / item</span>
         <span>Status</span>
         <span className="text-right"> </span>
       </div>
@@ -168,9 +174,17 @@ export function LoanRoster({
               `Employee ${r.employeeId.slice(0, 8)}`;
             const bg = avatarColor(r.employeeId);
             const act = canAct?.(r);
+            const issueAct = canIssue?.(r);
             const s = r.status.trim().toUpperCase().replace(/[\s-]+/g, '_');
-            const showSchedule =
+            const showSchedule = s === 'ACTIVE' || s === 'COMPLETED';
+            const showIssue = s === 'APPROVED';
+            const showStatement =
               s === 'ACTIVE' || s === 'COMPLETED' || s === 'APPROVED';
+            const purposeLine =
+              r.itemName?.trim() ||
+              r.purpose?.trim() ||
+              r.loanType?.replace(/_/g, ' ') ||
+              '—';
 
             return (
               <li key={r.id}>
@@ -205,23 +219,28 @@ export function LoanRoster({
                           {r.termMonths} mo ·{' '}
                           {formatMoney(r.monthlyInstallment)} / month
                         </p>
-                        {r.purpose ? (
+                        {purposeLine !== '—' ? (
                           <p
                             className="mt-1 truncate text-[12px] text-[#605e5c]"
-                            title={r.purpose}
+                            title={purposeLine}
                           >
-                            {r.purpose}
+                            {purposeLine}
                           </p>
                         ) : null}
                       </div>
                     </div>
                     <LoanActions
                       act={act}
+                      issueAct={issueAct}
                       showSchedule={showSchedule}
+                      showIssue={showIssue}
+                      showStatement={showStatement}
                       busy={busyId === r.id}
                       onApprove={() => onApprove?.(r.id)}
                       onReject={() => onReject?.(r)}
                       onSchedule={() => onSchedule?.(r)}
+                      onIssue={() => onIssue?.(r)}
+                      onStatement={() => onStatement?.(r)}
                     />
                   </div>
 
@@ -269,9 +288,9 @@ export function LoanRoster({
 
                     <p
                       className="truncate text-[12px] text-[#605e5c]"
-                      title={r.purpose}
+                      title={purposeLine}
                     >
-                      {r.purpose || '—'}
+                      {purposeLine}
                     </p>
 
                     <StatusPill status={r.status} />
@@ -279,11 +298,16 @@ export function LoanRoster({
                     <div className="flex flex-wrap justify-end gap-1">
                       <LoanActions
                         act={act}
+                        issueAct={issueAct}
                         showSchedule={showSchedule}
+                        showIssue={showIssue}
+                        showStatement={showStatement}
                         busy={busyId === r.id}
                         onApprove={() => onApprove?.(r.id)}
                         onReject={() => onReject?.(r)}
                         onSchedule={() => onSchedule?.(r)}
+                        onIssue={() => onIssue?.(r)}
+                        onStatement={() => onStatement?.(r)}
                       />
                     </div>
                   </div>
@@ -299,18 +323,28 @@ export function LoanRoster({
 
 function LoanActions({
   act,
+  issueAct,
   showSchedule,
+  showIssue,
+  showStatement,
   busy,
   onApprove,
   onReject,
   onSchedule,
+  onIssue,
+  onStatement,
 }: {
   act?: boolean | 'own';
+  issueAct?: boolean | 'own';
   showSchedule?: boolean;
+  showIssue?: boolean;
+  showStatement?: boolean;
   busy?: boolean;
   onApprove: () => void;
   onReject: () => void;
   onSchedule: () => void;
+  onIssue: () => void;
+  onStatement: () => void;
 }) {
   if (act === true) {
     return (
@@ -339,11 +373,51 @@ function LoanActions({
       <span className="text-[11px] text-[#a19f9d]">Awaiting other approver</span>
     );
   }
+  if (showIssue) {
+    if (issueAct === 'own') {
+      return (
+        <span className="text-[11px] text-[#a19f9d]">
+          Awaiting other officer to issue
+        </span>
+      );
+    }
+    return (
+      <>
+        <button
+          type="button"
+          className={btnPrimary}
+          disabled={busy}
+          onClick={onIssue}
+        >
+          Issue
+        </button>
+        {showStatement ? (
+          <button type="button" className={btnSecondary} onClick={onStatement}>
+            Statement
+          </button>
+        ) : null}
+      </>
+    );
+  }
   if (showSchedule) {
     return (
-      <button type="button" className={btnSecondary} onClick={onSchedule}>
-        <CalendarClock className="h-3 w-3" />
-        Schedule
+      <>
+        <button type="button" className={btnSecondary} onClick={onSchedule}>
+          <CalendarClock className="h-3 w-3" />
+          Schedule
+        </button>
+        {showStatement ? (
+          <button type="button" className={btnSecondary} onClick={onStatement}>
+            Statement
+          </button>
+        ) : null}
+      </>
+    );
+  }
+  if (showStatement) {
+    return (
+      <button type="button" className={btnSecondary} onClick={onStatement}>
+        Statement
       </button>
     );
   }

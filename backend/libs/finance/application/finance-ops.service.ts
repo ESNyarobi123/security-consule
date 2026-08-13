@@ -103,7 +103,7 @@ export class FinanceOpsService {
       orderBy: { createdAt: 'desc' },
       take: 100,
     });
-    return rows.map((v) => this.toPettyVoucherDto(v));
+    return this.toPettyVoucherDtos(rows);
   }
 
   async listMyPettyCashVouchers(
@@ -117,7 +117,7 @@ export class FinanceOpsService {
       orderBy: { createdAt: 'desc' },
       take: 50,
     });
-    return rows.map((v) => this.toPettyVoucherDto(v));
+    return this.toPettyVoucherDtos(rows);
   }
 
   async approvePettyCashVoucher(
@@ -129,23 +129,14 @@ export class FinanceOpsService {
       throw new BadRequestException('No approval instance');
     }
 
-    // Fail closed before advancing approval — avoids APPROVED instance + PENDING voucher
-    // when imprest cannot cover the amount (thin: approve also issues/debits).
-    const fund = await this.prisma.pettyCashFund.findFirst({
-      where: { id: voucher.fundId, organizationId: user.organizationId },
-    });
-    if (!fund) throw new NotFoundException('Petty cash fund not found');
-    if (fund.currentBalance.lt(voucher.amount)) {
-      throw new BadRequestException('Insufficient petty cash balance');
-    }
-
     const approval = await this.approvals.act(
       voucher.approvalInstanceId,
       { decision: 'APPROVE' },
       user,
     );
 
-    // Multi-step safe: only debit fund when workflow fully APPROVED
+    // Multi-step safe: voucher stays PENDING until workflow fully APPROVED.
+    // Cash is NOT issued here (Module 22-A — no issue without approval).
     if (approval.status !== 'APPROVED') {
       await this.audit.record({
         organizationId: user.organizationId,
@@ -158,29 +149,15 @@ export class FinanceOpsService {
           currentStepOrder: approval.currentStepOrder,
         },
       });
-      return this.toPettyVoucherDto(voucher);
+      return (await this.toPettyVoucherDtos([voucher]))[0]!;
     }
 
-    const updated = await this.prisma.$transaction(async (tx) => {
-      const locked = await tx.pettyCashFund.findFirst({
-        where: { id: voucher.fundId, organizationId: user.organizationId },
-      });
-      if (!locked || locked.currentBalance.lt(voucher.amount)) {
-        throw new BadRequestException('Insufficient petty cash balance');
-      }
-      await tx.pettyCashFund.update({
-        where: { id: voucher.fundId },
-        data: {
-          currentBalance: { decrement: voucher.amount },
-        },
-      });
-      return tx.pettyCashVoucher.update({
-        where: { id },
-        data: {
-          status: PettyCashVoucherStatus.APPROVED,
-          approvedBy: user.id,
-        },
-      });
+    const updated = await this.prisma.pettyCashVoucher.update({
+      where: { id },
+      data: {
+        status: PettyCashVoucherStatus.APPROVED,
+        approvedBy: user.id,
+      },
     });
 
     await this.audit.record({
@@ -192,7 +169,81 @@ export class FinanceOpsService {
       after: updated,
     });
 
-    return this.toPettyVoucherDto(updated);
+    return (await this.toPettyVoucherDtos([updated]))[0]!;
+  }
+
+  /**
+   * Issue cash after approval. Debits imprest. Creator ≠ issuer.
+   */
+  async issuePettyCashVoucher(
+    id: string,
+    user: AuthUser,
+  ): Promise<PettyCashVoucherResponseDto> {
+    const voucher = await this.prisma.pettyCashVoucher.findFirst({
+      where: { id, organizationId: user.organizationId },
+    });
+    if (!voucher) throw new NotFoundException('Voucher not found');
+    if (voucher.status === PettyCashVoucherStatus.ISSUED) {
+      throw new BadRequestException({
+        error: 'ALREADY_ISSUED',
+        message: 'Cash has already been issued for this voucher',
+      });
+    }
+    if (voucher.status === PettyCashVoucherStatus.PENDING) {
+      throw new BadRequestException({
+        error: 'NOT_APPROVED',
+        message: 'No petty cash shall be issued without approval',
+      });
+    }
+    if (voucher.status !== PettyCashVoucherStatus.APPROVED) {
+      throw new BadRequestException({
+        error: 'NOT_ISSUABLE',
+        message: `Cannot issue petty cash in status ${voucher.status}`,
+      });
+    }
+    if (voucher.createdBy === user.id) {
+      throw new ForbiddenException({
+        error: 'CREATOR_CANNOT_ISSUE',
+        message: 'The officer who requested this petty cash cannot issue it',
+      });
+    }
+
+    const issuedAt = new Date();
+    const updated = await this.prisma.$transaction(async (tx) => {
+      const locked = await tx.pettyCashFund.findFirst({
+        where: { id: voucher.fundId, organizationId: user.organizationId },
+      });
+      if (!locked) throw new NotFoundException('Petty cash fund not found');
+      if (locked.currentBalance.lt(voucher.amount)) {
+        throw new BadRequestException({
+          error: 'INSUFFICIENT_BALANCE',
+          message: 'Insufficient petty cash balance',
+        });
+      }
+      await tx.pettyCashFund.update({
+        where: { id: voucher.fundId },
+        data: { currentBalance: { decrement: voucher.amount } },
+      });
+      return tx.pettyCashVoucher.update({
+        where: { id },
+        data: {
+          status: PettyCashVoucherStatus.ISSUED,
+          issuedBy: user.id,
+          issuedAt,
+        },
+      });
+    });
+
+    await this.audit.record({
+      organizationId: user.organizationId,
+      actorId: user.id,
+      action: 'petty_cash.voucher.issued',
+      resourceType: 'PettyCashVoucher',
+      resourceId: id,
+      after: updated,
+    });
+
+    return (await this.toPettyVoucherDtos([updated]))[0]!;
   }
 
   async rejectPettyCashVoucher(
@@ -212,7 +263,10 @@ export class FinanceOpsService {
 
     const updated = await this.prisma.pettyCashVoucher.update({
       where: { id },
-      data: { status: PettyCashVoucherStatus.REJECTED },
+      data: {
+        status: PettyCashVoucherStatus.REJECTED,
+        rejectedReason: dto.reason,
+      },
     });
 
     await this.audit.record({
@@ -224,12 +278,12 @@ export class FinanceOpsService {
       after: { ...updated, rejectedReason: dto.reason },
     });
 
-    return this.toPettyVoucherDto(updated);
+    return (await this.toPettyVoucherDtos([updated]))[0]!;
   }
 
   /**
-   * Retire/receipt after issue: APPROVED → REIMBURSED.
-   * Imprest was already debited on final approve; this records the receipt signal.
+   * Retire after issue: ISSUED → REIMBURSED (receipt on file).
+   * Imprest was already debited on issue; this closes the voucher.
    */
   async reimbursePettyCashVoucher(
     id: string,
@@ -250,25 +304,31 @@ export class FinanceOpsService {
     if (!voucher) throw new NotFoundException('Voucher not found');
 
     if (voucher.status === PettyCashVoucherStatus.REIMBURSED) {
-      throw new BadRequestException('Voucher is already reimbursed');
+      throw new BadRequestException('Voucher is already retired');
     }
     if (voucher.status === PettyCashVoucherStatus.PENDING) {
       throw new BadRequestException(
-        'Voucher must be approved before reimbursement',
+        'Voucher must be approved and issued before retirement',
       );
     }
     if (voucher.status === PettyCashVoucherStatus.REJECTED) {
-      throw new BadRequestException('Rejected vouchers cannot be reimbursed');
+      throw new BadRequestException('Rejected vouchers cannot be retired');
     }
-    if (voucher.status !== PettyCashVoucherStatus.APPROVED) {
+    if (voucher.status === PettyCashVoucherStatus.APPROVED) {
+      throw new BadRequestException({
+        error: 'NOT_ISSUED',
+        message: 'Issue cash before retiring the voucher with a receipt',
+      });
+    }
+    if (voucher.status !== PettyCashVoucherStatus.ISSUED) {
       throw new BadRequestException(
-        `Cannot reimburse voucher in status ${voucher.status}`,
+        `Cannot retire voucher in status ${voucher.status}`,
       );
     }
 
     if (voucher.createdBy === user.id) {
       throw new ForbiddenException(
-        'Creator cannot mark their own voucher as reimbursed',
+        'Creator cannot retire their own petty cash voucher',
       );
     }
 
@@ -293,7 +353,7 @@ export class FinanceOpsService {
     await this.audit.record({
       organizationId: user.organizationId,
       actorId: user.id,
-      action: 'petty_cash.voucher.reimbursed',
+      action: 'petty_cash.voucher.retired',
       resourceType: 'PettyCashVoucher',
       resourceId: id,
       after: {
@@ -303,7 +363,7 @@ export class FinanceOpsService {
       },
     });
 
-    return this.toPettyVoucherDto(updated);
+    return (await this.toPettyVoucherDtos([updated]))[0]!;
   }
 
   /**
@@ -377,10 +437,23 @@ export class FinanceOpsService {
       purpose: string;
       category: string;
       receiptUrl?: string;
+      branchId?: string;
+      department?: string;
     },
     user: AuthUser,
     channel: 'admin' | 'ess' = 'admin',
   ): Promise<PettyCashVoucherResponseDto> {
+    const fund = await this.prisma.pettyCashFund.findFirst({
+      where: { id: fundId, organizationId: user.organizationId },
+    });
+    if (!fund) throw new NotFoundException('Petty cash fund not found');
+
+    const branchId = await this.resolveBranchId(
+      user,
+      dto.branchId ?? fund.branchId ?? user.allowedBranchIds?.[0] ?? null,
+    );
+    const department = dto.department?.trim() || null;
+
     const voucherNumber = await this.nextVoucherNumber(user.organizationId);
     const voucher = await this.prisma.pettyCashVoucher.create({
       data: {
@@ -391,6 +464,8 @@ export class FinanceOpsService {
         purpose: dto.purpose,
         category: dto.category,
         receiptUrl: dto.receiptUrl,
+        branchId,
+        department,
         createdBy: user.id,
       },
     });
@@ -419,7 +494,7 @@ export class FinanceOpsService {
       after: { ...updated, channel },
     });
 
-    return this.toPettyVoucherDto(updated);
+    return (await this.toPettyVoucherDtos([updated]))[0]!;
   }
 
   async createPaymentVoucher(
@@ -594,38 +669,99 @@ export class FinanceOpsService {
     };
   }
 
-  private toPettyVoucherDto(v: {
-    id: string;
-    organizationId: string;
-    fundId: string;
-    voucherNumber: string;
-    amount: Prisma.Decimal;
-    purpose: string;
-    category: string;
-    receiptUrl?: string | null;
-    status: PettyCashVoucherStatus;
-    approvalInstanceId: string | null;
-    approvedBy: string | null;
-    reimbursedAt: Date | null;
-    createdBy: string;
-    createdAt: Date;
-  }): PettyCashVoucherResponseDto {
-    return {
-      id: v.id,
-      organizationId: v.organizationId,
-      fundId: v.fundId,
-      voucherNumber: v.voucherNumber,
-      amount: Number(v.amount),
-      purpose: v.purpose,
-      category: v.category,
-      receiptUrl: v.receiptUrl ?? null,
-      status: v.status,
-      approvalInstanceId: v.approvalInstanceId,
-      approvedBy: v.approvedBy,
-      reimbursedAt: v.reimbursedAt,
-      createdBy: v.createdBy,
-      createdAt: v.createdAt,
-    };
+  private async resolveBranchId(
+    user: AuthUser,
+    candidate: string | null,
+  ): Promise<string | null> {
+    if (!candidate) return null;
+    const branch = await this.prisma.branch.findFirst({
+      where: {
+        id: candidate,
+        organizationId: user.organizationId,
+        isActive: true,
+      },
+      select: { id: true },
+    });
+    if (!branch) {
+      throw new BadRequestException({
+        error: 'INVALID_BRANCH',
+        message: 'Branch not found in this organisation',
+      });
+    }
+    return branch.id;
+  }
+
+  private async toPettyVoucherDtos(
+    rows: {
+      id: string;
+      organizationId: string;
+      fundId: string;
+      voucherNumber: string;
+      amount: Prisma.Decimal;
+      purpose: string;
+      category: string;
+      receiptUrl?: string | null;
+      status: PettyCashVoucherStatus;
+      approvalInstanceId: string | null;
+      approvedBy: string | null;
+      issuedBy?: string | null;
+      issuedAt?: Date | null;
+      reimbursedAt: Date | null;
+      branchId?: string | null;
+      department?: string | null;
+      rejectedReason?: string | null;
+      createdBy: string;
+      createdAt: Date;
+    }[],
+  ): Promise<PettyCashVoucherResponseDto[]> {
+    if (rows.length === 0) return [];
+    const branchIds = [
+      ...new Set(rows.map((r) => r.branchId).filter((id): id is string => !!id)),
+    ];
+    const fundIds = [...new Set(rows.map((r) => r.fundId))];
+    const [branches, funds] = await Promise.all([
+      branchIds.length
+        ? this.prisma.branch.findMany({
+            where: { id: { in: branchIds } },
+            select: { id: true, code: true, name: true },
+          })
+        : Promise.resolve([]),
+      this.prisma.pettyCashFund.findMany({
+        where: { id: { in: fundIds } },
+        select: { id: true, name: true, currentBalance: true },
+      }),
+    ]);
+    const branchById = new Map(branches.map((b) => [b.id, b]));
+    const fundById = new Map(funds.map((f) => [f.id, f]));
+    return rows.map((v) => {
+      const branch = v.branchId ? branchById.get(v.branchId) : undefined;
+      const fund = fundById.get(v.fundId);
+      return {
+        id: v.id,
+        organizationId: v.organizationId,
+        fundId: v.fundId,
+        fundName: fund?.name ?? null,
+        fundBalance: fund ? Number(fund.currentBalance) : null,
+        voucherNumber: v.voucherNumber,
+        amount: Number(v.amount),
+        purpose: v.purpose,
+        category: v.category,
+        receiptUrl: v.receiptUrl ?? null,
+        status: v.status,
+        approvalInstanceId: v.approvalInstanceId,
+        approvedBy: v.approvedBy,
+        issuedBy: v.issuedBy ?? null,
+        issuedAt: v.issuedAt ?? null,
+        reimbursedAt: v.reimbursedAt,
+        branchId: v.branchId ?? null,
+        branchCode: branch?.code ?? null,
+        branchName: branch?.name ?? null,
+        department: v.department ?? null,
+        rejectedReason: v.rejectedReason ?? null,
+        createdBy: v.createdBy,
+        createdAt: v.createdAt,
+      };
+    });
   }
 
   private toPaymentVoucherDto(v: {

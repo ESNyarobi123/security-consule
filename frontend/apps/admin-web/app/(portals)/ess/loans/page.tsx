@@ -1,9 +1,15 @@
 'use client';
 
 import {
+  acknowledgeEssLoan,
   applyEssLoan,
+  getEssLoanStatement,
+  isItemLoanType,
   listEssLoans,
+  LOAN_TYPE_OPTIONS,
   type EssLoan,
+  type EssLoanStatement,
+  type LoanType,
 } from '@pssms/api-client';
 import {
   DataTable,
@@ -30,6 +36,8 @@ export default function EssLoansPage() {
   const [error, setError] = useState<string | null>(null);
   const [missing, setMissing] = useState(false);
   const [applyOpen, setApplyOpen] = useState(false);
+  const [statementId, setStatementId] = useState<string | null>(null);
+  const [busyId, setBusyId] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -119,6 +127,18 @@ export default function EssLoansPage() {
                   ),
                 },
                 {
+                  key: 'loanType',
+                  label: 'Type',
+                  render: (r) => (
+                    <span className="text-xs">
+                      {LOAN_TYPE_OPTIONS.find((t) => t.value === r.loanType)
+                        ?.label ??
+                        r.loanType?.replace(/_/g, ' ') ??
+                        '—'}
+                    </span>
+                  ),
+                },
+                {
                   key: 'principalAmount',
                   label: 'Principal',
                   render: (r) => formatMoney(r.principalAmount),
@@ -137,13 +157,13 @@ export default function EssLoansPage() {
                 },
                 {
                   key: 'purpose',
-                  label: 'Purpose',
+                  label: 'Item / notes',
                   render: (r) => (
                     <span
                       className="max-w-[160px] truncate text-xs text-[#605e5c]"
-                      title={r.purpose}
+                      title={r.itemName ?? r.purpose ?? ''}
                     >
-                      {r.purpose}
+                      {r.itemName ?? r.purpose ?? '—'}
                     </span>
                   ),
                 },
@@ -156,6 +176,47 @@ export default function EssLoansPage() {
                   key: 'createdAt',
                   label: 'Submitted',
                   render: (r) => formatDate(r.createdAt),
+                },
+                {
+                  key: 'id',
+                  label: '',
+                  render: (r) => (
+                    <div className="flex flex-wrap justify-end gap-1">
+                      <button
+                        type="button"
+                        className={btnSecondary}
+                        onClick={() => setStatementId(r.id)}
+                      >
+                        Statement
+                      </button>
+                      {r.status === 'ACTIVE' &&
+                      isItemLoanType(String(r.loanType)) &&
+                      !r.employeeAcknowledgedAt ? (
+                        <button
+                          type="button"
+                          className={btnPrimary}
+                          disabled={busyId === r.id}
+                          onClick={async () => {
+                            setBusyId(r.id);
+                            try {
+                              await acknowledgeEssLoan(r.id);
+                              await refresh();
+                            } catch (err) {
+                              setError(
+                                err instanceof Error
+                                  ? err.message
+                                  : String(err),
+                              );
+                            } finally {
+                              setBusyId(null);
+                            }
+                          }}
+                        >
+                          Ack item
+                        </button>
+                      ) : null}
+                    </div>
+                  ),
                 },
               ]}
             />
@@ -172,6 +233,13 @@ export default function EssLoansPage() {
           }}
         />
       ) : null}
+
+      {statementId ? (
+        <EssStatementModal
+          loanId={statementId}
+          onClose={() => setStatementId(null)}
+        />
+      ) : null}
     </EssShell>
   );
 }
@@ -183,11 +251,14 @@ function ApplyLoanModal({
   onClose: () => void;
   onCreated: () => Promise<void>;
 }) {
+  const [loanType, setLoanType] = useState<LoanType>('CASH');
   const [principal, setPrincipal] = useState('');
   const [termMonths, setTermMonths] = useState('6');
   const [purpose, setPurpose] = useState('');
+  const [itemName, setItemName] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const itemRequired = isItemLoanType(loanType);
 
   async function onSubmit(e: FormEvent) {
     e.preventDefault();
@@ -195,9 +266,11 @@ function ApplyLoanModal({
     setError(null);
     try {
       await applyEssLoan({
+        loanType,
         principalAmount: Number(principal),
         termMonths: Number(termMonths),
-        purpose: purpose.trim(),
+        purpose: purpose.trim() || undefined,
+        itemName: itemRequired ? itemName.trim() : undefined,
       });
       await onCreated();
     } catch (err) {
@@ -214,6 +287,33 @@ function ApplyLoanModal({
       onClose={onClose}
     >
       <form onSubmit={onSubmit} className="space-y-3">
+        <label className="block text-sm font-medium text-[#323130]">
+          Loan type
+          <select
+            value={loanType}
+            onChange={(e) => setLoanType(e.target.value as LoanType)}
+            className={inputCls}
+            required
+          >
+            {LOAN_TYPE_OPTIONS.map((t) => (
+              <option key={t.value} value={t.value}>
+                {t.label}
+              </option>
+            ))}
+          </select>
+        </label>
+        {itemRequired ? (
+          <label className="block text-sm font-medium text-[#323130]">
+            Item name
+            <input
+              value={itemName}
+              onChange={(e) => setItemName(e.target.value)}
+              className={inputCls}
+              placeholder="e.g. Security boots size 42"
+              required
+            />
+          </label>
+        ) : null}
         <label className="block text-sm font-medium text-[#323130]">
           Principal (TZS)
           <input
@@ -240,14 +340,12 @@ function ApplyLoanModal({
           />
         </label>
         <label className="block text-sm font-medium text-[#323130]">
-          Purpose
+          Notes (optional)
           <textarea
             value={purpose}
             onChange={(e) => setPurpose(e.target.value)}
             className={`${inputCls} min-h-[72px]`}
-            placeholder="e.g. Boots, uniform, emergency advance"
-            required
-            minLength={3}
+            placeholder="Optional notes for approver"
           />
         </label>
         {error ? (
@@ -264,6 +362,138 @@ function ApplyLoanModal({
           </button>
         </div>
       </form>
+    </Modal>
+  );
+}
+
+function EssStatementModal({
+  loanId,
+  onClose,
+}: {
+  loanId: string;
+  onClose: () => void;
+}) {
+  const [data, setData] = useState<EssLoanStatement | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      setLoading(true);
+      setError(null);
+      try {
+        const stmt = await getEssLoanStatement(loanId);
+        if (!cancelled) setData(stmt);
+      } catch (err) {
+        if (!cancelled) {
+          setError(err instanceof Error ? err.message : String(err));
+        }
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [loanId]);
+
+  return (
+    <Modal
+      title="Loan statement"
+      description={
+        data?.loan?.loanNumber
+          ? `${data.loan.loanNumber} · ${LOAN_TYPE_OPTIONS.find((t) => t.value === data.loan.loanType)?.label ?? data.loan.loanType}`
+          : 'Repayment schedule and balance'
+      }
+      onClose={onClose}
+      size="lg"
+    >
+      {error ? (
+        <p className="mb-3 rounded-md bg-rose-50 px-3 py-2 text-sm text-rose-700">
+          {error}
+        </p>
+      ) : null}
+      {loading ? (
+        <p className="py-6 text-center text-sm text-[#605e5c]">Loading…</p>
+      ) : data ? (
+        <div className="space-y-3">
+          <div className="grid gap-2 sm:grid-cols-3">
+            <div className="rounded-lg bg-[#faf9f8] px-3 py-2">
+              <p className="text-[10px] uppercase text-[#8a8886]">Total due</p>
+              <p className="text-sm font-semibold tabular-nums">
+                {formatMoney(data.totalDue)}
+              </p>
+            </div>
+            <div className="rounded-lg bg-[#faf9f8] px-3 py-2">
+              <p className="text-[10px] uppercase text-[#8a8886]">Paid</p>
+              <p className="text-sm font-semibold tabular-nums">
+                {formatMoney(data.totalPaid)}
+              </p>
+            </div>
+            <div className="rounded-lg bg-[#faf9f8] px-3 py-2">
+              <p className="text-[10px] uppercase text-[#8a8886]">Outstanding</p>
+              <p className="text-sm font-semibold tabular-nums">
+                {formatMoney(data.outstandingBalance)}
+              </p>
+            </div>
+          </div>
+          {data.isSettled ? (
+            <p className="text-xs font-medium text-emerald-700">
+              Settled / cleared
+              {data.loan.settledAt
+                ? ` · ${formatDate(String(data.loan.settledAt))}`
+                : ''}
+            </p>
+          ) : null}
+          {data.installments.length > 0 ? (
+            <div className="max-h-[280px] overflow-auto rounded border border-[#e1dfdd]">
+              <table className="w-full text-left text-xs">
+                <thead className="sticky top-0 bg-[#faf9f8] text-[11px] uppercase tracking-wide text-[#605e5c]">
+                  <tr>
+                    <th className="px-3 py-2 font-semibold">#</th>
+                    <th className="px-3 py-2 font-semibold">Due</th>
+                    <th className="px-3 py-2 font-semibold">Due amt</th>
+                    <th className="px-3 py-2 font-semibold">Paid</th>
+                    <th className="px-3 py-2 font-semibold">Status</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {data.installments.map((i) => (
+                    <tr
+                      key={i.installmentNumber}
+                      className="border-t border-[#edebe9]"
+                    >
+                      <td className="px-3 py-2 font-mono">
+                        {i.installmentNumber}
+                      </td>
+                      <td className="px-3 py-2">{formatDate(i.dueDate)}</td>
+                      <td className="px-3 py-2 tabular-nums">
+                        {formatMoney(i.amountDue)}
+                      </td>
+                      <td className="px-3 py-2 tabular-nums">
+                        {formatMoney(i.amountPaid)}
+                      </td>
+                      <td className="px-3 py-2">
+                        <StatusBadge status={i.status} />
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <p className="text-sm text-[#605e5c]">
+              No repayment schedule yet — loan must be issued first.
+            </p>
+          )}
+        </div>
+      ) : null}
+      <div className="mt-4 flex justify-end">
+        <button type="button" onClick={onClose} className={btnSecondary}>
+          Close
+        </button>
+      </div>
     </Modal>
   );
 }

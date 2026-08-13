@@ -67,6 +67,51 @@ export function normalizeVehicleType(raw?: string | null): VehicleKind {
   return 'OTHER';
 }
 
+/** Module 13-I — who the vehicle is for (not body type) */
+export type ParkingCategoryKind =
+  | 'CUSTOMER'
+  | 'CUSTOMER_EMPLOYEE'
+  | 'VISITOR'
+  | 'COMPANY'
+  | 'PATROL'
+  | 'SUPPLIER'
+  | 'CONTRACTOR'
+  | 'EMERGENCY'
+  | 'TEMPORARY';
+
+export const PARKING_CATEGORY_META: Record<
+  ParkingCategoryKind,
+  { label: string; needsCustomer: boolean; fleetOnly: boolean }
+> = {
+  CUSTOMER: { label: 'Customer', needsCustomer: true, fleetOnly: false },
+  CUSTOMER_EMPLOYEE: {
+    label: 'Customer employee',
+    needsCustomer: true,
+    fleetOnly: false,
+  },
+  VISITOR: { label: 'Visitor', needsCustomer: false, fleetOnly: false },
+  COMPANY: { label: 'Company', needsCustomer: false, fleetOnly: true },
+  PATROL: { label: 'Patrol', needsCustomer: false, fleetOnly: true },
+  SUPPLIER: { label: 'Supplier', needsCustomer: false, fleetOnly: false },
+  CONTRACTOR: { label: 'Contractor', needsCustomer: false, fleetOnly: false },
+  EMERGENCY: { label: 'Emergency', needsCustomer: false, fleetOnly: true },
+  TEMPORARY: { label: 'Temporary', needsCustomer: false, fleetOnly: false },
+};
+
+export const PARKING_CATEGORIES = Object.keys(
+  PARKING_CATEGORY_META,
+) as ParkingCategoryKind[];
+
+export function normalizeParkingCategory(
+  raw?: string | null,
+): ParkingCategoryKind {
+  const t = (raw ?? 'CUSTOMER').toUpperCase();
+  if ((PARKING_CATEGORIES as string[]).includes(t)) {
+    return t as ParkingCategoryKind;
+  }
+  return 'CUSTOMER';
+}
+
 export function KpiCard({
   label,
   value,

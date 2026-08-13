@@ -108,6 +108,29 @@ export class UpdateCustomerEmployeeDto {
   isActive?: boolean;
 }
 
+/** Module 19-A — bank / mobile money refs for customer payroll disbursement. */
+export class UpdateCustomerEmployeePaymentDto {
+  @ApiPropertyOptional({ nullable: true })
+  @IsOptional()
+  @IsString()
+  bankAccountRef?: string | null;
+
+  @ApiPropertyOptional({ nullable: true })
+  @IsOptional()
+  @IsString()
+  bankName?: string | null;
+
+  @ApiPropertyOptional({ nullable: true })
+  @IsOptional()
+  @IsString()
+  mobileMoneyRef?: string | null;
+
+  @ApiPropertyOptional({ nullable: true })
+  @IsOptional()
+  @IsString()
+  mobileMoneyProvider?: string | null;
+}
+
 export class CustomerEmployeeResponseDto {
   @ApiProperty()
   id!: string;
@@ -144,6 +167,18 @@ export class CustomerEmployeeResponseDto {
 
   @ApiPropertyOptional()
   biometricRef?: string | null;
+
+  @ApiPropertyOptional()
+  bankAccountRef?: string | null;
+
+  @ApiPropertyOptional()
+  bankName?: string | null;
+
+  @ApiPropertyOptional()
+  mobileMoneyRef?: string | null;
+
+  @ApiPropertyOptional()
+  mobileMoneyProvider?: string | null;
 
   @ApiProperty()
   isActive!: boolean;

@@ -6,6 +6,7 @@ import { AlertnessService } from '@pssms/attendance';
 import { ContractsService } from '@pssms/contracts';
 import { InvoicesService } from '@pssms/finance';
 import { ParkingService } from '@pssms/parking';
+import { PayrollDueService } from '@pssms/payroll';
 import { PatrolRoutesService } from '@pssms/operations';
 
 @ApiTags('Internal')
@@ -20,6 +21,7 @@ export class InternalController {
     private readonly contracts: ContractsService,
     private readonly alertness: AlertnessService,
     private readonly patrolRoutes: PatrolRoutesService,
+    private readonly payrollDue: PayrollDueService,
   ) {}
 
   @Post('contracts/scan-expiring')
@@ -83,6 +85,19 @@ export class InternalController {
       user,
       Number.isFinite(grace) && grace >= 0 ? grace : 0,
     );
+  }
+
+  @Post('payroll/scan-due-alerts')
+  @ApiOperation({
+    summary: 'Scan e-payroll due alerts (background-worker, Module 20-A)',
+  })
+  async scanPayrollDueAlerts(
+    @Body() body: { organizationId: string; force?: boolean },
+  ) {
+    const user = await this.systemUser(body.organizationId);
+    return this.payrollDue.scanDueAlerts(body.organizationId, user, {
+      force: body.force === true,
+    });
   }
 
   @Post('finance/invoices/:id/payments')

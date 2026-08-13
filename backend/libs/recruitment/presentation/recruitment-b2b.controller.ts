@@ -25,12 +25,15 @@ import {
 } from '@pssms/shared';
 import { RecruitmentB2bService } from '../application/recruitment-b2b.service';
 import {
+  B2bCustomerOptionDto,
   B2bPartnerProfileDto,
   CreateGuardSupplyRequestDto,
   GuardSupplyRequestResponseDto,
   RegisterB2bPartnerDto,
   RegisterB2bPartnerResponseDto,
+  UpdateB2bPartnerCustomerDto,
   UpdateB2bPartnerStatusDto,
+  UpdateGuardSupplyRequestChargesDto,
   UpdateGuardSupplyRequestStatusDto,
 } from './dto/recruitment-b2b.dto';
 
@@ -69,6 +72,30 @@ export class RecruitmentB2bController {
     @CurrentUser() user: AuthUser,
   ) {
     return this.service.updatePartnerStatus(id, dto.status, user);
+  }
+
+  @Get('customer-options')
+  @RequirePermissions('recruitment.manage')
+  @ApiOperation({
+    summary: 'HR — thin CRM customer picker for B2B partner billing link',
+  })
+  @ApiOkResponse({ type: [B2bCustomerOptionDto] })
+  listCustomerOptions(@CurrentUser() user: AuthUser) {
+    return this.service.listCustomerOptions(user);
+  }
+
+  @Patch('partners/:id/customer')
+  @RequirePermissions('recruitment.manage')
+  @ApiOperation({
+    summary: 'HR — link B2B partner to CRM customer for invoicing',
+  })
+  @ApiOkResponse({ type: B2bPartnerProfileDto })
+  updatePartnerCustomer(
+    @Param('id') id: string,
+    @Body() dto: UpdateB2bPartnerCustomerDto,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.service.updatePartnerCustomer(id, dto, user);
   }
 
   @Get('partners/me')
@@ -123,5 +150,40 @@ export class RecruitmentB2bController {
     @CurrentUser() user: AuthUser,
   ) {
     return this.service.updateStatus(id, dto, user);
+  }
+
+  @Patch('requests/:id/charges')
+  @RequirePermissions('recruitment.manage')
+  @ApiOperation({
+    summary: 'HR — set service charges on ACCEPTED request (before bill)',
+  })
+  @ApiOkResponse({ type: GuardSupplyRequestResponseDto })
+  updateCharges(
+    @Param('id') id: string,
+    @Body() dto: UpdateGuardSupplyRequestChargesDto,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.service.updateRequestCharges(id, dto, user);
+  }
+
+  @Post('requests/:id/bill')
+  @RequirePermissions('recruitment.manage')
+  @ApiOperation({
+    summary: 'HR — create DRAFT invoice for ACCEPTED B2B guard supply request',
+  })
+  @ApiQuery({
+    name: 'send',
+    required: false,
+    description: 'Set to 1 to send invoice after draft create',
+  })
+  @ApiOkResponse({ type: GuardSupplyRequestResponseDto })
+  bill(
+    @Param('id') id: string,
+    @Query('send') send: string | undefined,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.service.billRequest(id, user, {
+      sendInvoice: send === '1' || send === 'true',
+    });
   }
 }

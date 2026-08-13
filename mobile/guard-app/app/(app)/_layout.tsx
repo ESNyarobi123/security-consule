@@ -29,6 +29,10 @@ export default function AppLayout() {
       <Stack.Screen name="index" options={{ title: 'Duty' }} />
       <Stack.Screen name="alertness" options={{ title: 'Alertness' }} />
       <Stack.Screen name="patrol" options={{ title: 'Patrol' }} />
+      <Stack.Screen
+        name="parking-patrol"
+        options={{ title: 'Parking patrol' }}
+      />
       <Stack.Screen name="outbox" options={{ title: 'Sync outbox' }} />
     </Stack>
   );

@@ -78,6 +78,39 @@ async function coreFetch<T>(
   return parseEnvelope<T>(res);
 }
 
+export type LoanType =
+  | 'SECURITY_BOOTS'
+  | 'SMARTPHONE'
+  | 'CASH'
+  | 'UNIFORM'
+  | 'EMERGENCY'
+  | 'SALARY_ADVANCE'
+  | 'EQUIPMENT'
+  | 'TRANSPORT_SUPPORT'
+  | 'MEDICAL_SUPPORT'
+  | 'OTHER';
+
+export const LOAN_TYPE_OPTIONS: Array<{
+  value: LoanType;
+  label: string;
+  isItemLoan: boolean;
+}> = [
+  { value: 'SECURITY_BOOTS', label: 'Security boots loan', isItemLoan: true },
+  { value: 'SMARTPHONE', label: 'Smartphone loan', isItemLoan: true },
+  { value: 'CASH', label: 'Cash / money loan', isItemLoan: false },
+  { value: 'UNIFORM', label: 'Uniform loan', isItemLoan: true },
+  { value: 'EMERGENCY', label: 'Emergency loan', isItemLoan: false },
+  { value: 'SALARY_ADVANCE', label: 'Salary advance', isItemLoan: false },
+  { value: 'EQUIPMENT', label: 'Equipment loan', isItemLoan: true },
+  { value: 'TRANSPORT_SUPPORT', label: 'Transport support loan', isItemLoan: false },
+  { value: 'MEDICAL_SUPPORT', label: 'Medical support loan', isItemLoan: false },
+  { value: 'OTHER', label: 'Other approved support loan', isItemLoan: false },
+];
+
+export function isItemLoanType(t: string) {
+  return LOAN_TYPE_OPTIONS.some((o) => o.value === t && o.isItemLoan);
+}
+
 export type LoanStatus =
   | 'DRAFT'
   | 'PENDING_APPROVAL'
@@ -92,16 +125,26 @@ export type EmployeeLoan = {
   organizationId: string;
   employeeId: string;
   loanNumber: string;
+  loanType: LoanType | string;
   principalAmount: number;
   interestRate: number;
   termMonths: number;
   monthlyInstallment: number;
   status: LoanStatus | string;
-  purpose: string;
+  purpose?: string | null;
+  itemName?: string | null;
+  supplierName?: string | null;
+  itemCost?: number | null;
   approvalInstanceId?: string | null;
   approvedBy?: string | null;
   approvedAt?: string | null;
+  issuedBy?: string | null;
+  issuedAt?: string | null;
+  employeeAcknowledgedAt?: string | null;
   disbursedAt?: string | null;
+  settledAt?: string | null;
+  clearedBy?: string | null;
+  outstandingBalance?: number | null;
   /** Present when API exposes creator — used for UI creator≠approver guard. */
   createdBy?: string | null;
   createdAt: string;
@@ -119,12 +162,31 @@ export type LoanInstallment = {
   paidAt?: string | null;
 };
 
+export type LoanStatement = {
+  loan: EmployeeLoan;
+  installments: LoanInstallment[];
+  totalDue: number;
+  totalPaid: number;
+  outstandingBalance: number;
+  isSettled: boolean;
+};
+
 export type CreateLoanBody = {
   employeeId: string;
+  loanType: LoanType;
   principalAmount: number;
   termMonths: number;
   interestRate?: number;
-  purpose: string;
+  purpose?: string;
+  itemName?: string;
+};
+
+export type IssueLoanBody = {
+  issueDate?: string;
+  itemName?: string;
+  supplierName?: string;
+  itemCost?: number;
+  employeeAcknowledged?: boolean;
 };
 
 export type LoanEmployeeOption = {
@@ -133,6 +195,11 @@ export type LoanEmployeeOption = {
   fullName: string;
   department?: string | null;
 };
+
+export const listLoanTypeOptions = (token?: string) =>
+  coreFetch<
+    Array<{ value: LoanType; label: string; isItemLoan: boolean }>
+  >('/api/v1/loans/type-options', { token });
 
 export const listLoanEmployeeOptions = (token?: string) =>
   coreFetch<LoanEmployeeOption[]>('/api/v1/loans/employee-options', { token });
@@ -157,6 +224,12 @@ export const approveLoan = (id: string, token?: string) =>
     { method: 'POST', body: '{}', token },
   );
 
+export const issueLoan = (id: string, body: IssueLoanBody, token?: string) =>
+  coreFetch<{ loan: EmployeeLoan; installments: LoanInstallment[] }>(
+    `/api/v1/loans/${id}/issue`,
+    { method: 'POST', body: JSON.stringify(body), token },
+  );
+
 export const rejectLoan = (id: string, reason: string, token?: string) =>
   coreFetch<EmployeeLoan>(`/api/v1/loans/${id}/reject`, {
     method: 'POST',
@@ -166,3 +239,6 @@ export const rejectLoan = (id: string, reason: string, token?: string) =>
 
 export const listLoanInstallments = (id: string, token?: string) =>
   coreFetch<LoanInstallment[]>(`/api/v1/loans/${id}/installments`, { token });
+
+export const getLoanStatement = (id: string, token?: string) =>
+  coreFetch<LoanStatement>(`/api/v1/loans/${id}/statement`, { token });

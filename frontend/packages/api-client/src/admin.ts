@@ -1087,6 +1087,21 @@ export const updateGuardReadiness = async (
 };
 
 // ── Finance ──
+export const INVOICE_SERVICE_TYPES = [
+  'SECURITY_GUARD',
+  'CCTV_MONITORING',
+  'ACCESS_CONTROL',
+  'VISITOR_MANAGEMENT',
+  'PARKING',
+  'RECRUITMENT',
+  'CUSTOMER_PAYROLL',
+  'ALARM_RESPONSE',
+  'TECHNICAL',
+  'OTHER',
+] as const;
+
+export type InvoiceServiceType = (typeof INVOICE_SERVICE_TYPES)[number];
+
 export type Invoice = {
   id: string;
   invoiceNumber: string;
@@ -1099,6 +1114,7 @@ export type Invoice = {
   currency: string;
   dueDate: string;
   issueDate?: string;
+  serviceType?: string | null;
   notes?: string | null;
 };
 
@@ -1127,6 +1143,7 @@ export const createInvoice = (
     dueDate: string;
     taxAmount?: number;
     currency?: string;
+    serviceType?: string;
     notes?: string;
     lines: { description: string; quantity: number; unitPrice: number }[];
   },
@@ -1155,9 +1172,29 @@ export const voidInvoice = (
     token,
   });
 
+export const disputeInvoice = (
+  id: string,
+  body?: { reason?: string },
+  token?: string,
+) =>
+  coreFetch<Invoice>(`/api/v1/finance/invoices/${id}/dispute`, {
+    method: 'POST',
+    body: JSON.stringify(body ?? {}),
+    token,
+  });
+
+export const closeInvoice = (id: string, token?: string) =>
+  coreFetch<Invoice>(`/api/v1/finance/invoices/${id}/close`, {
+    method: 'POST',
+    token,
+  });
+
 export type InvoiceScanOverdueResult = {
   markedOverdue: number;
   invoiceNumbers: string[];
+  overdueNotified?: number;
+  unpaidReminders?: number;
+  suspensionRisks?: number;
 };
 
 export const scanOverdueInvoices = (token?: string) =>
@@ -1165,6 +1202,31 @@ export const scanOverdueInvoices = (token?: string) =>
     '/api/v1/finance/invoices/scan-overdue',
     { method: 'POST', token },
   );
+
+export type InvoiceAlertItem = {
+  kind: string;
+  invoiceId?: string;
+  invoiceNumber?: string | null;
+  customerId?: string | null;
+  customerName?: string | null;
+  serviceType?: string | null;
+  status?: string | null;
+  amount?: number | null;
+  dueDate?: string | null;
+  message: string;
+};
+
+export type InvoiceAlertsPack = {
+  overdue: InvoiceAlertItem[];
+  unpaid: InvoiceAlertItem[];
+  completedPayments: InvoiceAlertItem[];
+  payrollDueInvoices: InvoiceAlertItem[];
+  contractExpiry: InvoiceAlertItem[];
+  suspensionRisk: InvoiceAlertItem[];
+};
+
+export const listInvoiceAlerts = (token?: string) =>
+  coreFetch<InvoiceAlertsPack>('/api/v1/finance/invoices/alerts', { token });
 
 export const recordInvoicePayment = (
   id: string,
@@ -1552,24 +1614,88 @@ export type PayrollCycle = {
   tenantType: string;
   createdBy: string;
   paymentReference?: string | null;
+  billingInvoiceId?: string | null;
   createdAt: string;
+};
+
+export type PayrollDueAlert = {
+  id: string;
+  customerId: string;
+  customerName?: string;
+  customerCode?: string;
+  payrollCycleId: string;
+  cycleCode?: string;
+  invoiceId?: string | null;
+  invoiceNumber?: string | null;
+  payrollMonth: string;
+  invoiceAmountPaid: number;
+  employeesCovered: number;
+  payrollPortionDue: number;
+  currency: string;
+  dueDate: string;
+  invoicePaymentStatus: string;
+  payrollApprovalStatus: string;
+  payrollPaymentStatus: string;
+  responsibleOfficerId?: string | null;
+  responsibleOfficerName?: string | null;
+  status: string;
+  notifiedAt?: string | null;
+  createdAt: string;
+};
+
+export type PayrollInvoiceGate = {
+  eligible: boolean;
+  blockedReason?: string | null;
+  blockedCode?: string | null;
+  invoiceId?: string | null;
+  invoiceNumber?: string | null;
+  invoiceStatus?: string | null;
+  amountPaid?: number | null;
+  totalAmount?: number | null;
+  exceptionApproved?: boolean;
 };
 
 export type PayslipSnapshot = {
   id: string;
   cycleId: string;
-  employeeId: string;
+  employeeId?: string | null;
+  customerEmployeeId?: string | null;
   employeeNumber: string;
   employeeName: string;
   grossPay: number;
   totalDeductions: number;
   netPay: number;
   ruleVersionId: string;
+  inputsSnapshot?: unknown;
+  allowancesSnapshot?: unknown;
+  deductionsSnapshot?: unknown;
+  calculationResult?: {
+    lines?: Array<{
+      code: string;
+      label: string;
+      amount: number;
+      type: 'EARNING' | 'DEDUCTION';
+    }>;
+    grossPay?: number;
+    totalDeductions?: number;
+    netPay?: number;
+    meta?: Record<string, unknown>;
+  };
   createdAt: string;
 };
 
-export const listPayrollCycles = (token?: string) =>
-  coreFetch<PayrollCycle[]>('/api/v1/payroll/cycles', { token });
+export const listPayrollCycles = (
+  opts?: { customerId?: string; tenantType?: string; token?: string },
+) => {
+  const qs = new URLSearchParams();
+  if (opts?.customerId) qs.set('customerId', opts.customerId);
+  if (opts?.tenantType) qs.set('tenantType', opts.tenantType);
+  const q = qs.toString();
+  return coreFetch<PayrollCycle[]>(
+    `/api/v1/payroll/cycles${q ? `?${q}` : ''}`,
+    { token: opts?.token },
+  );
+};
 
 export const createPayrollCycle = (
   body: {
@@ -1621,14 +1747,188 @@ export const listPayslips = (cycleId: string, token?: string) =>
     { token },
   );
 
+export const getPayslip = (id: string, token?: string) =>
+  coreFetch<PayslipSnapshot>(`/api/v1/payroll/payslips/${id}`, { token });
+
+export type PayrollRegister = {
+  cycle: PayrollCycle;
+  headcount: number;
+  totals: { grossPay: number; totalDeductions: number; netPay: number };
+  rows: Array<{
+    employeeNumber: string;
+    employeeName: string;
+    grossPay: number;
+    totalDeductions: number;
+    netPay: number;
+    lines: PayslipSnapshot['calculationResult'] extends { lines?: infer L }
+      ? L
+      : never;
+  }>;
+};
+
+export const getPayrollRegister = (cycleId: string, token?: string) =>
+  coreFetch<PayrollRegister>(`/api/v1/payroll/cycles/${cycleId}/register`, {
+    token,
+  });
+
+export const getPayrollLoanReport = (cycleId: string, token?: string) =>
+  coreFetch<{
+    cycleId: string;
+    rowCount: number;
+    totalDeductions: number;
+    rows: Array<{
+      employeeNumber: string;
+      employeeName: string;
+      loanCode: string;
+      label: string;
+      amount: number;
+    }>;
+  }>(`/api/v1/payroll/cycles/${cycleId}/reports/loan-deductions`, { token });
+
+export const getPayrollStatutoryReport = (cycleId: string, token?: string) =>
+  coreFetch<{
+    cycleId: string;
+    headcount: number;
+    nssfTotal: number;
+    payeTotal: number;
+    rows: Array<{
+      employeeNumber: string;
+      employeeName: string;
+      grossPay: number;
+      nssf: number;
+      paye: number;
+    }>;
+    note?: string;
+  }>(`/api/v1/payroll/cycles/${cycleId}/reports/statutory`, { token });
+
+export const getPayrollApprovalReport = (cycleId: string, token?: string) =>
+  coreFetch<{
+    cycle: PayrollCycle;
+    approvalInstanceId?: string | null;
+    createdBy: string;
+    reviewedBy?: string | null;
+    approvedBy?: string | null;
+    paidAt?: string | null;
+    paymentReference?: string | null;
+    steps: Array<{
+      stepOrder: number;
+      decision: string;
+      actorId: string;
+      actedAt: string;
+      remarks?: string | null;
+    }>;
+  }>(`/api/v1/payroll/cycles/${cycleId}/reports/approval`, { token });
+
+export const exportPayrollBankFile = (cycleId: string, token?: string) =>
+  coreFetch<{
+    filename: string;
+    contentType: string;
+    csv: string;
+    rows: unknown[];
+  }>(`/api/v1/payroll/cycles/${cycleId}/export/bank-file`, { token });
+
+export const exportPayrollMobileFile = (cycleId: string, token?: string) =>
+  coreFetch<{
+    filename: string;
+    contentType: string;
+    csv: string;
+    rows: unknown[];
+  }>(`/api/v1/payroll/cycles/${cycleId}/export/mobile-money-file`, { token });
+
+function downloadCsv(filename: string, csv: string) {
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+export async function downloadPayrollBankFile(cycleId: string, token?: string) {
+  const res = await exportPayrollBankFile(cycleId, token);
+  downloadCsv(res.filename, res.csv);
+  return res;
+}
+
+export async function downloadPayrollMobileFile(
+  cycleId: string,
+  token?: string,
+) {
+  const res = await exportPayrollMobileFile(cycleId, token);
+  downloadCsv(res.filename, res.csv);
+  return res;
+}
+
+export const listPayrollDueAlerts = (
+  opts?: { customerId?: string; status?: string; token?: string },
+) => {
+  const qs = new URLSearchParams();
+  if (opts?.customerId) qs.set('customerId', opts.customerId);
+  if (opts?.status) qs.set('status', opts.status);
+  const q = qs.toString();
+  return coreFetch<PayrollDueAlert[]>(
+    `/api/v1/payroll/due-alerts${q ? `?${q}` : ''}`,
+    { token: opts?.token },
+  );
+};
+
+export const scanPayrollDueAlerts = (force?: boolean, token?: string) =>
+  coreFetch<{
+    scanned: number;
+    alertsCreated: number;
+    notificationsQueued: number;
+    skippedUnpaid: number;
+    skippedAlreadyPaid: number;
+  }>(`/api/v1/payroll/due-alerts/scan${force ? '?force=1' : ''}`, {
+    method: 'POST',
+    token,
+  });
+
+export const getPayrollInvoiceGate = (cycleId: string, token?: string) =>
+  coreFetch<PayrollInvoiceGate>(
+    `/api/v1/payroll/cycles/${cycleId}/invoice-gate`,
+    { token },
+  );
+
+export const grantPayrollPayException = (
+  cycleId: string,
+  body?: { reason?: string },
+  token?: string,
+) =>
+  coreFetch<PayrollInvoiceGate>(
+    `/api/v1/payroll/cycles/${cycleId}/pay-exception`,
+    {
+      method: 'POST',
+      body: JSON.stringify(body ?? {}),
+      token,
+    },
+  );
+
 // ── Procurement ──
 export type Supplier = {
   id: string;
+  organizationId?: string;
   code: string;
   name: string;
   email?: string | null;
   phone?: string | null;
+  tin?: string | null;
+  vrn?: string | null;
+  address?: string | null;
+  category?: string;
+  bankName?: string | null;
+  bankAccountName?: string | null;
+  bankAccountRef?: string | null;
+  mobileMoneyProvider?: string | null;
+  mobileMoneyRef?: string | null;
+  contactPerson?: string | null;
+  contactPhone?: string | null;
+  contactEmail?: string | null;
   status: string;
+  rejectedReason?: string | null;
+  createdBy?: string | null;
+  createdAt?: string;
 };
 
 export type PurchaseOrder = {
@@ -1639,13 +1939,38 @@ export type PurchaseOrder = {
   totalAmount: number;
   currency: string;
   createdAt: string;
+  supplierCode?: string | null;
+  supplierName?: string | null;
+  lines?: {
+    id: string;
+    description: string;
+    quantity: number;
+    unitPrice: number;
+    amount: number;
+    receivedQty: number;
+    stockItemId?: string | null;
+  }[];
 };
 
 export const listSuppliers = (token?: string) =>
   coreFetch<Supplier[]>('/api/v1/procurement/suppliers', { token });
 
 export const createSupplier = (
-  body: { code: string; name: string; email?: string; phone?: string },
+  body: {
+    code: string;
+    name: string;
+    email?: string;
+    phone?: string;
+    tin?: string;
+    vrn?: string;
+    address?: string;
+    category?: string;
+    contactPerson?: string;
+    contactPhone?: string;
+    contactEmail?: string;
+    bankName?: string;
+    bankAccountRef?: string;
+  },
   token?: string,
 ) =>
   coreFetch<Supplier>('/api/v1/procurement/suppliers', {
@@ -1659,6 +1984,81 @@ export const approveSupplier = (id: string, token?: string) =>
     method: 'POST',
     token,
   });
+
+export const rejectSupplier = (
+  id: string,
+  reason: string,
+  token?: string,
+) =>
+  coreFetch<Supplier>(`/api/v1/procurement/suppliers/${id}/reject`, {
+    method: 'POST',
+    body: JSON.stringify({ reason }),
+    token,
+  });
+
+export const suspendSupplier = (id: string, token?: string) =>
+  coreFetch<Supplier>(`/api/v1/procurement/suppliers/${id}/suspend`, {
+    method: 'POST',
+    token,
+  });
+
+export type SupplierSubmission = {
+  id: string;
+  supplierId: string;
+  supplierCode?: string | null;
+  supplierName?: string | null;
+  purchaseOrderId?: string | null;
+  poNumber?: string | null;
+  referenceNumber: string;
+  kind: string;
+  status: string;
+  title: string;
+  description?: string | null;
+  amount?: number | null;
+  currency: string;
+  paymentStatus: string;
+  rejectedReason?: string | null;
+  paidAt?: string | null;
+  createdBy: string;
+  createdAt: string;
+};
+
+export const listSupplierSubmissions = (
+  supplierId?: string,
+  token?: string,
+) => {
+  const q = supplierId ? `?supplierId=${encodeURIComponent(supplierId)}` : '';
+  return coreFetch<SupplierSubmission[]>(
+    `/api/v1/procurement/supplier-submissions${q}`,
+    { token },
+  );
+};
+
+export const approveSupplierSubmission = (id: string, token?: string) =>
+  coreFetch<SupplierSubmission>(
+    `/api/v1/procurement/supplier-submissions/${id}/approve`,
+    { method: 'POST', token },
+  );
+
+export const rejectSupplierSubmission = (
+  id: string,
+  reason: string,
+  token?: string,
+) =>
+  coreFetch<SupplierSubmission>(
+    `/api/v1/procurement/supplier-submissions/${id}/reject`,
+    {
+      method: 'POST',
+      body: JSON.stringify({ reason }),
+      token,
+    },
+  );
+
+export const markSupplierSubmissionPaid = (id: string, token?: string) =>
+  coreFetch<SupplierSubmission>(
+    `/api/v1/procurement/supplier-submissions/${id}/mark-paid`,
+    { method: 'POST', token },
+  );
 
 export const listPurchaseOrders = (token?: string) =>
   coreFetch<PurchaseOrder[]>('/api/v1/procurement/purchase-orders', { token });
@@ -1689,6 +2089,199 @@ export const approvePurchaseOrder = (id: string, token?: string) =>
     `/api/v1/procurement/purchase-orders/${id}/approve`,
     { method: 'POST', token },
   );
+
+export type PurchaseRequest = {
+  id: string;
+  requestNumber: string;
+  department: string;
+  purpose: string;
+  status: string;
+  currency: string;
+  awardedQuoteId?: string | null;
+  purchaseOrderId?: string | null;
+  poNumber?: string | null;
+  createdBy: string;
+  createdAt: string;
+  lines: {
+    id: string;
+    stockItemId?: string | null;
+    stockSku?: string | null;
+    description: string;
+    quantity: number;
+    unit: string;
+  }[];
+  quotes: {
+    id: string;
+    supplierId: string;
+    supplierCode?: string | null;
+    supplierName?: string | null;
+    status: string;
+    totalAmount: number;
+    currency: string;
+    createdBy: string;
+    createdAt: string;
+    lines: {
+      id: string;
+      purchaseRequestLineId: string;
+      unitPrice: number;
+      amount: number;
+    }[];
+  }[];
+};
+
+export const listPurchaseRequests = (token?: string) =>
+  coreFetch<PurchaseRequest[]>('/api/v1/procurement/purchase-requests', {
+    token,
+  });
+
+export const createPurchaseRequest = (
+  body: {
+    department: string;
+    purpose: string;
+    lines: {
+      description: string;
+      quantity: number;
+      unit?: string;
+      stockItemId?: string;
+    }[];
+  },
+  token?: string,
+) =>
+  coreFetch<PurchaseRequest>('/api/v1/procurement/purchase-requests', {
+    method: 'POST',
+    body: JSON.stringify(body),
+    token,
+  });
+
+export const submitPurchaseRequest = (id: string, token?: string) =>
+  coreFetch<PurchaseRequest>(
+    `/api/v1/procurement/purchase-requests/${id}/submit`,
+    { method: 'POST', token },
+  );
+
+export const approvePurchaseRequest = (id: string, token?: string) =>
+  coreFetch<PurchaseRequest>(
+    `/api/v1/procurement/purchase-requests/${id}/approve`,
+    { method: 'POST', token },
+  );
+
+export const rejectPurchaseRequest = (
+  id: string,
+  reason: string,
+  token?: string,
+) =>
+  coreFetch<PurchaseRequest>(
+    `/api/v1/procurement/purchase-requests/${id}/reject`,
+    { method: 'POST', body: JSON.stringify({ reason }), token },
+  );
+
+export const addPurchaseRequestQuote = (
+  id: string,
+  body: {
+    supplierId: string;
+    notes?: string;
+    lines: { purchaseRequestLineId: string; unitPrice: number }[];
+  },
+  token?: string,
+) =>
+  coreFetch<PurchaseRequest>(
+    `/api/v1/procurement/purchase-requests/${id}/quotes`,
+    { method: 'POST', body: JSON.stringify(body), token },
+  );
+
+export const awardPurchaseRequestQuote = (
+  id: string,
+  quoteId: string,
+  token?: string,
+) =>
+  coreFetch<PurchaseRequest>(
+    `/api/v1/procurement/purchase-requests/${id}/quotes/${quoteId}/award`,
+    { method: 'POST', token },
+  );
+
+export const convertPurchaseRequest = (id: string, token?: string) =>
+  coreFetch<{ request: PurchaseRequest; purchaseOrder: PurchaseOrder }>(
+    `/api/v1/procurement/purchase-requests/${id}/convert`,
+    { method: 'POST', token },
+  );
+
+export const listReceivingQueue = (token?: string) =>
+  coreFetch<PurchaseOrder[]>('/api/v1/procurement/receiving', { token });
+
+export const createGoodsReceipt = (
+  poId: string,
+  body: {
+    lines: { purchaseOrderLineId: string; quantityReceived: number }[];
+    notes?: string;
+  },
+  token?: string,
+) =>
+  coreFetch(`/api/v1/procurement/receiving/${poId}/goods-receipts`, {
+    method: 'POST',
+    body: JSON.stringify(body),
+    token,
+  });
+
+export type StockItem = {
+  id: string;
+  sku: string;
+  name: string;
+  category?: string | null;
+  unit: string;
+  reorderLevel?: number | null;
+  isActive: boolean;
+  onHand: number;
+  belowReorder: boolean;
+  createdAt: string;
+};
+
+export const listStockItems = (token?: string) =>
+  coreFetch<StockItem[]>('/api/v1/inventory/items', { token });
+
+export const listStockAlerts = (token?: string) =>
+  coreFetch<StockItem[]>('/api/v1/inventory/alerts', { token });
+
+export const createStockItem = (
+  body: {
+    sku: string;
+    name: string;
+    category?: string;
+    unit?: string;
+    reorderLevel?: number;
+  },
+  token?: string,
+) =>
+  coreFetch<StockItem>('/api/v1/inventory/items', {
+    method: 'POST',
+    body: JSON.stringify(body),
+    token,
+  });
+
+export const updateStockItem = (
+  id: string,
+  body: { reorderLevel?: number | null; category?: string; name?: string },
+  token?: string,
+) =>
+  coreFetch<StockItem>(`/api/v1/inventory/items/${id}`, {
+    method: 'PATCH',
+    body: JSON.stringify(body),
+    token,
+  });
+
+export const recordStockMovement = (
+  body: {
+    stockItemId: string;
+    movementType: 'IN' | 'OUT' | 'ADJUST';
+    quantity: number;
+    notes?: string;
+  },
+  token?: string,
+) =>
+  coreFetch('/api/v1/inventory/movements', {
+    method: 'POST',
+    body: JSON.stringify(body),
+    token,
+  });
 
 // ── Visitors / call centre ──
 /** Module 12-D — visitor ID document type */

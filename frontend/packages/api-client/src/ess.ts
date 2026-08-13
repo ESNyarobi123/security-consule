@@ -128,13 +128,47 @@ export type EssPayslip = {
 export type EssLoan = {
   id: string;
   loanNumber: string;
+  loanType?: string;
   principalAmount: number;
   interestRate: number;
   termMonths: number;
   monthlyInstallment: number;
   status: string;
-  purpose: string;
+  purpose?: string | null;
+  itemName?: string | null;
+  supplierName?: string | null;
+  itemCost?: number | null;
+  issuedAt?: string | null;
+  employeeAcknowledgedAt?: string | null;
+  settledAt?: string | null;
   createdAt: string;
+};
+
+export type EssLoanStatement = {
+  loan: {
+    id: string;
+    loanNumber: string;
+    loanType: string;
+    status: string;
+    principalAmount: number;
+    monthlyInstallment: number;
+    termMonths: number;
+    itemName?: string | null;
+    employeeAcknowledgedAt?: string | null;
+    settledAt?: string | null;
+  };
+  installments: Array<{
+    installmentNumber: number;
+    dueDate: string;
+    amountDue: number;
+    amountPaid: number;
+    status: string;
+    paidAt?: string | null;
+  }>;
+  totalDue: number;
+  totalPaid: number;
+  outstandingBalance: number;
+  isSettled: boolean;
 };
 
 export type EssEquipment = {
@@ -186,10 +220,12 @@ export const listEssLoans = (token?: string) =>
 
 export const applyEssLoan = (
   body: {
+    loanType: string;
     principalAmount: number;
     termMonths: number;
     interestRate?: number;
-    purpose: string;
+    purpose?: string;
+    itemName?: string;
   },
   token?: string,
 ) =>
@@ -198,6 +234,15 @@ export const applyEssLoan = (
     body: JSON.stringify(body),
     token,
   });
+
+export const getEssLoanStatement = (id: string, token?: string) =>
+  coreFetch<EssLoanStatement>(`/api/v1/ess/loans/${id}/statement`, { token });
+
+export const acknowledgeEssLoan = (id: string, token?: string) =>
+  coreFetch<{ employeeAcknowledgedAt: string }>(
+    `/api/v1/ess/loans/${id}/acknowledge`,
+    { method: 'POST', body: '{}', token },
+  );
 
 export const listEssEquipment = (token?: string) =>
   coreFetch<EssEquipment[]>('/api/v1/ess/equipment', { token });
@@ -212,6 +257,7 @@ export type EssPettyCashVoucher = {
   id: string;
   organizationId: string;
   fundId: string;
+  fundName?: string | null;
   voucherNumber: string;
   amount: number;
   purpose: string;
@@ -220,7 +266,13 @@ export type EssPettyCashVoucher = {
   receiptUrl?: string | null;
   approvalInstanceId?: string | null;
   approvedBy?: string | null;
+  issuedBy?: string | null;
+  issuedAt?: string | null;
   reimbursedAt?: string | null;
+  branchId?: string | null;
+  branchCode?: string | null;
+  branchName?: string | null;
+  department?: string | null;
   createdBy: string;
   createdAt: string;
 };
@@ -234,6 +286,8 @@ export const applyEssPettyCash = (
     purpose: string;
     category: string;
     receiptUrl?: string;
+    branchId?: string;
+    department?: string;
   },
   token?: string,
 ) =>

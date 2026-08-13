@@ -55,8 +55,23 @@ export type B2bPartnerProfile = {
   email?: string | null;
   phone?: string | null;
   status: string;
+  customerId?: string | null;
+  customerCode?: string | null;
+  customerName?: string | null;
   createdAt: string;
 };
+
+export type B2bCustomerOption = {
+  id: string;
+  code: string;
+  name: string;
+};
+
+export type GuardSupplyGenderPreference =
+  | 'ANY'
+  | 'MALE'
+  | 'FEMALE'
+  | 'UNSPECIFIED';
 
 export type GuardSupplyRequest = {
   id: string;
@@ -74,6 +89,25 @@ export type GuardSupplyRequest = {
   urgency?: string;
   serviceTerms?: string | null;
   criteriaNotes?: string | null;
+  experienceYearsMin?: number | null;
+  ageMin?: number | null;
+  ageMax?: number | null;
+  genderPreference?: GuardSupplyGenderPreference | string | null;
+  militaryTrainingRequired?: boolean;
+  firearmTrainingRequired?: boolean;
+  languages?: string | null;
+  heightMinCm?: number | null;
+  healthConditionNotes?: string | null;
+  unitRatePerGuard?: number | null;
+  serviceFeeAmount?: number | null;
+  currency?: string | null;
+  discountAmount?: number | null;
+  invoiceId?: string | null;
+  billedAt?: string | null;
+  invoiceNumber?: string | null;
+  invoiceStatus?: string | null;
+  amountPaid?: number | null;
+  balanceDue?: number | null;
   status: string;
   processedBy?: string | null;
   processedAt?: string | null;
@@ -92,6 +126,15 @@ export type CreateGuardSupplyRequestInput = {
   urgency?: 'STANDARD' | 'HIGH' | 'CRITICAL';
   serviceTerms?: string;
   criteriaNotes?: string;
+  experienceYearsMin?: number;
+  ageMin?: number;
+  ageMax?: number;
+  genderPreference?: GuardSupplyGenderPreference;
+  militaryTrainingRequired?: boolean;
+  firearmTrainingRequired?: boolean;
+  languages?: string;
+  heightMinCm?: number;
+  healthConditionNotes?: string;
 };
 
 async function partnerFetch<T>(
@@ -227,3 +270,54 @@ export const updateGuardSupplyRequestStatus = (
       token,
     },
   );
+
+export const listB2bCustomerOptions = (token?: string) =>
+  staffFetch<B2bCustomerOption[]>(
+    '/api/v1/recruitment/b2b/customer-options',
+    { token },
+  );
+
+export const updateB2bPartnerCustomer = (
+  partnerId: string,
+  customerId: string,
+  token?: string,
+) =>
+  staffFetch<B2bPartnerProfile>(
+    `/api/v1/recruitment/b2b/partners/${encodeURIComponent(partnerId)}/customer`,
+    {
+      method: 'PATCH',
+      body: JSON.stringify({ customerId }),
+      token,
+    },
+  );
+
+export const updateGuardSupplyRequestCharges = (
+  id: string,
+  body: {
+    unitRatePerGuard: number;
+    discountAmount?: number;
+    currency?: string;
+  },
+  token?: string,
+) =>
+  staffFetch<GuardSupplyRequest>(
+    `/api/v1/recruitment/b2b/requests/${encodeURIComponent(id)}/charges`,
+    {
+      method: 'PATCH',
+      body: JSON.stringify(body),
+      token,
+    },
+  );
+
+export const billGuardSupplyRequest = (
+  id: string,
+  opts?: { send?: boolean },
+  token?: string,
+) => {
+  const q =
+    opts?.send === true ? '?send=1' : '';
+  return staffFetch<GuardSupplyRequest>(
+    `/api/v1/recruitment/b2b/requests/${encodeURIComponent(id)}/bill${q}`,
+    { method: 'POST', token },
+  );
+};

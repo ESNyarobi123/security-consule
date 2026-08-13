@@ -22,6 +22,32 @@ import {
   RecruitmentPublicConfigDto,
 } from '../presentation/dto/recruitment.dto';
 
+/** Module 14-A — forward pipeline + terminal reject/withdraw (not HIRED via PATCH). */
+const STATUS_TRANSITIONS: Record<ApplicationStatus, ApplicationStatus[]> = {
+  SUBMITTED: [
+    ApplicationStatus.SCREENING,
+    ApplicationStatus.REJECTED,
+    ApplicationStatus.WITHDRAWN,
+  ],
+  SCREENING: [
+    ApplicationStatus.INTERVIEW,
+    ApplicationStatus.REJECTED,
+    ApplicationStatus.WITHDRAWN,
+  ],
+  INTERVIEW: [
+    ApplicationStatus.OFFERED,
+    ApplicationStatus.REJECTED,
+    ApplicationStatus.WITHDRAWN,
+  ],
+  OFFERED: [
+    ApplicationStatus.REJECTED,
+    ApplicationStatus.WITHDRAWN,
+  ],
+  HIRED: [],
+  REJECTED: [],
+  WITHDRAWN: [],
+};
+
 @Injectable()
 export class RecruitmentService {
   constructor(
@@ -247,12 +273,45 @@ export class RecruitmentService {
   ): Promise<JobApplicationResponseDto> {
     const app = await this.prisma.jobApplication.findFirst({
       where: { id, organizationId: user.organizationId },
+      include: { posting: { select: { title: true } } },
     });
     if (!app) throw new NotFoundException('Application not found');
 
+    if (status === ApplicationStatus.HIRED) {
+      throw new BadRequestException({
+        error: 'USE_HIRE_ENDPOINT',
+        message: 'Use POST /recruitment/applications/:id/hire to hire',
+      });
+    }
+
+    const allowed = STATUS_TRANSITIONS[app.status] ?? [];
+    if (!allowed.includes(status)) {
+      throw new BadRequestException({
+        error: 'INVALID_APPLICATION_STATUS_TRANSITION',
+        message: `Cannot move from ${app.status} to ${status}`,
+        allowedNextStatuses: allowed,
+      });
+    }
+
+    if (
+      (status === ApplicationStatus.REJECTED ||
+        status === ApplicationStatus.WITHDRAWN) &&
+      !notes?.trim()
+    ) {
+      throw new BadRequestException({
+        error: 'NOTES_REQUIRED',
+        message: 'notes are required when rejecting or withdrawing',
+      });
+    }
+
     const updated = await this.prisma.jobApplication.update({
       where: { id },
-      data: { status, notes, screenedBy: user.id },
+      data: {
+        status,
+        notes: notes !== undefined ? notes : app.notes,
+        screenedBy: user.id,
+      },
+      include: { posting: { select: { title: true } } },
     });
 
     await this.audit.record({
@@ -264,7 +323,7 @@ export class RecruitmentService {
       after: updated,
     });
 
-    return this.toApplicationDto(updated);
+    return this.toApplicationDto(updated, updated.posting.title);
   }
 
   async hireApplicant(
@@ -274,10 +333,20 @@ export class RecruitmentService {
   ): Promise<JobApplicationResponseDto> {
     const app = await this.prisma.jobApplication.findFirst({
       where: { id, organizationId: user.organizationId },
+      include: { posting: { select: { title: true } } },
     });
     if (!app) throw new NotFoundException('Application not found');
     if (app.status === ApplicationStatus.HIRED) {
-      throw new BadRequestException('Already hired');
+      throw new BadRequestException({
+        error: 'ALREADY_HIRED',
+        message: 'Application is already hired',
+      });
+    }
+    if (app.status !== ApplicationStatus.OFFERED) {
+      throw new BadRequestException({
+        error: 'NOT_OFFERED',
+        message: 'Only OFFERED applications can be hired',
+      });
     }
 
     const employee = await this.employees.create(
@@ -300,6 +369,7 @@ export class RecruitmentService {
         employeeId: employee.id,
         screenedBy: user.id,
       },
+      include: { posting: { select: { title: true } } },
     });
 
     await this.audit.record({
@@ -311,22 +381,25 @@ export class RecruitmentService {
       after: { application: updated, employeeId: employee.id },
     });
 
-    return this.toApplicationDto(updated);
+    return this.toApplicationDto(updated, updated.posting.title);
   }
 
   async listApplications(
     organizationId: string,
     postingId?: string,
+    status?: ApplicationStatus,
   ): Promise<JobApplicationResponseDto[]> {
     const rows = await this.prisma.jobApplication.findMany({
       where: {
         organizationId,
         ...(postingId ? { postingId } : {}),
+        ...(status ? { status } : {}),
       },
+      include: { posting: { select: { title: true } } },
       orderBy: { createdAt: 'desc' },
-      take: 100,
+      take: 200,
     });
-    return rows.map((a) => this.toApplicationDto(a));
+    return rows.map((a) => this.toApplicationDto(a, a.posting.title));
   }
 
   private async nextReferenceNumber(organizationId: string): Promise<string> {
@@ -398,21 +471,24 @@ export class RecruitmentService {
     };
   }
 
-  private toApplicationDto(a: {
-    id: string;
-    organizationId: string;
-    postingId: string;
-    referenceNumber: string;
-    applicantName: string;
-    email: string;
-    phone: string | null;
-    resumeUrl: string | null;
-    coverLetter: string | null;
-    status: ApplicationStatus;
-    notes: string | null;
-    employeeId: string | null;
-    createdAt: Date;
-  }): JobApplicationResponseDto {
+  private toApplicationDto(
+    a: {
+      id: string;
+      organizationId: string;
+      postingId: string;
+      referenceNumber: string;
+      applicantName: string;
+      email: string;
+      phone: string | null;
+      resumeUrl: string | null;
+      coverLetter: string | null;
+      status: ApplicationStatus;
+      notes: string | null;
+      employeeId: string | null;
+      createdAt: Date;
+    },
+    postingTitle?: string | null,
+  ): JobApplicationResponseDto {
     return {
       id: a.id,
       organizationId: a.organizationId,
@@ -427,6 +503,9 @@ export class RecruitmentService {
       notes: a.notes,
       employeeId: a.employeeId,
       createdAt: a.createdAt,
+      postingTitle: postingTitle ?? null,
+      allowedNextStatuses: STATUS_TRANSITIONS[a.status] ?? [],
+      canHire: a.status === ApplicationStatus.OFFERED,
     };
   }
 }

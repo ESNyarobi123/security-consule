@@ -174,13 +174,20 @@ export function StatusPill({ status }: { status: string }) {
   ) {
     className = 'bg-rose-50 text-rose-800 ring-rose-200/80';
     dot = 'bg-rose-500';
+  } else if (s === 'UNPAID') {
+    className = 'bg-amber-50 text-amber-900 ring-amber-200/80';
+    dot = 'bg-amber-500';
+  } else if (s === 'PAID') {
+    className = 'bg-emerald-50 text-emerald-800 ring-emerald-200/80';
+    dot = 'bg-emerald-500';
   } else if (
     s.includes('PENDING') ||
     s.includes('DRAFT') ||
     s.includes('ISSUED') ||
     s.includes('SENT') ||
     s.includes('PARTIAL') ||
-    s.includes('OPEN')
+    s.includes('OPEN') ||
+    s.includes('SUBMITTED')
   ) {
     className = 'bg-amber-50 text-amber-900 ring-amber-200/80';
     dot = 'bg-amber-500';

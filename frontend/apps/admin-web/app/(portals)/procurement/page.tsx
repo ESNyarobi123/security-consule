@@ -1,16 +1,37 @@
 'use client';
 
 import {
+  addPurchaseRequestQuote,
   approvePurchaseOrder,
+  approvePurchaseRequest,
   approveSupplier,
+  approveSupplierSubmission,
+  awardPurchaseRequestQuote,
+  convertPurchaseRequest,
   createPurchaseOrder,
+  createPurchaseRequest,
   createSupplier,
+  getDocumentDownloadUrl,
+  listDocuments,
   listPurchaseOrders,
+  listPurchaseRequests,
+  listSupplierSubmissions,
   listSuppliers,
+  markSupplierSubmissionPaid,
+  rejectPurchaseRequest,
+  rejectSupplier,
+  rejectSupplierSubmission,
   submitPurchaseOrder,
+  submitPurchaseRequest,
+  suspendSupplier,
+  uploadDocument,
+  type DocumentObject,
   type PurchaseOrder,
+  type PurchaseRequest,
   type Supplier,
+  type SupplierSubmission,
 } from '@pssms/api-client';
+import { getSessionUser } from '@pssms/auth';
 import {
   btnPrimary,
   btnSecondary,
@@ -29,20 +50,23 @@ import {
   Truck,
   Wallet,
 } from 'lucide-react';
+import Link from 'next/link';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ProcurementEmpty,
   PurchaseOrderRoster,
+  SubmissionRoster,
   SupplierRoster,
 } from './_components/ProcurementRosters';
 
-type SupplierFilter = 'all' | 'pending' | 'approved';
+type SupplierFilter = 'all' | 'pending' | 'approved' | 'rejected';
 type PoFilter = 'all' | 'draft' | 'pending' | 'approved';
 
 const SUPPLIER_FILTERS: { id: SupplierFilter; label: string }[] = [
   { id: 'all', label: 'All' },
   { id: 'pending', label: 'Pending' },
   { id: 'approved', label: 'Approved' },
+  { id: 'rejected', label: 'Rejected' },
 ];
 
 const PO_FILTERS: { id: PoFilter; label: string }[] = [
@@ -63,11 +87,31 @@ const money = (n: number, currency = 'TZS') =>
     maximumFractionDigits: 0,
   }).format(Number.isFinite(n) ? n : 0);
 
-type SupplierForm = { code: string; name: string; email: string; phone: string };
+type SupplierForm = {
+  code: string;
+  name: string;
+  email: string;
+  phone: string;
+  tin: string;
+  vrn: string;
+  category: string;
+  address: string;
+  contactPerson: string;
+};
 type LineDraft = { description: string; quantity: string; unitPrice: string };
 type PoForm = { supplierId: string; poNumber: string; lines: LineDraft[] };
 
-const emptySupplier: SupplierForm = { code: '', name: '', email: '', phone: '' };
+const emptySupplier: SupplierForm = {
+  code: '',
+  name: '',
+  email: '',
+  phone: '',
+  tin: '',
+  vrn: '',
+  category: 'GOODS',
+  address: '',
+  contactPerson: '',
+};
 const emptyLine: LineDraft = { description: '', quantity: '1', unitPrice: '0' };
 const emptyPo = (supplierId: string): PoForm => ({
   supplierId,
@@ -76,8 +120,12 @@ const emptyPo = (supplierId: string): PoForm => ({
 });
 
 export default function ProcurementPage() {
+  const sessionUser = useMemo(() => getSessionUser(), []);
+  const isSuperAdmin = sessionUser?.roles?.includes('SUPER_ADMIN') ?? false;
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
   const [pos, setPos] = useState<PurchaseOrder[]>([]);
+  const [submissions, setSubmissions] = useState<SupplierSubmission[]>([]);
+  const [requests, setRequests] = useState<PurchaseRequest[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -93,17 +141,40 @@ export default function ProcurementPage() {
     useState<SupplierFilter>('all');
   const [poQuery, setPoQuery] = useState('');
   const [poFilter, setPoFilter] = useState<PoFilter>('all');
+  const [rejectTarget, setRejectTarget] = useState<Supplier | null>(null);
+  const [rejectReason, setRejectReason] = useState('');
+  const [subRejectTarget, setSubRejectTarget] =
+    useState<SupplierSubmission | null>(null);
+  const [docsTarget, setDocsTarget] = useState<Supplier | null>(null);
+  const [docs, setDocs] = useState<DocumentObject[]>([]);
+  const [docsLoading, setDocsLoading] = useState(false);
+  const [prOpen, setPrOpen] = useState(false);
+  const [prForm, setPrForm] = useState({
+    department: 'Operations',
+    purpose: '',
+    description: '',
+    quantity: '1',
+  });
+  const [comparePr, setComparePr] = useState<PurchaseRequest | null>(null);
+  const [quoteSupplierId, setQuoteSupplierId] = useState('');
+  const [quotePrices, setQuotePrices] = useState<Record<string, string>>({});
+  const [prReject, setPrReject] = useState<PurchaseRequest | null>(null);
+  const [prRejectReason, setPrRejectReason] = useState('');
 
   const load = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
-      const [s, p] = await Promise.all([
+      const [s, p, sub, prs] = await Promise.all([
         listSuppliers(),
         listPurchaseOrders(),
+        listSupplierSubmissions(),
+        listPurchaseRequests(),
       ]);
       setSuppliers(s);
       setPos(p);
+      setSubmissions(sub);
+      setRequests(prs);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Load failed');
     } finally {
@@ -133,10 +204,11 @@ export default function ProcurementPage() {
   }, [suppliers, pos]);
 
   const supplierCounts = useMemo(() => {
-    const c = { all: suppliers.length, pending: 0, approved: 0 };
+    const c = { all: suppliers.length, pending: 0, approved: 0, rejected: 0 };
     for (const s of suppliers) {
       const st = norm(s.status);
       if (st === 'approved' || st === 'active') c.approved += 1;
+      else if (st === 'rejected') c.rejected += 1;
       else c.pending += 1;
     }
     return c;
@@ -159,13 +231,25 @@ export default function ProcurementPage() {
     return map;
   }, [suppliers]);
 
+  const approvedSuppliers = useMemo(
+    () =>
+      suppliers.filter((s) => {
+        const st = norm(s.status);
+        return st === 'approved' || st === 'active';
+      }),
+    [suppliers],
+  );
+
   const filteredSuppliers = useMemo(() => {
     const q = supplierQuery.trim().toLowerCase();
     return suppliers.filter((s) => {
       const st = norm(s.status);
       const isApproved = st === 'approved' || st === 'active';
+      const isRejected = st === 'rejected';
       if (supplierFilter === 'approved' && !isApproved) return false;
-      if (supplierFilter === 'pending' && isApproved) return false;
+      if (supplierFilter === 'pending' && (isApproved || isRejected))
+        return false;
+      if (supplierFilter === 'rejected' && !isRejected) return false;
       if (!q) return true;
       return (
         s.name.toLowerCase().includes(q) ||
@@ -233,6 +317,11 @@ export default function ProcurementPage() {
         name: supplierForm.name.trim(),
         email: supplierForm.email.trim() || undefined,
         phone: supplierForm.phone.trim() || undefined,
+        tin: supplierForm.tin.trim() || undefined,
+        vrn: supplierForm.vrn.trim() || undefined,
+        address: supplierForm.address.trim() || undefined,
+        category: supplierForm.category,
+        contactPerson: supplierForm.contactPerson.trim() || undefined,
       });
       setSupplierOpen(false);
       await load();
@@ -317,6 +406,119 @@ export default function ProcurementPage() {
     }
   }
 
+  async function runSupplierReject() {
+    if (!rejectTarget || rejectReason.trim().length < 3) {
+      setError('Rejection reason must be at least 3 characters');
+      return;
+    }
+    setBusyId(rejectTarget.id);
+    setError(null);
+    try {
+      await rejectSupplier(rejectTarget.id, rejectReason.trim());
+      setRejectTarget(null);
+      setRejectReason('');
+      await load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Reject failed');
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  async function runSupplierSuspend(s: Supplier) {
+    setBusyId(s.id);
+    setError(null);
+    try {
+      await suspendSupplier(s.id);
+      await load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Suspend failed');
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  async function openDocs(s: Supplier) {
+    setDocsTarget(s);
+    setDocsLoading(true);
+    try {
+      setDocs(
+        await listDocuments({ resourceType: 'Supplier', resourceId: s.id }),
+      );
+    } catch {
+      setDocs([]);
+    } finally {
+      setDocsLoading(false);
+    }
+  }
+
+  async function uploadSupplierDoc(file: File) {
+    if (!docsTarget) return;
+    setBusyId(docsTarget.id);
+    try {
+      await uploadDocument({
+        file,
+        resourceType: 'Supplier',
+        resourceId: docsTarget.id,
+      });
+      setDocs(
+        await listDocuments({
+          resourceType: 'Supplier',
+          resourceId: docsTarget.id,
+        }),
+      );
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Upload failed');
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  async function runSubmissionApprove(row: SupplierSubmission) {
+    setBusyId(row.id);
+    setError(null);
+    try {
+      await approveSupplierSubmission(row.id);
+      await load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Approve failed');
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  async function runSubmissionReject() {
+    if (!subRejectTarget || rejectReason.trim().length < 3) {
+      setError('Rejection reason must be at least 3 characters');
+      return;
+    }
+    setBusyId(subRejectTarget.id);
+    setError(null);
+    try {
+      await rejectSupplierSubmission(subRejectTarget.id, rejectReason.trim());
+      setSubRejectTarget(null);
+      setRejectReason('');
+      await load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Reject failed');
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  async function runMarkPaid(row: SupplierSubmission) {
+    setBusyId(row.id);
+    setError(null);
+    try {
+      await markSupplierSubmissionPaid(row.id);
+      await load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Mark paid failed');
+    } finally {
+      setBusyId(null);
+    }
+  }
+
   async function runPoSubmit(po: PurchaseOrder) {
     setBusyId(po.id);
     setError(null);
@@ -343,13 +545,162 @@ export default function ProcurementPage() {
     }
   }
 
+  function canActPr(row: PurchaseRequest) {
+    return isSuperAdmin || row.createdBy !== sessionUser?.id;
+  }
+
+  async function runCreatePr() {
+    const qty = Number(prForm.quantity);
+    if (!prForm.purpose.trim() || !prForm.description.trim() || qty <= 0) {
+      setError('Purpose, description and quantity are required.');
+      return;
+    }
+    setSavingPo(true);
+    setError(null);
+    try {
+      await createPurchaseRequest({
+        department: prForm.department.trim() || 'Operations',
+        purpose: prForm.purpose.trim(),
+        lines: [
+          { description: prForm.description.trim(), quantity: qty },
+        ],
+      });
+      setPrOpen(false);
+      setPrForm({
+        department: 'Operations',
+        purpose: '',
+        description: '',
+        quantity: '1',
+      });
+      await load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not create PR');
+    } finally {
+      setSavingPo(false);
+    }
+  }
+
+  async function runPrSubmit(row: PurchaseRequest) {
+    setBusyId(row.id);
+    setError(null);
+    try {
+      await submitPurchaseRequest(row.id);
+      await load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Submit failed');
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  async function runPrApprove(row: PurchaseRequest) {
+    setBusyId(row.id);
+    setError(null);
+    try {
+      await approvePurchaseRequest(row.id);
+      await load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Approve failed');
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  async function runPrReject() {
+    if (!prReject) return;
+    setBusyId(prReject.id);
+    setError(null);
+    try {
+      const reason = prRejectReason.trim();
+      if (reason.length < 3) {
+        setError('Reject reason must be at least 3 characters.');
+        setBusyId(null);
+        return;
+      }
+      await rejectPurchaseRequest(prReject.id, reason);
+      setPrReject(null);
+      setPrRejectReason('');
+      await load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Reject failed');
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  function openCompare(row: PurchaseRequest) {
+    const prices: Record<string, string> = {};
+    for (const line of row.lines ?? []) prices[line.id] = '';
+    setQuotePrices(prices);
+    setQuoteSupplierId(approvedSuppliers[0]?.id ?? '');
+    setComparePr(row);
+  }
+
+  async function runAddQuote() {
+    if (!comparePr || !quoteSupplierId) return;
+    const lines = (comparePr.lines ?? []).map((line) => ({
+      purchaseRequestLineId: line.id,
+      unitPrice: Number(quotePrices[line.id] ?? 0),
+    }));
+    if (lines.some((l) => !Number.isFinite(l.unitPrice) || l.unitPrice < 0)) {
+      setError('Enter a unit price for every line.');
+      return;
+    }
+    setBusyId(comparePr.id);
+    setError(null);
+    try {
+      const updated = await addPurchaseRequestQuote(comparePr.id, {
+        supplierId: quoteSupplierId,
+        lines,
+      });
+      setComparePr(updated);
+      await load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Quote failed');
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  async function runAward(quoteId: string) {
+    if (!comparePr) return;
+    setBusyId(quoteId);
+    setError(null);
+    try {
+      const updated = await awardPurchaseRequestQuote(comparePr.id, quoteId);
+      setComparePr(updated);
+      await load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Award failed');
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  async function runConvert(row: PurchaseRequest) {
+    setBusyId(row.id);
+    setError(null);
+    try {
+      await convertPurchaseRequest(row.id);
+      setComparePr(null);
+      await load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Convert failed');
+    } finally {
+      setBusyId(null);
+    }
+  }
+
   return (
     <div className="space-y-6">
       <PageHeader
         title="Procurement"
-        description="Manage suppliers and purchase orders — onboard vendors, raise POs, submit and approve."
+        description="Purchase requests, supplier comparison, POs, GRNs, and inventory — Portal 35.18."
         actions={
           <>
+            <Link href="/procurement/inventory" className={btnSecondary}>
+              Inventory & GRN
+            </Link>
             <button
               type="button"
               onClick={() => void load()}
@@ -360,6 +711,14 @@ export default function ProcurementPage() {
                 className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`}
               />
               Refresh
+            </button>
+            <button
+              type="button"
+              onClick={() => setPrOpen(true)}
+              className={btnSecondary}
+            >
+              <Plus className="h-4 w-4" />
+              New PR
             </button>
             <button
               type="button"
@@ -422,6 +781,139 @@ export default function ProcurementPage() {
         <div className="mb-2.5 flex flex-wrap items-end justify-between gap-2">
           <div>
             <div className="flex items-center gap-2">
+              <ClipboardList className="h-4 w-4 text-[#0078d4]" />
+              <h2 className="text-[15px] font-semibold text-[#1b1a19]">
+                Purchase requests
+              </h2>
+              <span className="inline-flex min-w-[1.5rem] items-center justify-center rounded-full bg-[#eff6fc] px-2 py-0.5 text-[11px] font-semibold tabular-nums text-[#0067b8] ring-1 ring-[#c7e0f4]">
+                {requests.length}
+              </span>
+            </div>
+            <p className="mt-0.5 text-[11px] text-[#605e5c]">
+              Request → approve → compare quotes (≥2) → award → convert to PO
+            </p>
+          </div>
+        </div>
+        {loading && requests.length === 0 ? (
+          <p className="text-sm text-[#605e5c]">Loading…</p>
+        ) : requests.length === 0 ? (
+          <ProcurementEmpty
+            title="No purchase requests"
+            description="Raise a PR, submit for GM approval, then compare supplier quotes."
+            icon="po"
+          />
+        ) : (
+          <div className="overflow-x-auto rounded-lg border border-[#e1dfdd] bg-white">
+            <table className="min-w-full text-left text-[13px]">
+              <thead className="bg-[#faf9f8] text-[11px] uppercase tracking-wide text-[#605e5c]">
+                <tr>
+                  <th className="px-3 py-2 font-semibold">Number</th>
+                  <th className="px-3 py-2 font-semibold">Purpose</th>
+                  <th className="px-3 py-2 font-semibold">Status</th>
+                  <th className="px-3 py-2 font-semibold">Quotes</th>
+                  <th className="px-3 py-2 font-semibold">PO</th>
+                  <th className="px-3 py-2 font-semibold">Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {requests.map((row) => {
+                  const st = norm(row.status);
+                  const busy = busyId === row.id;
+                  return (
+                    <tr key={row.id} className="border-t border-[#edebe9]">
+                      <td className="px-3 py-2 font-medium">
+                        {row.requestNumber}
+                      </td>
+                      <td className="px-3 py-2">
+                        <div>{row.purpose}</div>
+                        <div className="text-[11px] text-[#8a8886]">
+                          {row.department}
+                          {(row.lines ?? []).length
+                            ? ` · ${(row.lines ?? [])
+                                .map((l) => `${l.description} ×${l.quantity}`)
+                                .join(', ')}`
+                            : ''}
+                        </div>
+                      </td>
+                      <td className="px-3 py-2">
+                        {row.status.replaceAll('_', ' ')}
+                      </td>
+                      <td className="px-3 py-2 tabular-nums">
+                        {(row.quotes ?? []).length}
+                      </td>
+                      <td className="px-3 py-2">{row.poNumber ?? '—'}</td>
+                      <td className="px-3 py-2">
+                        <div className="flex flex-wrap gap-1">
+                          {st === 'draft' ? (
+                            <button
+                              type="button"
+                              className={btnSecondary}
+                              disabled={busy}
+                              onClick={() => void runPrSubmit(row)}
+                            >
+                              Submit
+                            </button>
+                          ) : null}
+                          {st === 'pending_approval' && canActPr(row) ? (
+                            <>
+                              <button
+                                type="button"
+                                className={btnPrimary}
+                                disabled={busy}
+                                onClick={() => void runPrApprove(row)}
+                              >
+                                Approve
+                              </button>
+                              <button
+                                type="button"
+                                className={btnSecondary}
+                                disabled={busy}
+                                onClick={() => {
+                                  setPrRejectReason('');
+                                  setPrReject(row);
+                                }}
+                              >
+                                Reject
+                              </button>
+                            </>
+                          ) : null}
+                          {st === 'draft' ||
+                          st === 'pending_approval' ||
+                          st === 'approved' ||
+                          st === 'converted' ? (
+                            <button
+                              type="button"
+                              className={btnSecondary}
+                              onClick={() => openCompare(row)}
+                            >
+                              Compare
+                            </button>
+                          ) : null}
+                          {st === 'approved' && row.awardedQuoteId ? (
+                            <button
+                              type="button"
+                              className={btnPrimary}
+                              disabled={busy}
+                              onClick={() => void runConvert(row)}
+                            >
+                              Convert to PO
+                            </button>
+                          ) : null}
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </section>
+
+      <section>
+        <div className="mb-2.5 flex flex-wrap items-end justify-between gap-2">
+          <div>
+            <div className="flex items-center gap-2">
               <Truck className="h-4 w-4 text-[#0078d4]" />
               <h2 className="text-[15px] font-semibold text-[#1b1a19]">
                 Suppliers
@@ -440,7 +932,15 @@ export default function ProcurementPage() {
           rows={filteredSuppliers}
           loading={loading}
           busyId={busyId}
+          sessionUserId={sessionUser?.id}
+          isSuperAdmin={isSuperAdmin}
           onApprove={(s) => void runSupplierApprove(s)}
+          onReject={(s) => {
+            setRejectReason('');
+            setRejectTarget(s);
+          }}
+          onSuspend={(s) => void runSupplierSuspend(s)}
+          onDocs={(s) => void openDocs(s)}
           toolbar={
             <div className="flex flex-col gap-2.5 sm:flex-row sm:items-center sm:justify-between">
               <label className="flex min-w-0 flex-1 items-center gap-2 rounded-lg border border-[#e1dfdd] bg-white px-3 py-2 shadow-sm focus-within:border-[#0078d4] focus-within:ring-1 focus-within:ring-[#0078d4]">
@@ -491,6 +991,45 @@ export default function ProcurementPage() {
                   : 'Try another search or status filter.'
               }
               icon="truck"
+            />
+          }
+        />
+      </section>
+
+      <section>
+        <div className="mb-2.5 flex flex-wrap items-end justify-between gap-2">
+          <div>
+            <div className="flex items-center gap-2">
+              <ClipboardList className="h-4 w-4 text-[#0078d4]" />
+              <h2 className="text-[15px] font-semibold text-[#1b1a19]">
+                Quotes, invoices &amp; payment requests
+              </h2>
+              <span className="inline-flex min-w-[1.5rem] items-center justify-center rounded-full bg-[#eff6fc] px-2 py-0.5 text-[11px] font-semibold tabular-nums text-[#0067b8] ring-1 ring-[#c7e0f4]">
+                {submissions.length}
+              </span>
+            </div>
+            <p className="mt-0.5 text-[11px] text-[#605e5c]">
+              Approve or reject supplier documents · mark invoices paid
+            </p>
+          </div>
+        </div>
+        <SubmissionRoster
+          rows={submissions}
+          loading={loading}
+          busyId={busyId}
+          sessionUserId={sessionUser?.id}
+          isSuperAdmin={isSuperAdmin}
+          onApprove={(row) => void runSubmissionApprove(row)}
+          onReject={(row) => {
+            setRejectReason('');
+            setSubRejectTarget(row);
+          }}
+          onMarkPaid={(row) => void runMarkPaid(row)}
+          empty={
+            <ProcurementEmpty
+              title="No supplier submissions"
+              description="Quotes, invoices, delivery notes and payment requests from the supplier portal appear here."
+              icon="po"
             />
           }
         />
@@ -625,6 +1164,63 @@ export default function ProcurementPage() {
                   placeholder="+255 700 000 000"
                   onChange={(e) =>
                     setSupplierForm((f) => ({ ...f, phone: e.target.value }))
+                  }
+                />
+              </label>
+              <label className="block text-sm">
+                <span className="font-medium text-[#323130]">TIN</span>
+                <input
+                  className={inputCls}
+                  value={supplierForm.tin}
+                  onChange={(e) =>
+                    setSupplierForm((f) => ({ ...f, tin: e.target.value }))
+                  }
+                />
+              </label>
+              <label className="block text-sm">
+                <span className="font-medium text-[#323130]">VRN</span>
+                <input
+                  className={inputCls}
+                  value={supplierForm.vrn}
+                  onChange={(e) =>
+                    setSupplierForm((f) => ({ ...f, vrn: e.target.value }))
+                  }
+                />
+              </label>
+              <label className="block text-sm">
+                <span className="font-medium text-[#323130]">Category</span>
+                <select
+                  className={inputCls}
+                  value={supplierForm.category}
+                  onChange={(e) =>
+                    setSupplierForm((f) => ({ ...f, category: e.target.value }))
+                  }
+                >
+                  <option value="GOODS">Goods</option>
+                  <option value="SERVICES">Services</option>
+                  <option value="BOTH">Goods and services</option>
+                </select>
+              </label>
+              <label className="block text-sm">
+                <span className="font-medium text-[#323130]">Contact person</span>
+                <input
+                  className={inputCls}
+                  value={supplierForm.contactPerson}
+                  onChange={(e) =>
+                    setSupplierForm((f) => ({
+                      ...f,
+                      contactPerson: e.target.value,
+                    }))
+                  }
+                />
+              </label>
+              <label className="block text-sm sm:col-span-2">
+                <span className="font-medium text-[#323130]">Address</span>
+                <input
+                  className={inputCls}
+                  value={supplierForm.address}
+                  onChange={(e) =>
+                    setSupplierForm((f) => ({ ...f, address: e.target.value }))
                   }
                 />
               </label>
@@ -773,6 +1369,349 @@ export default function ProcurementPage() {
                 onClick={() => void submitPo()}
               >
                 {savingPo ? 'Creating…' : 'Create purchase order'}
+              </button>
+            </div>
+          </div>
+        </Modal>
+      ) : null}
+
+      {rejectTarget ? (
+        <Modal
+          title="Reject supplier"
+          description={`${rejectTarget.name} (${rejectTarget.code})`}
+          onClose={() => setRejectTarget(null)}
+        >
+          <label className="block text-sm">
+            <span className="font-medium text-[#323130]">Reason</span>
+            <textarea
+              className={inputCls}
+              rows={3}
+              value={rejectReason}
+              onChange={(e) => setRejectReason(e.target.value)}
+            />
+          </label>
+          <div className="mt-4 flex justify-end gap-2">
+            <button
+              type="button"
+              className={btnSecondary}
+              onClick={() => setRejectTarget(null)}
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              className={btnPrimary}
+              disabled={busyId === rejectTarget.id}
+              onClick={() => void runSupplierReject()}
+            >
+              Reject
+            </button>
+          </div>
+        </Modal>
+      ) : null}
+
+      {subRejectTarget ? (
+        <Modal
+          title="Reject submission"
+          description={subRejectTarget.referenceNumber}
+          onClose={() => setSubRejectTarget(null)}
+        >
+          <label className="block text-sm">
+            <span className="font-medium text-[#323130]">Reason</span>
+            <textarea
+              className={inputCls}
+              rows={3}
+              value={rejectReason}
+              onChange={(e) => setRejectReason(e.target.value)}
+            />
+          </label>
+          <div className="mt-4 flex justify-end gap-2">
+            <button
+              type="button"
+              className={btnSecondary}
+              onClick={() => setSubRejectTarget(null)}
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              className={btnPrimary}
+              disabled={busyId === subRejectTarget.id}
+              onClick={() => void runSubmissionReject()}
+            >
+              Reject
+            </button>
+          </div>
+        </Modal>
+      ) : null}
+
+      {docsTarget ? (
+        <Modal
+          title="Supplier documents"
+          description={`${docsTarget.name} — licence, TIN, VRN`}
+          onClose={() => setDocsTarget(null)}
+        >
+          {docsLoading ? (
+            <p className="text-sm text-[#605e5c]">Loading…</p>
+          ) : docs.length === 0 ? (
+            <p className="text-sm text-[#605e5c]">No files yet.</p>
+          ) : (
+            <ul className="space-y-1 text-sm">
+              {docs.map((d) => (
+                <li key={d.id}>
+                  <button
+                    type="button"
+                    className="text-[#0078d4] hover:underline"
+                    onClick={() =>
+                      void getDocumentDownloadUrl(d.id).then(({ url }) =>
+                        window.open(url, '_blank', 'noopener,noreferrer'),
+                      )
+                    }
+                  >
+                    {d.fileName}
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+          <label className="mt-4 block text-sm font-medium">
+            Upload
+            <input
+              type="file"
+              accept=".pdf,.png,.jpg,.jpeg,.webp"
+              className="mt-1 block w-full text-xs"
+              onChange={(e) => {
+                const file = e.target.files?.[0];
+                e.target.value = '';
+                if (file) void uploadSupplierDoc(file);
+              }}
+            />
+          </label>
+          <div className="mt-4 flex justify-end">
+            <button
+              type="button"
+              className={btnSecondary}
+              onClick={() => setDocsTarget(null)}
+            >
+              Close
+            </button>
+          </div>
+        </Modal>
+      ) : null}
+
+      {prOpen ? (
+        <Modal
+          title="New purchase request"
+          description="Department request for goods. Submit for GM approval, then compare quotes."
+          onClose={() => setPrOpen(false)}
+        >
+          <div className="space-y-3">
+            <label className="block text-sm">
+              <span className="font-medium text-[#323130]">Department</span>
+              <input
+                className={inputCls}
+                value={prForm.department}
+                onChange={(e) =>
+                  setPrForm((f) => ({ ...f, department: e.target.value }))
+                }
+              />
+            </label>
+            <label className="block text-sm">
+              <span className="font-medium text-[#323130]">Purpose</span>
+              <input
+                className={inputCls}
+                value={prForm.purpose}
+                onChange={(e) =>
+                  setPrForm((f) => ({ ...f, purpose: e.target.value }))
+                }
+                placeholder="Uniform replenishment"
+              />
+            </label>
+            <label className="block text-sm">
+              <span className="font-medium text-[#323130]">Item description</span>
+              <input
+                className={inputCls}
+                value={prForm.description}
+                onChange={(e) =>
+                  setPrForm((f) => ({ ...f, description: e.target.value }))
+                }
+                placeholder="Security boots size 42"
+              />
+            </label>
+            <label className="block text-sm">
+              <span className="font-medium text-[#323130]">Quantity</span>
+              <input
+                className={inputCls}
+                type="number"
+                min={1}
+                value={prForm.quantity}
+                onChange={(e) =>
+                  setPrForm((f) => ({ ...f, quantity: e.target.value }))
+                }
+              />
+            </label>
+            <div className="flex justify-end gap-2 pt-2">
+              <button
+                type="button"
+                className={btnSecondary}
+                onClick={() => setPrOpen(false)}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className={btnPrimary}
+                disabled={savingPo}
+                onClick={() => void runCreatePr()}
+              >
+                {savingPo ? 'Saving…' : 'Create request'}
+              </button>
+            </div>
+          </div>
+        </Modal>
+      ) : null}
+
+      {prReject ? (
+        <Modal
+          title="Reject purchase request"
+          description={prReject.requestNumber}
+          onClose={() => setPrReject(null)}
+        >
+          <label className="block text-sm">
+            <span className="font-medium text-[#323130]">Reason</span>
+            <textarea
+              className={inputCls}
+              rows={3}
+              value={prRejectReason}
+              onChange={(e) => setPrRejectReason(e.target.value)}
+            />
+          </label>
+          <div className="mt-4 flex justify-end gap-2">
+            <button
+              type="button"
+              className={btnSecondary}
+              onClick={() => setPrReject(null)}
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              className={btnPrimary}
+              disabled={busyId === prReject.id}
+              onClick={() => void runPrReject()}
+            >
+              Reject
+            </button>
+          </div>
+        </Modal>
+      ) : null}
+
+      {comparePr ? (
+        <Modal
+          title={`Compare quotes · ${comparePr.requestNumber}`}
+          description="Add at least two approved-supplier quotes, then award (quote creator cannot award)."
+          onClose={() => setComparePr(null)}
+          size="lg"
+        >
+          <div className="space-y-4">
+            <ul className="text-sm text-[#323130]">
+              {(comparePr.lines ?? []).map((line) => (
+                <li key={line.id}>
+                  {line.description} × {line.quantity} {line.unit}
+                </li>
+              ))}
+            </ul>
+            {(comparePr.quotes ?? []).length ? (
+              <table className="min-w-full text-left text-[13px]">
+                <thead className="text-[11px] uppercase text-[#605e5c]">
+                  <tr>
+                    <th className="py-1">Supplier</th>
+                    <th className="py-1">Total</th>
+                    <th className="py-1">Status</th>
+                    <th className="py-1" />
+                  </tr>
+                </thead>
+                <tbody>
+                  {(comparePr.quotes ?? []).map((q) => (
+                    <tr key={q.id} className="border-t border-[#edebe9]">
+                      <td className="py-1.5">
+                        {q.supplierName ?? q.supplierCode ?? q.supplierId}
+                      </td>
+                      <td className="py-1.5 tabular-nums">
+                        {money(q.totalAmount)}
+                      </td>
+                      <td className="py-1.5">{q.status.replaceAll('_', ' ')}</td>
+                      <td className="py-1.5">
+                        {norm(comparePr.status) === 'approved' &&
+                        q.status !== 'AWARDED' ? (
+                          <button
+                            type="button"
+                            className={btnSecondary}
+                            disabled={busyId === q.id}
+                            onClick={() => void runAward(q.id)}
+                          >
+                            Award
+                          </button>
+                        ) : null}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            ) : (
+              <p className="text-sm text-[#605e5c]">No quotes yet.</p>
+            )}
+            {norm(comparePr.status) !== 'converted' ? (
+              <div className="space-y-2 rounded-md border border-[#e1dfdd] p-3">
+                <p className="text-sm font-medium">Add quote</p>
+                <select
+                  className={inputCls}
+                  value={quoteSupplierId}
+                  onChange={(e) => setQuoteSupplierId(e.target.value)}
+                >
+                  <option value="">Select approved supplier…</option>
+                  {approvedSuppliers.map((s) => (
+                    <option key={s.id} value={s.id}>
+                      {s.name}
+                    </option>
+                  ))}
+                </select>
+                {(comparePr.lines ?? []).map((line) => (
+                  <label key={line.id} className="block text-sm">
+                    <span className="text-[#605e5c]">
+                      Unit price · {line.description}
+                    </span>
+                    <input
+                      className={inputCls}
+                      type="number"
+                      min={0}
+                      value={quotePrices[line.id] ?? ''}
+                      onChange={(e) =>
+                        setQuotePrices((p) => ({
+                          ...p,
+                          [line.id]: e.target.value,
+                        }))
+                      }
+                    />
+                  </label>
+                ))}
+                <button
+                  type="button"
+                  className={btnPrimary}
+                  disabled={busyId === comparePr.id}
+                  onClick={() => void runAddQuote()}
+                >
+                  Save quote
+                </button>
+              </div>
+            ) : null}
+            <div className="flex justify-end">
+              <button
+                type="button"
+                className={btnSecondary}
+                onClick={() => setComparePr(null)}
+              >
+                Close
               </button>
             </div>
           </div>

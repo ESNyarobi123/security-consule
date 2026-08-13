@@ -22,7 +22,6 @@ import {
   AuthUser,
   CurrentUser,
   PermissionsGuard,
-  RequirePermissions,
 } from '@pssms/shared';
 import { DocumentsService } from '../application/documents.service';
 import {
@@ -47,11 +46,10 @@ export class DocumentsController {
   constructor(private readonly service: DocumentsService) {}
 
   @Post('upload')
-  @RequirePermissions('documents.manage')
   @ApiOperation({
     summary: 'Upload document to MinIO and store metadata',
     description:
-      'Multipart: file + resourceType + resourceId. Max 10MB; pdf/png/jpeg/webp. Requires documents.manage plus parent domain permission (OccurrenceEntry → operations.manage, PettyCashVoucher → finance.manage, Customer → customers.manage, Contract → contracts.manage, VisitorAppointment → visitors.manage) and org ownership of the parent resource. Customer portal cannot upload (read-only list/presign).',
+      'Multipart: file + resourceType + resourceId. Max 10MB; pdf/png/jpeg/webp. Staff: documents.manage plus parent domain permission. Supplier portal may upload on own Supplier / SupplierSubmission. Customer portal cannot upload.',
   })
   @ApiConsumes('multipart/form-data')
   @ApiBody({
@@ -69,6 +67,9 @@ export class DocumentsController {
             'Customer',
             'Contract',
             'VisitorAppointment',
+            'ParkingViolation',
+            'Supplier',
+            'SupplierSubmission',
           ],
         },
         resourceId: { type: 'string', format: 'uuid' },

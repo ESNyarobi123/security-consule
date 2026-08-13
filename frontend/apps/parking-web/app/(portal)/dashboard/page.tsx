@@ -1,6 +1,7 @@
 'use client';
 
 import {
+  getParkingReport,
   listAnprResults,
   listBlacklist,
   listEntries,
@@ -11,6 +12,7 @@ import {
   type AnprResult,
   type ParkingOpsEntry,
   type ParkingOpsPermit,
+  type ParkingOpsReport,
   type ParkingOpsVehicle,
   type ParkingOpsViolation,
   type Site,
@@ -68,6 +70,7 @@ export default function DashboardPage() {
   const [anpr, setAnpr] = useState<AnprResult[]>([]);
   const [blacklist, setBlacklist] = useState(0);
   const [sites, setSites] = useState<Site[]>([]);
+  const [report, setReport] = useState<ParkingOpsReport | null>(null);
   const [siteId, setSiteId] = useState<string>('ALL');
   const [typeFilter, setTypeFilter] = useState<VehicleKind | 'ALL'>('ALL');
   const [error, setError] = useState<string | null>(null);
@@ -78,7 +81,7 @@ export default function DashboardPage() {
     setError(null);
     try {
       const token = getParkingToken() ?? undefined;
-      const [v, p, e, viols, a, bl, s] = await Promise.all([
+      const [v, p, e, viols, a, bl, s, r] = await Promise.all([
         listVehicles(),
         listPermits(),
         listEntries(),
@@ -86,6 +89,7 @@ export default function DashboardPage() {
         listAnprResults(),
         listBlacklist(),
         listSites(token).catch(() => [] as Site[]),
+        getParkingReport().catch(() => null),
       ]);
       setVehicles(v);
       setPermits(p);
@@ -94,6 +98,7 @@ export default function DashboardPage() {
       setAnpr(a);
       setBlacklist(bl.filter((b) => b.isActive).length);
       setSites(s);
+      setReport(r);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load dashboard');
     } finally {
@@ -218,7 +223,7 @@ export default function DashboardPage() {
       ) : null}
 
       {/* KPI strip */}
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
         <KpiCard
           label="Active permits"
           value={loading ? '—' : activePermits}
@@ -250,6 +255,43 @@ export default function DashboardPage() {
           value={loading ? '—' : vehicles.filter((v) => v.isActive).length}
           tone="slate"
           hint="Registered active"
+        />
+        <KpiCard
+          label="Utilization"
+          value={
+            loading ? '—' : `${report?.occupancy.utilizationPercent ?? 0}%`
+          }
+          href="/reports"
+          tone="teal"
+          hint={
+            report
+              ? `${report.occupancy.occupied}/${report.occupancy.totalSpaces} bays`
+              : 'Bay occupancy'
+          }
+        />
+        <KpiCard
+          label="Open visits"
+          value={loading ? '—' : report?.entriesExits.openVisits ?? 0}
+          href="/entries"
+          tone="amber"
+          hint="ENTRY without EXIT"
+        />
+        <KpiCard
+          label="Revenue (30d)"
+          value={
+            loading
+              ? '—'
+              : report
+                ? new Intl.NumberFormat(undefined, {
+                    style: 'currency',
+                    currency: report.revenue.currency,
+                    maximumFractionDigits: 0,
+                  }).format(report.revenue.totalBilledInPeriod)
+                : '—'
+          }
+          href="/reports"
+          tone="blue"
+          hint="Billed invoices"
         />
         <KpiCard
           label="Blacklist"
@@ -606,8 +648,12 @@ export default function DashboardPage() {
       </div>
 
       <p className="text-center text-[11px] text-slate-400">
-        Deferred vs design: live stall sensors, zone bay maps, parking billing,
-        RFID barrier control. ANPR = metadata decide only.
+        Executive summary via{' '}
+        <Link href="/reports" className="font-semibold text-[#2563eb] hover:underline">
+          Reports
+        </Link>
+        · Deferred: live stall sensors, zone bay maps, RFID barriers. ANPR =
+        metadata decide only.
       </p>
     </div>
   );
