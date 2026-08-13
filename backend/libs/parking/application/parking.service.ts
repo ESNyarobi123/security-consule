@@ -2064,8 +2064,7 @@ export class ParkingService {
         });
       }
       if (
-        existing.status === ParkingSpaceStatus.OCCUPIED &&
-        dto.status !== ParkingSpaceStatus.OCCUPIED
+        existing.status === ParkingSpaceStatus.OCCUPIED
       ) {
         throw new BadRequestException({
           error: 'SPACE_OCCUPIED',
@@ -3097,7 +3096,7 @@ export class ParkingService {
     });
 
     // Module 13-K — compute auto decision first; officer override may be forced entry.
-    let autoDecision = ParkingDecision.ALLOW;
+    let autoDecision: ParkingDecision = ParkingDecision.ALLOW;
     let permitId: string | undefined;
     let denyKind: 'BLACKLIST' | 'EXPIRED_PERMIT' | 'NO_PERMIT' | null = null;
 
