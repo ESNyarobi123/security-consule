@@ -72,6 +72,10 @@ CREATE TABLE IF NOT EXISTS procurement.purchase_request_quote_lines (
 ALTER TABLE procurement.purchase_orders
   ADD COLUMN IF NOT EXISTS purchase_request_id TEXT;
 
+CREATE UNIQUE INDEX IF NOT EXISTS purchase_orders_purchase_request_id_key
+  ON procurement.purchase_orders (purchase_request_id)
+  WHERE purchase_request_id IS NOT NULL;
+
 CREATE INDEX IF NOT EXISTS purchase_orders_pr_idx
   ON procurement.purchase_orders (purchase_request_id)
   WHERE purchase_request_id IS NOT NULL;

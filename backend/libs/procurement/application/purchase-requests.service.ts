@@ -381,31 +381,55 @@ export class PurchaseRequestsService {
       quote.lines.map((l) => [l.purchaseRequestLineId, l]),
     );
     const poNumber = `PO-${pr.requestNumber.replace(/^PR-/, '')}`;
-    const po = await this.purchaseOrders.create(
-      {
-        supplierId: quote.supplierId,
-        poNumber,
-        currency: pr.currency,
-        purchaseRequestId: id,
-        lines: pr.lines.map((l) => {
-          const ql = priceByLine.get(l.id);
-          if (!ql) {
-            throw new BadRequestException('Awarded quote is missing a line');
-          }
-          return {
-            description: l.description,
-            quantity: Number(l.quantity),
-            unitPrice: Number(ql.unitPrice),
-            stockItemId: l.stockItemId ?? undefined,
-          };
-        }),
+    let po: PurchaseOrderResponseDto;
+    try {
+      po = await this.purchaseOrders.create(
+        {
+          supplierId: quote.supplierId,
+          poNumber,
+          currency: pr.currency,
+          lines: pr.lines.map((l) => {
+            const ql = priceByLine.get(l.id);
+            if (!ql) {
+              throw new BadRequestException('Awarded quote is missing a line');
+            }
+            return {
+              description: l.description,
+              quantity: Number(l.quantity),
+              unitPrice: Number(ql.unitPrice),
+              stockItemId: l.stockItemId ?? undefined,
+            };
+          }),
+        },
+        user,
+        { purchaseRequestId: id },
+      );
+    } catch (err) {
+      if (
+        err instanceof Prisma.PrismaClientKnownRequestError &&
+        err.code === 'P2002'
+      ) {
+        throw new BadRequestException({
+          error: 'ALREADY_CONVERTED',
+          message: 'A purchase order already exists for this request',
+        });
+      }
+      throw err;
+    }
+    const marked = await this.prisma.purchaseRequest.updateMany({
+      where: {
+        id,
+        organizationId: user.organizationId,
+        status: PurchaseRequestStatus.APPROVED,
       },
-      user,
-    );
-    await this.prisma.purchaseRequest.update({
-      where: { id },
       data: { status: PurchaseRequestStatus.CONVERTED },
     });
+    if (marked.count === 0) {
+      throw new BadRequestException({
+        error: 'ALREADY_CONVERTED',
+        message: 'Purchase request was already converted',
+      });
+    }
     await this.audit.record({
       organizationId: user.organizationId,
       actorId: user.id,
@@ -429,7 +453,7 @@ export class PurchaseRequestsService {
       include: {
         lines: true,
         quotes: { include: { lines: true }, orderBy: { createdAt: 'asc' } },
-        purchaseOrders: { select: { id: true, poNumber: true }, take: 1 },
+        purchaseOrder: { select: { id: true, poNumber: true } },
       },
     });
     if (!pr) throw new NotFoundException('Purchase request not found');
@@ -453,7 +477,7 @@ export class PurchaseRequestsService {
     ]);
     const skuById = new Map(items.map((i) => [i.id, i.sku]));
     const supplierById = new Map(suppliers.map((s) => [s.id, s]));
-    const po = pr.purchaseOrders[0];
+    const po = pr.purchaseOrder;
     return {
       id: pr.id,
       organizationId: pr.organizationId,

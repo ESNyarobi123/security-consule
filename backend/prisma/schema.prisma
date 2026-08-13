@@ -1930,7 +1930,7 @@ model PurchaseOrder {
   receipts           GoodsReceipt[]
   lines              PurchaseOrderLine[]
   supplier           Supplier            @relation(fields: [supplierId], references: [id])
-  purchaseRequestId  String?             @map("purchase_request_id")
+  purchaseRequestId  String?             @unique @map("purchase_request_id")
   purchaseRequest    PurchaseRequest?    @relation(fields: [purchaseRequestId], references: [id])
 
   @@unique([organizationId, poNumber])
@@ -1996,7 +1996,7 @@ model PurchaseRequest {
   createdBy          String                   @map("created_by")
   lines              PurchaseRequestLine[]
   quotes             PurchaseRequestQuote[]
-  purchaseOrders     PurchaseOrder[]
+  purchaseOrder      PurchaseOrder?
 
   @@unique([organizationId, requestNumber])
   @@index([organizationId, status])

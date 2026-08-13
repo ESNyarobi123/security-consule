@@ -6,6 +6,7 @@ import {
 import {
   PurchaseOrderStatus,
   Prisma,
+  PurchaseRequestStatus,
   StockMovementType,
   SupplierStatus,
 } from '@prisma/client';
@@ -33,6 +34,7 @@ export class PurchaseOrdersService {
   async create(
     dto: CreatePurchaseOrderDto,
     user: AuthUser,
+    opts?: { purchaseRequestId?: string },
   ): Promise<PurchaseOrderResponseDto> {
     const supplier = await this.prisma.supplier.findFirst({
       where: { id: dto.supplierId, organizationId: user.organizationId },
@@ -47,14 +49,34 @@ export class PurchaseOrdersService {
     });
     if (exists) throw new BadRequestException('PO number already exists');
 
-    if (dto.purchaseRequestId) {
+    // purchaseRequestId is set only by PurchaseRequestsService.convertToPo
+    // (public POST /purchase-orders must not attach an unapproved PR).
+    if (opts?.purchaseRequestId) {
       const pr = await this.prisma.purchaseRequest.findFirst({
         where: {
-          id: dto.purchaseRequestId,
+          id: opts.purchaseRequestId,
+          organizationId: user.organizationId,
+          status: PurchaseRequestStatus.APPROVED,
+        },
+      });
+      if (!pr) {
+        throw new BadRequestException({
+          error: 'INVALID_PURCHASE_REQUEST',
+          message: 'Purchase request must exist and be APPROVED',
+        });
+      }
+      const linked = await this.prisma.purchaseOrder.findFirst({
+        where: {
+          purchaseRequestId: opts.purchaseRequestId,
           organizationId: user.organizationId,
         },
       });
-      if (!pr) throw new NotFoundException('Purchase request not found');
+      if (linked) {
+        throw new BadRequestException({
+          error: 'ALREADY_CONVERTED',
+          message: 'A purchase order already exists for this request',
+        });
+      }
     }
 
     let totalAmount = new Prisma.Decimal(0);
@@ -80,7 +102,7 @@ export class PurchaseOrdersService {
         expectedDelivery: dto.expectedDelivery
           ? new Date(dto.expectedDelivery)
           : undefined,
-        purchaseRequestId: dto.purchaseRequestId || null,
+        purchaseRequestId: opts?.purchaseRequestId || null,
         createdBy: user.id,
         lines: { create: lineData },
       },

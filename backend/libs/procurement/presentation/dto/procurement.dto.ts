@@ -373,11 +373,6 @@ export class CreatePurchaseOrderDto {
   @IsString()
   currency?: string;
 
-  @ApiPropertyOptional()
-  @IsOptional()
-  @IsUUID()
-  purchaseRequestId?: string;
-
   @ApiProperty({ type: [PurchaseOrderLineDto] })
   @IsArray()
   @ValidateNested({ each: true })
