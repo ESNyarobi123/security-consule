@@ -22,7 +22,7 @@ export class FieldSyncController {
   @ApiOperation({
     summary: 'Offline-first batch sync (guard mobile app)',
     description:
-      'Accepts queued events with clientEventId (UUID) for idempotency. Stores deviceTime + serverReceivedTime. Event types: CLOCK_IN, ALERTNESS_CONFIRM, PATROL_SCAN.',
+      'Accepts queued events with clientEventId (UUID) for idempotency. Stores deviceTime + serverReceivedTime. Event types: CLOCK_IN, CLOCK_OUT, ALERTNESS_CONFIRM, PATROL_SCAN, PATROL_ISSUE.',
   })
   @ApiOkResponse({ type: [FieldSyncResultDto] })
   sync(@Body() dto: FieldSyncBatchDto, @CurrentUser() user: AuthUser) {

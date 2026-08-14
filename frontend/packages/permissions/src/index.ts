@@ -32,6 +32,12 @@ export const ADMIN_PORTALS: NavItem[] = [
   { href: '/branch', label: 'Branch Ops', permission: 'operations.manage', group: 'Field' },
   { href: '/branch/sites', label: 'Sites', permission: 'operations.manage', group: 'Field' },
   {
+    href: '/branch/access-points',
+    label: 'Access points',
+    permission: 'operations.manage',
+    group: 'Field',
+  },
+  {
     href: '/branch/deployments',
     label: 'Deployments',
     permission: 'operations.manage',
@@ -63,11 +69,24 @@ export const ADMIN_PORTALS: NavItem[] = [
     permission: 'incidents.manage',
     group: 'Field',
   },
+  {
+    href: '/branch/reports',
+    label: 'Reports',
+    permission: 'operations.manage',
+    group: 'Field',
+  },
 
   { href: '/compliance', label: 'Compliance', permission: 'audit.read', group: 'Governance' },
   {
     href: '/compliance/policies',
     label: 'Policies',
+    permission: 'audit.read',
+    group: 'Governance',
+  },
+  {
+    href: '/compliance/consents',
+    label: 'Consents',
+    /** DPO mutates via dpo.manage; CO/auditor read via audit.read / compliance.manage */
     permission: 'audit.read',
     group: 'Governance',
   },

@@ -25,7 +25,10 @@ import {
 } from '@pssms/shared';
 import { DeviceRegistryService } from '../application/device-registry.service';
 import { DeviceCommandService } from '../application/device-command.service';
+import { CctvTriageService } from '../application/cctv-triage.service';
 import {
+  AcknowledgeCctvEventDto,
+  CreateIncidentFromEventDto,
   DeviceResponseDto,
   EdgeGatewayResponseDto,
   IssueCommandDto,
@@ -42,6 +45,7 @@ export class DeviceController {
   constructor(
     private readonly registry: DeviceRegistryService,
     private readonly commands: DeviceCommandService,
+    private readonly cctvTriage: CctvTriageService,
   ) {}
 
   // ── Edge gateways (ops only — declared before /:id) ──
@@ -81,6 +85,39 @@ export class DeviceController {
     @Query('deviceId') deviceId?: string,
   ) {
     return this.registry.listEvents(user, { type, deviceId });
+  }
+
+  // ── CCTV alert triage (Module 28-A) ──────────────────────────
+  @Post('events/:id/acknowledge')
+  @RequireAnyPermissions('operations.manage', 'cctv.manage')
+  @ApiOperation({
+    summary: 'Acknowledge an open CCTV AI alert',
+    description:
+      'Marks a RECEIVED CCTV_EVENT as PROCESSED (routedTo=acknowledged) with audit. Metadata only.',
+  })
+  @ApiOkResponse({ description: 'Acknowledged event' })
+  acknowledgeCctvEvent(
+    @Param('id') id: string,
+    @Body() dto: AcknowledgeCctvEventDto,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.cctvTriage.acknowledgeEvent(id, dto ?? {}, user);
+  }
+
+  @Post('events/:id/create-incident')
+  @RequireAnyPermissions('operations.manage', 'cctv.manage')
+  @ApiOperation({
+    summary: 'Record a security incident from a CCTV AI alert',
+    description:
+      'Creates an incident (category CCTV_ALERT) at the camera site via IncidentsService — site ABAC + clientEventId dedupe apply. Event becomes PROCESSED (routedTo=incidents).',
+  })
+  @ApiCreatedResponse({ description: 'Incident + processed event' })
+  createIncidentFromCctvEvent(
+    @Param('id') id: string,
+    @Body() dto: CreateIncidentFromEventDto,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.cctvTriage.createIncidentFromEvent(id, dto ?? {}, user);
   }
 
   // ── Devices ──────────────────────────────────────────────────

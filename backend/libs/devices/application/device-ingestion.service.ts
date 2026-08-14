@@ -99,14 +99,20 @@ export class DeviceIngestionService {
 
       const routedTo = await this.route(ctx, ev, device);
       if (routedTo) routed++;
-      await this.prisma.deviceEvent.update({
-        where: { id: record.id },
-        data: {
-          status: 'PROCESSED',
-          processedAt: new Date(),
-          routedTo,
-        },
-      });
+      // Unrouted CCTV_EVENT stays RECEIVED — it is an open AI alert until an
+      // operator acknowledges it or records an incident (Module 28-A triage).
+      const keepOpen =
+        !routedTo && ev.type === DeviceEventType.CCTV_EVENT;
+      if (!keepOpen) {
+        await this.prisma.deviceEvent.update({
+          where: { id: record.id },
+          data: {
+            status: 'PROCESSED',
+            processedAt: new Date(),
+            routedTo,
+          },
+        });
+      }
 
       // Keep device liveness fresh on any inbound event.
       await this.prisma.device.update({

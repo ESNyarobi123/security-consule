@@ -70,6 +70,7 @@ export class DocumentsController {
             'ParkingViolation',
             'Supplier',
             'SupplierSubmission',
+            'Incident',
           ],
         },
         resourceId: { type: 'string', format: 'uuid' },

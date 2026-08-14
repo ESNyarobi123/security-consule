@@ -446,6 +446,64 @@ export class ApprovalsService {
         return;
       }
 
+      // Re-check party bindings at terminal approval. This also cancels legacy
+      // pending requests created before IAM submission validation was hardened.
+      const target = await this.prisma.user.findFirst({
+        where: { id: request.targetUserId, organizationId },
+        select: {
+          id: true,
+          customerId: true,
+          supplierId: true,
+          b2bPartnerId: true,
+        },
+      });
+      const proposed = request.proposedRoleCodes;
+      let bindingError: string | null = null;
+      if (!target) {
+        bindingError = 'TARGET_USER_MISSING';
+      } else if (
+        (proposed.includes('CUSTOMER_PORTAL') ||
+          proposed.includes('CUSTOMER_EMPLOYEE')) &&
+        !target.customerId
+      ) {
+        bindingError = 'CUSTOMER_ROLE_REQUIRES_CUSTOMER';
+      } else if (
+        proposed.includes('SUPPLIER_PORTAL') &&
+        !target.supplierId
+      ) {
+        bindingError = 'SUPPLIER_PORTAL_REQUIRES_SUPPLIER';
+      } else if (
+        proposed.includes('OTHER_SECURITY_COMPANY') &&
+        !target.b2bPartnerId
+      ) {
+        bindingError = 'OTHER_SECURITY_REQUIRES_PARTNER';
+      }
+      if (bindingError) {
+        await this.prisma.iamChangeRequest.update({
+          where: { id: request.id },
+          data: {
+            status: IamChangeRequestStatus.CANCELLED,
+            decidedBy: actorId,
+            decidedAt: new Date(),
+            rejectReason: `${bindingError} — party binding missing at approve`,
+          },
+        });
+        await this.audit.record({
+          organizationId,
+          actorId,
+          action: 'IDENTITY_ROLE_CHANGE_BINDING_INVALID',
+          resourceType: IAM_CHANGE_RESOURCE,
+          resourceId: requestId,
+          after: {
+            targetUserId: request.targetUserId,
+            proposedRoleCodes: proposed,
+            bindingError,
+            via: 'approvals.act',
+          },
+        });
+        return;
+      }
+
       const roles = await this.prisma.role.findMany({
         where: {
           organizationId,

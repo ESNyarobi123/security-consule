@@ -1,6 +1,16 @@
 import { ForbiddenException } from '@nestjs/common';
 import { AuthUser } from '../types/auth-user';
 
+/** Fail closed: CUSTOMER_PORTAL role must carry a customer party binding. */
+export function assertCustomerPortalHasCustomerId(user: AuthUser): void {
+  if (user.roles.includes('CUSTOMER_PORTAL') && !user.customerId) {
+    throw new ForbiddenException({
+      error: 'CUSTOMER_PORTAL_SCOPE_REQUIRED',
+      message: 'Customer portal accounts must be linked to a customer',
+    });
+  }
+}
+
 /**
  * Portal users (JWT customerId set) are force-scoped to their customer.
  * Staff may optionally filter by customerId query param.

@@ -4,16 +4,28 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { AssetStatus, Prisma } from '@prisma/client';
+import {
+  AssetLifecycleEventType,
+  AssetStatus,
+  Prisma,
+} from '@prisma/client';
 import { PrismaService, AuthUser } from '@pssms/shared';
 import { AuditService } from '@pssms/audit';
 import {
   AssetAssigneeOptionsDto,
   AssetAssignmentResponseDto,
+  AssetLifecycleEventResponseDto,
   AssetResponseDto,
+  ASSET_CATEGORIES,
   AssignAssetDto,
+  CategoryOptionDto,
   ConfirmReturnDto,
   CreateAssetDto,
+  DamageAssetDto,
+  DisposeAssetDto,
+  MaintenanceDto,
+  ReplacementDto,
+  TransferAssetDto,
   WalkInReturnDto,
 } from '../presentation/dto/assets.dto';
 
@@ -25,6 +37,12 @@ export class AssetsService {
   ) {}
 
   async create(dto: CreateAssetDto, user: AuthUser): Promise<AssetResponseDto> {
+    if (
+      dto.category &&
+      !ASSET_CATEGORIES.includes(dto.category)
+    ) {
+      throw new BadRequestException('Invalid asset category');
+    }
     const exists = await this.prisma.asset.findFirst({
       where: { organizationId: user.organizationId, assetTag: dto.assetTag },
     });
@@ -82,6 +100,17 @@ export class AssetsService {
     });
   }
 
+  listCategoryOptions(): CategoryOptionDto[] {
+    return ASSET_CATEGORIES.map((code) => ({
+      code,
+      label: code
+        .toLowerCase()
+        .split('_')
+        .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+        .join(' '),
+    }));
+  }
+
   /** Minimal employee + guard directory for assign UI (assets.manage). */
   async listAssigneeOptions(
     organizationId: string,
@@ -130,43 +159,11 @@ export class AssetsService {
     dto: AssignAssetDto,
     user: AuthUser,
   ): Promise<AssetAssignmentResponseDto> {
-    if (!dto.assignedToEmployeeId && !dto.assignedToGuardId) {
-      throw new BadRequestException(
-        'Must assign to employee or guard',
-      );
-    }
+    await this.validateAssignee(dto, user.organizationId);
 
     const asset = await this.findOrThrow(id, user.organizationId);
     if (asset.status !== AssetStatus.AVAILABLE) {
       throw new BadRequestException('Asset is not available');
-    }
-
-    if (dto.assignedToEmployeeId) {
-      const employee = await this.prisma.employee.findFirst({
-        where: {
-          id: dto.assignedToEmployeeId,
-          organizationId: user.organizationId,
-          status: { not: 'TERMINATED' },
-        },
-        select: { id: true },
-      });
-      if (!employee) {
-        throw new BadRequestException('Employee not found in organization');
-      }
-    }
-
-    if (dto.assignedToGuardId) {
-      const guard = await this.prisma.guardProfile.findFirst({
-        where: {
-          id: dto.assignedToGuardId,
-          organizationId: user.organizationId,
-          status: { not: 'TERMINATED' },
-        },
-        select: { id: true },
-      });
-      if (!guard) {
-        throw new BadRequestException('Guard not found in organization');
-      }
     }
 
     const assignment = await this.prisma.$transaction(async (tx) => {
@@ -197,6 +194,298 @@ export class AssetsService {
     });
 
     return this.toAssignmentDto(assignment);
+  }
+
+  async transfer(
+    id: string,
+    dto: TransferAssetDto,
+    user: AuthUser,
+  ): Promise<AssetAssignmentResponseDto> {
+    await this.validateAssignee(dto, user.organizationId);
+    const asset = await this.findOrThrow(id, user.organizationId);
+    // Block RETURN_PENDING — confirm/walk-in first so ESS return SoD cannot be
+    // bypassed by self-transfer (storekeeper may also have ess.access).
+    if (asset.status === AssetStatus.RETURN_PENDING) {
+      throw new BadRequestException(
+        'Confirm or cancel the pending return before transferring',
+      );
+    }
+    if (asset.status !== AssetStatus.ASSIGNED) {
+      throw new BadRequestException('Asset must be ASSIGNED to transfer');
+    }
+
+    const active = await this.prisma.assetAssignment.findFirst({
+      where: {
+        assetId: id,
+        organizationId: user.organizationId,
+        returnedAt: null,
+      },
+      orderBy: { assignedAt: 'desc' },
+    });
+    if (!active) throw new NotFoundException('No active assignment');
+
+    const now = new Date();
+    const assignment = await this.prisma.$transaction(async (tx) => {
+      const closed = await tx.assetAssignment.updateMany({
+        where: {
+          id: active.id,
+          organizationId: user.organizationId,
+          returnedAt: null,
+        },
+        data: {
+          returnedAt: now,
+          returnCondition: 'TRANSFER',
+          returnConfirmedBy: user.id,
+          returnConfirmedAt: now,
+        },
+      });
+      if (closed.count !== 1) {
+        throw new BadRequestException('Assignment already closed');
+      }
+      const row = await tx.assetAssignment.create({
+        data: {
+          organizationId: user.organizationId,
+          assetId: id,
+          assignedToEmployeeId: dto.assignedToEmployeeId,
+          assignedToGuardId: dto.assignedToGuardId,
+          notes: dto.notes,
+          createdBy: user.id,
+        },
+      });
+      await tx.asset.update({
+        where: { id },
+        data: { status: AssetStatus.ASSIGNED },
+      });
+      await this.writeEvent(tx, {
+        organizationId: user.organizationId,
+        assetId: id,
+        eventType: AssetLifecycleEventType.TRANSFER,
+        fromStatus: asset.status,
+        toStatus: AssetStatus.ASSIGNED,
+        notes: dto.notes,
+        fromEmployeeId: active.assignedToEmployeeId,
+        fromGuardId: active.assignedToGuardId,
+        toEmployeeId: dto.assignedToEmployeeId,
+        toGuardId: dto.assignedToGuardId,
+        createdBy: user.id,
+      });
+      return row;
+    });
+
+    await this.audit.record({
+      organizationId: user.organizationId,
+      actorId: user.id,
+      action: 'asset.transferred',
+      resourceType: 'Asset',
+      resourceId: id,
+      before: active,
+      after: assignment,
+    });
+    return this.toAssignmentDto(assignment);
+  }
+
+  async dispose(
+    id: string,
+    dto: DisposeAssetDto,
+    user: AuthUser,
+  ): Promise<AssetResponseDto> {
+    const asset = await this.findOrThrow(id, user.organizationId);
+    if (
+      asset.status !== AssetStatus.AVAILABLE &&
+      asset.status !== AssetStatus.MAINTENANCE
+    ) {
+      throw new BadRequestException(
+        'Only AVAILABLE or MAINTENANCE assets can be disposed',
+      );
+    }
+    const now = new Date();
+    const updated = await this.prisma.$transaction(async (tx) => {
+      const row = await tx.asset.update({
+        where: { id },
+        data: {
+          status: AssetStatus.DISPOSED,
+          disposedAt: now,
+          disposedBy: user.id,
+          disposalReason: dto.reason,
+        },
+      });
+      await this.writeEvent(tx, {
+        organizationId: user.organizationId,
+        assetId: id,
+        eventType: AssetLifecycleEventType.DISPOSE,
+        fromStatus: asset.status,
+        toStatus: AssetStatus.DISPOSED,
+        notes: dto.reason,
+        createdBy: user.id,
+      });
+      return row;
+    });
+    await this.recordAudit('asset.disposed', asset, updated, user);
+    return this.toAssetDto(updated);
+  }
+
+  async startMaintenance(
+    id: string,
+    dto: MaintenanceDto,
+    user: AuthUser,
+  ): Promise<AssetResponseDto> {
+    const asset = await this.findOrThrow(id, user.organizationId);
+    if (asset.status !== AssetStatus.AVAILABLE) {
+      throw new BadRequestException(
+        'Only AVAILABLE assets can start maintenance',
+      );
+    }
+    const updated = await this.prisma.$transaction(async (tx) => {
+      const row = await tx.asset.update({
+        where: { id },
+        data: {
+          status: AssetStatus.MAINTENANCE,
+          maintenanceNotes: dto.notes ?? null,
+        },
+      });
+      await this.writeEvent(tx, {
+        organizationId: user.organizationId,
+        assetId: id,
+        eventType: AssetLifecycleEventType.MAINTENANCE_START,
+        fromStatus: asset.status,
+        toStatus: AssetStatus.MAINTENANCE,
+        notes: dto.notes,
+        createdBy: user.id,
+      });
+      return row;
+    });
+    await this.recordAudit('asset.maintenance_started', asset, updated, user);
+    return this.toAssetDto(updated);
+  }
+
+  async completeMaintenance(
+    id: string,
+    dto: MaintenanceDto,
+    user: AuthUser,
+  ): Promise<AssetResponseDto> {
+    const asset = await this.findOrThrow(id, user.organizationId);
+    if (asset.status !== AssetStatus.MAINTENANCE) {
+      throw new BadRequestException('Asset is not in MAINTENANCE');
+    }
+    const updated = await this.prisma.$transaction(async (tx) => {
+      const row = await tx.asset.update({
+        where: { id },
+        data: {
+          status: AssetStatus.AVAILABLE,
+          maintenanceNotes: dto.notes ?? null,
+        },
+      });
+      await this.writeEvent(tx, {
+        organizationId: user.organizationId,
+        assetId: id,
+        eventType: AssetLifecycleEventType.MAINTENANCE_COMPLETE,
+        fromStatus: asset.status,
+        toStatus: AssetStatus.AVAILABLE,
+        notes: dto.notes,
+        createdBy: user.id,
+      });
+      return row;
+    });
+    await this.recordAudit('asset.maintenance_completed', asset, updated, user);
+    return this.toAssetDto(updated);
+  }
+
+  async recordDamage(
+    id: string,
+    dto: DamageAssetDto,
+    user: AuthUser,
+  ): Promise<AssetLifecycleEventResponseDto> {
+    const asset = await this.findOrThrow(id, user.organizationId);
+    if (asset.status === AssetStatus.DISPOSED) {
+      throw new BadRequestException('Cannot record damage on a disposed asset');
+    }
+    const nextStatus =
+      asset.status === AssetStatus.AVAILABLE && dto.condition === 'DAMAGED'
+        ? AssetStatus.MAINTENANCE
+        : asset.status;
+    const event = await this.prisma.$transaction(async (tx) => {
+      if (nextStatus !== asset.status) {
+        await tx.asset.update({
+          where: { id },
+          data: {
+            status: nextStatus,
+            maintenanceNotes: dto.notes,
+          },
+        });
+      }
+      return this.writeEvent(tx, {
+        organizationId: user.organizationId,
+        assetId: id,
+        eventType: AssetLifecycleEventType.DAMAGE,
+        fromStatus: asset.status,
+        toStatus: nextStatus,
+        notes: dto.notes,
+        condition: dto.condition,
+        createdBy: user.id,
+      });
+    });
+    await this.audit.record({
+      organizationId: user.organizationId,
+      actorId: user.id,
+      action: 'asset.damage_recorded',
+      resourceType: 'Asset',
+      resourceId: id,
+      before: asset,
+      after: event,
+    });
+    return event;
+  }
+
+  async recordReplacement(
+    id: string,
+    dto: ReplacementDto,
+    user: AuthUser,
+  ): Promise<AssetLifecycleEventResponseDto> {
+    const asset = await this.findOrThrow(id, user.organizationId);
+    if (dto.replacementAssetId === id) {
+      throw new BadRequestException('Asset cannot replace itself');
+    }
+    const replacement = await this.findOrThrow(
+      dto.replacementAssetId,
+      user.organizationId,
+    );
+    if (replacement.status === AssetStatus.DISPOSED) {
+      throw new BadRequestException('Replacement asset is disposed');
+    }
+    const event = await this.prisma.$transaction((tx) =>
+      this.writeEvent(tx, {
+        organizationId: user.organizationId,
+        assetId: id,
+        eventType: AssetLifecycleEventType.REPLACEMENT,
+        fromStatus: asset.status,
+        toStatus: asset.status,
+        notes: dto.notes,
+        replacementAssetId: replacement.id,
+        createdBy: user.id,
+      }),
+    );
+    await this.audit.record({
+      organizationId: user.organizationId,
+      actorId: user.id,
+      action: 'asset.replacement_recorded',
+      resourceType: 'Asset',
+      resourceId: id,
+      before: asset,
+      after: event,
+    });
+    return event;
+  }
+
+  async listHistory(
+    id: string,
+    user: AuthUser,
+  ): Promise<AssetLifecycleEventResponseDto[]> {
+    await this.findOrThrow(id, user.organizationId);
+    return this.prisma.assetLifecycleEvent.findMany({
+      where: { assetId: id, organizationId: user.organizationId },
+      orderBy: { createdAt: 'desc' },
+      take: 100,
+    });
   }
 
   /**
@@ -337,6 +626,18 @@ export class AssetsService {
         where: { id },
         data: { status: nextStatus },
       });
+      if (condition === 'DAMAGED' || condition === 'LOST') {
+        await this.writeEvent(tx, {
+          organizationId: user.organizationId,
+          assetId: id,
+          eventType: AssetLifecycleEventType.DAMAGE,
+          fromStatus: asset.status,
+          toStatus: nextStatus,
+          notes: dto?.receiptNote,
+          condition,
+          createdBy: user.id,
+        });
+      }
       return row;
     });
 
@@ -429,6 +730,18 @@ export class AssetsService {
         where: { id: active.assetId },
         data: { status: nextStatus },
       });
+      if (dto.condition === 'DAMAGED' || dto.condition === 'LOST') {
+        await this.writeEvent(tx, {
+          organizationId: user.organizationId,
+          assetId: active.assetId,
+          eventType: AssetLifecycleEventType.DAMAGE,
+          fromStatus: active.asset.status,
+          toStatus: nextStatus,
+          notes: dto.receiptNote,
+          condition: dto.condition,
+          createdBy: user.id,
+        });
+      }
       return row;
     });
 
@@ -463,6 +776,71 @@ export class AssetsService {
     return asset;
   }
 
+  private async validateAssignee(
+    dto: AssignAssetDto,
+    organizationId: string,
+  ): Promise<void> {
+    if (!dto.assignedToEmployeeId && !dto.assignedToGuardId) {
+      throw new BadRequestException('Must assign to employee or guard');
+    }
+    if (dto.assignedToEmployeeId) {
+      const employee = await this.prisma.employee.findFirst({
+        where: {
+          id: dto.assignedToEmployeeId,
+          organizationId,
+          status: { not: 'TERMINATED' },
+        },
+        select: { id: true },
+      });
+      if (!employee) {
+        throw new BadRequestException('Employee not found in organization');
+      }
+    }
+    if (dto.assignedToGuardId) {
+      const guard = await this.prisma.guardProfile.findFirst({
+        where: {
+          id: dto.assignedToGuardId,
+          organizationId,
+          status: { not: 'TERMINATED' },
+        },
+        select: { id: true },
+      });
+      if (!guard) {
+        throw new BadRequestException('Guard not found in organization');
+      }
+    }
+  }
+
+  private writeEvent(
+    tx: Prisma.TransactionClient,
+    data: Prisma.AssetLifecycleEventUncheckedCreateInput,
+  ) {
+    return tx.assetLifecycleEvent.create({ data });
+  }
+
+  private recordAudit(
+    action: string,
+    before: object,
+    after: object,
+    user: AuthUser,
+  ) {
+    const resourceId =
+      'id' in after && typeof after.id === 'string'
+        ? after.id
+        : 'id' in before && typeof before.id === 'string'
+          ? before.id
+          : undefined;
+    return this.audit.record({
+      organizationId: user.organizationId,
+      actorId: user.id,
+      action,
+      resourceType: 'Asset',
+      resourceId,
+      before,
+      after,
+    });
+  }
+
   private toAssetDto(
     a: {
       id: string;
@@ -474,6 +852,10 @@ export class AssetsService {
       purchaseCost: Prisma.Decimal | null;
       serialNumber: string | null;
       status: AssetStatus;
+      disposedAt: Date | null;
+      disposedBy: string | null;
+      disposalReason: string | null;
+      maintenanceNotes: string | null;
       createdAt: Date;
     },
     activeAssignment?: {
@@ -493,6 +875,10 @@ export class AssetsService {
       purchaseCost: a.purchaseCost ? Number(a.purchaseCost) : null,
       serialNumber: a.serialNumber,
       status: a.status,
+      disposedAt: a.disposedAt,
+      disposedBy: a.disposedBy,
+      disposalReason: a.disposalReason,
+      maintenanceNotes: a.maintenanceNotes,
       createdAt: a.createdAt,
       activeAssignment: activeAssignment
         ? {

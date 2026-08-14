@@ -20,6 +20,11 @@ export const BRANCH_TABS = [
     permission: 'operations.manage',
   },
   {
+    href: '/branch/access-points',
+    label: 'Access points',
+    permission: 'operations.manage',
+  },
+  {
     href: '/branch/deployments',
     label: 'Deployments',
     permission: 'operations.manage',
@@ -53,6 +58,11 @@ export const BRANCH_TABS = [
     href: '/branch/incidents',
     label: 'Incidents',
     permission: 'incidents.manage',
+  },
+  {
+    href: '/branch/reports',
+    label: 'Reports',
+    permission: 'operations.manage',
   },
 ] as const;
 

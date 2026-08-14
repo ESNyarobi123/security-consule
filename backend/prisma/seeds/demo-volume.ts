@@ -774,10 +774,10 @@ export async function seedDemoVolume(
   const eobCats = [
     'ROUTINE',
     'VISITOR_ISSUE',
-    'PATROL',
+    'PATROL_OBSERVATION',
     'INCIDENT',
-    'EQUIPMENT',
-    'OTHER',
+    'HANDOVER_NOTE',
+    'SUPERVISOR_COMMENT',
   ];
   for (let i = 1; i <= N; i++) {
     const description = `[VOL-EOB-${pad(i)}] Volume occurrence — gate check ${pad(i)}`;
@@ -858,7 +858,7 @@ export async function seedDemoVolume(
     'ACCESS_BREACH',
     'PROPERTY_DAMAGE',
     'THEFT',
-    'MISCONDUCT',
+    'GUARD_MISCONDUCT',
     'SECURITY_BREACH',
   ];
   const incSev: IncidentSeverity[] = ['LOW', 'MEDIUM', 'HIGH', 'CRITICAL'];
@@ -882,6 +882,21 @@ export async function seedDemoVolume(
         title: `Volume incident ${pad(i)}`,
         status,
         siteId: sitePick(i),
+        actionTaken: 'Site secured and supervisor notified.',
+        resolution:
+          status === 'RESOLVED' || status === 'CLOSED'
+            ? 'Investigation completed and corrective action recorded.'
+            : null,
+        resolvedBy:
+          status === 'RESOLVED' || status === 'CLOSED'
+            ? ctx.opsUserId
+            : null,
+        closedBy: status === 'CLOSED' ? ctx.adminUserId : null,
+        closedAt: status === 'CLOSED' ? hoursAgo(i) : null,
+        closureApprovalNote:
+          status === 'CLOSED'
+            ? 'Closure independently reviewed and approved.'
+            : null,
       },
       create: {
         organizationId: orgId,
@@ -893,8 +908,26 @@ export async function seedDemoVolume(
         title: `Volume incident ${pad(i)}`,
         description: `Seed volume incident ${pad(i)} for portal/branch lists.`,
         reporterId: ctx.supervisorUserId,
+        assignedTo: ctx.opsUserId,
+        locationDescription: `Demo site zone ${pad((i % 5) + 1)}`,
+        occurredAt: hoursAgo(i * 6),
+        actionTaken: 'Site secured and supervisor notified.',
+        resolution:
+          status === 'RESOLVED' || status === 'CLOSED'
+            ? 'Investigation completed and corrective action recorded.'
+            : null,
         resolvedAt:
           status === 'RESOLVED' || status === 'CLOSED' ? hoursAgo(i) : null,
+        resolvedBy:
+          status === 'RESOLVED' || status === 'CLOSED'
+            ? ctx.opsUserId
+            : null,
+        closedBy: status === 'CLOSED' ? ctx.adminUserId : null,
+        closedAt: status === 'CLOSED' ? hoursAgo(i) : null,
+        closureApprovalNote:
+          status === 'CLOSED'
+            ? 'Closure independently reviewed and approved.'
+            : null,
         createdAt: hoursAgo(i * 6),
       },
     });
@@ -1963,7 +1996,7 @@ export async function seedDemoVolume(
         organizationId: orgId,
         code,
         title: `Volume policy ${pad(i)}`,
-        category: i % 2 === 0 ? 'DATA_PROTECTION' : 'SECURITY',
+        category: i % 2 === 0 ? 'DATA_PROTECTION' : 'CYBERSECURITY',
         summary: `Volume seed policy ${pad(i)}`,
         body: `Body for volume policy ${pad(i)}.`,
         status: polStatuses[(i - 1) % polStatuses.length]!,

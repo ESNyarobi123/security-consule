@@ -3,6 +3,7 @@ import type {
   EnqueueAlertnessConfirmInput,
   EnqueueClockInInput,
   EnqueueClockOutInput,
+  EnqueuePatrolIssueInput,
   EnqueuePatrolScanInput,
   OutboxRow,
   OutboxStatus,
@@ -102,8 +103,26 @@ export async function enqueuePatrolScan(
   return insertEvent(input.clientEventId, 'PATROL_SCAN', input.deviceTime, {
     siteId: input.siteId,
     checkpointId: input.checkpointId,
+    routeId: input.routeId,
     method: input.method,
     qrOrNfcCode: input.qrOrNfcCode,
+    gps: {
+      latitude: input.latitude,
+      longitude: input.longitude,
+    },
+  });
+}
+
+export async function enqueuePatrolIssue(
+  input: EnqueuePatrolIssueInput,
+): Promise<OutboxRow> {
+  return insertEvent(input.clientEventId, 'PATROL_ISSUE', input.deviceTime, {
+    siteId: input.siteId,
+    routeId: input.routeId,
+    checkpointId: input.checkpointId,
+    title: input.title,
+    description: input.description,
+    severity: input.severity,
     gps: {
       latitude: input.latitude,
       longitude: input.longitude,

@@ -1,5 +1,5 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { AssetStatus } from '@prisma/client';
+import { AssetLifecycleEventType, AssetStatus } from '@prisma/client';
 import {
   IsDateString,
   IsIn,
@@ -8,7 +8,24 @@ import {
   IsString,
   IsUUID,
   Min,
+  MinLength,
 } from 'class-validator';
+
+export const ASSET_CATEGORIES = [
+  'VEHICLE',
+  'RADIO',
+  'UNIFORM',
+  'SECURITY_BOOTS',
+  'SMARTPHONE',
+  'CCTV',
+  'COMPUTER',
+  'FIRE_EXTINGUISHER',
+  'FURNITURE',
+  'ACCESS_CONTROL_DEVICE',
+  'PARKING_EQUIPMENT',
+  'OTHER',
+] as const;
+export type AssetCategory = (typeof ASSET_CATEGORIES)[number];
 
 export const RETURN_CONDITIONS = ['GOOD', 'DAMAGED', 'LOST'] as const;
 export type ReturnCondition = (typeof RETURN_CONDITIONS)[number];
@@ -22,10 +39,10 @@ export class CreateAssetDto {
   @IsString()
   name!: string;
 
-  @ApiPropertyOptional()
+  @ApiPropertyOptional({ enum: ASSET_CATEGORIES })
   @IsOptional()
-  @IsString()
-  category?: string;
+  @IsIn(ASSET_CATEGORIES)
+  category?: AssetCategory;
 
   @ApiPropertyOptional()
   @IsOptional()
@@ -61,6 +78,10 @@ export class AssetResponseDto {
   @ApiPropertyOptional() purchaseCost?: number | null;
   @ApiPropertyOptional() serialNumber?: string | null;
   @ApiProperty({ enum: AssetStatus }) status!: AssetStatus;
+  @ApiPropertyOptional() disposedAt?: Date | null;
+  @ApiPropertyOptional() disposedBy?: string | null;
+  @ApiPropertyOptional() disposalReason?: string | null;
+  @ApiPropertyOptional() maintenanceNotes?: string | null;
   @ApiProperty() createdAt!: Date;
   @ApiPropertyOptional({ type: ActiveAssignmentSummaryDto })
   activeAssignment?: ActiveAssignmentSummaryDto | null;
@@ -95,6 +116,69 @@ export class AssignAssetDto {
   @IsOptional()
   @IsString()
   notes?: string;
+}
+
+export class TransferAssetDto extends AssignAssetDto {}
+
+export class DisposeAssetDto {
+  @ApiProperty()
+  @IsString()
+  @MinLength(3)
+  reason!: string;
+}
+
+export class MaintenanceDto {
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  notes?: string;
+}
+
+export class DamageAssetDto {
+  @ApiPropertyOptional({ enum: RETURN_CONDITIONS })
+  @IsOptional()
+  @IsIn(RETURN_CONDITIONS)
+  condition?: ReturnCondition;
+
+  @ApiProperty()
+  @IsString()
+  @MinLength(1)
+  notes!: string;
+}
+
+export class ReplacementDto {
+  @ApiProperty()
+  @IsUUID()
+  replacementAssetId!: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  notes?: string;
+}
+
+export class AssetLifecycleEventResponseDto {
+  @ApiProperty() id!: string;
+  @ApiProperty() organizationId!: string;
+  @ApiProperty() assetId!: string;
+  @ApiProperty({ enum: AssetLifecycleEventType })
+  eventType!: AssetLifecycleEventType;
+  @ApiPropertyOptional() fromStatus?: string | null;
+  @ApiPropertyOptional() toStatus?: string | null;
+  @ApiPropertyOptional() notes?: string | null;
+  @ApiPropertyOptional() fromEmployeeId?: string | null;
+  @ApiPropertyOptional() fromGuardId?: string | null;
+  @ApiPropertyOptional() toEmployeeId?: string | null;
+  @ApiPropertyOptional() toGuardId?: string | null;
+  @ApiPropertyOptional() replacementAssetId?: string | null;
+  @ApiPropertyOptional() condition?: string | null;
+  @ApiProperty() createdAt!: Date;
+  @ApiProperty() createdBy!: string;
+}
+
+export class CategoryOptionDto {
+  @ApiProperty() code!: string;
+  @ApiProperty() label!: string;
 }
 
 export class ConfirmReturnDto {

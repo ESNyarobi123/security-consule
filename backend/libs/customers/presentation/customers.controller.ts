@@ -758,6 +758,8 @@ export class CustomersController {
   }
 
   @Get(':id')
+  @UseGuards(PermissionsGuard)
+  @RequirePermissions('customers.manage')
   @ApiOperation({
     summary: 'Customer detail with linked sites',
   })
@@ -771,6 +773,8 @@ export class CustomersController {
   }
 
   @Get()
+  @UseGuards(PermissionsGuard)
+  @RequirePermissions('customers.manage')
   @ApiOperation({ summary: 'List customers in organization' })
   @ApiOkResponse({ type: [CustomerResponseDto] })
   list(@CurrentUser() user: AuthUser) {

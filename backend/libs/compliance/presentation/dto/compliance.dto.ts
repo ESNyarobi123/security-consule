@@ -2,17 +2,83 @@ import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import {
   BreachSeverity,
   BreachStatus,
+  ConsentChannel,
+  ConsentLawfulBasis,
+  ConsentStatus,
+  ConsentSubjectType,
   PolicyStatus,
 } from '@prisma/client';
 import {
   IsDateString,
+  IsEmail,
   IsEnum,
+  IsIn,
   IsInt,
   IsOptional,
   IsString,
+  MaxLength,
   Min,
   MinLength,
 } from 'class-validator';
+
+/** Design §32 policy domains — validated on create/update. */
+export const POLICY_CATEGORIES = [
+  'DATA_PROTECTION',
+  'CYBERSECURITY',
+  'EMPLOYMENT',
+  'TAX',
+  'CUSTOMER_CONFIDENTIALITY',
+  'INTERNAL_POLICY',
+  'CYBERCRIME',
+  'OTHER',
+] as const;
+
+export type PolicyCategory = (typeof POLICY_CATEGORIES)[number];
+
+export const POLICY_CATEGORY_LABELS: Record<PolicyCategory, string> = {
+  DATA_PROTECTION: 'Data protection',
+  CYBERSECURITY: 'Cybersecurity standards',
+  EMPLOYMENT: 'Employment law',
+  TAX: 'Tax requirements',
+  CUSTOMER_CONFIDENTIALITY: 'Customer confidentiality',
+  INTERNAL_POLICY: 'Internal company policy',
+  CYBERCRIME: 'Cybercrime law',
+  OTHER: 'Other',
+};
+
+/** Module 32-A consent processing purposes. */
+export const CONSENT_PURPOSES = [
+  'EMPLOYMENT_ADMIN',
+  'ACCESS_CONTROL',
+  'CCTV_MONITORING',
+  'MARKETING',
+  'PAYROLL',
+  'VISITOR_MANAGEMENT',
+  'RECRUITMENT',
+  'CUSTOMER_SERVICE',
+  'BIOMETRIC_PROCESSING',
+  'OTHER',
+] as const;
+
+export type ConsentPurpose = (typeof CONSENT_PURPOSES)[number];
+
+export const CONSENT_PURPOSE_LABELS: Record<ConsentPurpose, string> = {
+  EMPLOYMENT_ADMIN: 'Employment administration',
+  ACCESS_CONTROL: 'Access control',
+  CCTV_MONITORING: 'CCTV / monitoring',
+  MARKETING: 'Marketing',
+  PAYROLL: 'Payroll',
+  VISITOR_MANAGEMENT: 'Visitor management',
+  RECRUITMENT: 'Recruitment',
+  CUSTOMER_SERVICE: 'Customer service',
+  BIOMETRIC_PROCESSING: 'Biometric processing',
+  OTHER: 'Other',
+};
+
+export class CatalogOptionDto {
+  @ApiProperty() value!: string;
+  @ApiProperty() label!: string;
+}
 
 export class CreatePolicyDto {
   @ApiProperty({ example: 'POL-DPP-002' })
@@ -25,9 +91,8 @@ export class CreatePolicyDto {
   @MinLength(3)
   title!: string;
 
-  @ApiProperty({ example: 'DATA_PROTECTION' })
-  @IsString()
-  @MinLength(2)
+  @ApiProperty({ enum: POLICY_CATEGORIES, example: 'DATA_PROTECTION' })
+  @IsIn([...POLICY_CATEGORIES], { message: 'INVALID_POLICY_CATEGORY' })
   category!: string;
 
   @ApiPropertyOptional()
@@ -48,10 +113,9 @@ export class UpdatePolicyDto {
   @MinLength(3)
   title?: string;
 
-  @ApiPropertyOptional()
+  @ApiPropertyOptional({ enum: POLICY_CATEGORIES })
   @IsOptional()
-  @IsString()
-  @MinLength(2)
+  @IsIn([...POLICY_CATEGORIES], { message: 'INVALID_POLICY_CATEGORY' })
   category?: string;
 
   @ApiPropertyOptional()
@@ -178,6 +242,89 @@ export class DataBreachCaseResponseDto {
   @ApiPropertyOptional() closedAt?: Date | null;
   @ApiPropertyOptional() closedBy?: string | null;
   @ApiProperty() createdBy!: string;
+  @ApiProperty() createdAt!: Date;
+  @ApiProperty() updatedAt!: Date;
+}
+
+export class CreateConsentDto {
+  @ApiProperty({ enum: ConsentSubjectType })
+  @IsEnum(ConsentSubjectType)
+  subjectType!: ConsentSubjectType;
+
+  @ApiProperty({ example: 'Jane Doe' })
+  @IsString()
+  @MinLength(2)
+  @MaxLength(200)
+  subjectName!: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsEmail()
+  subjectEmail?: string;
+
+  @ApiPropertyOptional({ description: 'Employee/guard/visitor reference' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(120)
+  subjectRef?: string;
+
+  @ApiProperty({ enum: CONSENT_PURPOSES })
+  @IsIn([...CONSENT_PURPOSES], { message: 'INVALID_CONSENT_PURPOSE' })
+  purpose!: string;
+
+  @ApiProperty({ enum: ConsentLawfulBasis })
+  @IsEnum(ConsentLawfulBasis)
+  lawfulBasis!: ConsentLawfulBasis;
+
+  @ApiProperty({ enum: ConsentChannel })
+  @IsEnum(ConsentChannel)
+  channel!: ConsentChannel;
+
+  @ApiProperty({ example: '2026-08-01T08:00:00.000Z' })
+  @IsDateString()
+  grantedAt!: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsDateString()
+  expiresAt?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  @MaxLength(2000)
+  notes?: string;
+}
+
+export class WithdrawConsentDto {
+  @ApiProperty({ description: 'Why consent is withdrawn (required)' })
+  @IsString()
+  @MinLength(5)
+  @MaxLength(2000)
+  reason!: string;
+}
+
+export class ConsentRecordResponseDto {
+  @ApiProperty() id!: string;
+  @ApiProperty() organizationId!: string;
+  @ApiProperty() referenceCode!: string;
+  @ApiProperty({ enum: ConsentSubjectType }) subjectType!: ConsentSubjectType;
+  @ApiProperty() subjectName!: string;
+  @ApiPropertyOptional() subjectEmail?: string | null;
+  @ApiPropertyOptional() subjectRef?: string | null;
+  @ApiProperty() purpose!: string;
+  @ApiProperty({ enum: ConsentLawfulBasis }) lawfulBasis!: ConsentLawfulBasis;
+  @ApiProperty({ enum: ConsentChannel }) channel!: ConsentChannel;
+  @ApiProperty({ enum: ConsentStatus }) status!: ConsentStatus;
+  @ApiProperty() grantedAt!: Date;
+  @ApiPropertyOptional() expiresAt?: Date | null;
+  @ApiPropertyOptional() withdrawnAt?: Date | null;
+  @ApiPropertyOptional() withdrawnBy?: string | null;
+  @ApiPropertyOptional() withdrawnByName?: string | null;
+  @ApiPropertyOptional() withdrawReason?: string | null;
+  @ApiPropertyOptional() notes?: string | null;
+  @ApiProperty() createdBy!: string;
+  @ApiPropertyOptional() createdByName?: string | null;
   @ApiProperty() createdAt!: Date;
   @ApiProperty() updatedAt!: Date;
 }

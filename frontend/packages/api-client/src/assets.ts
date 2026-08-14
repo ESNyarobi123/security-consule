@@ -104,8 +104,43 @@ export type Asset = {
   purchaseCost?: number | null;
   serialNumber?: string | null;
   status: AssetStatus | string;
+  disposedAt?: string | null;
+  disposedBy?: string | null;
+  disposalReason?: string | null;
+  maintenanceNotes?: string | null;
   createdAt: string;
   activeAssignment?: ActiveAssignmentSummary | null;
+};
+
+export type AssetLifecycleEventType =
+  | 'TRANSFER'
+  | 'DISPOSE'
+  | 'MAINTENANCE_START'
+  | 'MAINTENANCE_COMPLETE'
+  | 'DAMAGE'
+  | 'REPLACEMENT';
+
+export type AssetLifecycleEvent = {
+  id: string;
+  organizationId: string;
+  assetId: string;
+  eventType: AssetLifecycleEventType | string;
+  fromStatus?: string | null;
+  toStatus?: string | null;
+  notes?: string | null;
+  fromEmployeeId?: string | null;
+  fromGuardId?: string | null;
+  toEmployeeId?: string | null;
+  toGuardId?: string | null;
+  replacementAssetId?: string | null;
+  condition?: string | null;
+  createdAt: string;
+  createdBy: string;
+};
+
+export type CategoryOption = {
+  code: string;
+  label: string;
 };
 
 export type CreateAssetBody = {
@@ -198,6 +233,91 @@ export const assignAsset = (
 
 export const listAssetAssigneeOptions = (token?: string) =>
   coreFetch<AssetAssigneeOptions>('/api/v1/assets/assignee-options', {
+    token,
+  });
+
+export const listAssetCategoryOptions = (token?: string) =>
+  coreFetch<CategoryOption[]>('/api/v1/assets/category-options', { token });
+
+export const getAssetHistory = (assetId: string, token?: string) =>
+  coreFetch<AssetLifecycleEvent[]>(`/api/v1/assets/${assetId}/history`, {
+    token,
+  });
+
+export const transferAsset = (
+  assetId: string,
+  body: AssignAssetBody,
+  token?: string,
+) =>
+  coreFetch<AssetAssignment>(`/api/v1/assets/${assetId}/transfer`, {
+    method: 'POST',
+    body: JSON.stringify(body),
+    token,
+  });
+
+export const disposeAsset = (
+  assetId: string,
+  body: { reason: string },
+  token?: string,
+) =>
+  coreFetch<Asset>(`/api/v1/assets/${assetId}/dispose`, {
+    method: 'POST',
+    body: JSON.stringify(body),
+    token,
+  });
+
+export const startAssetMaintenance = (
+  assetId: string,
+  body: { notes?: string },
+  token?: string,
+) =>
+  coreFetch<Asset>(`/api/v1/assets/${assetId}/maintenance/start`, {
+    method: 'POST',
+    body: JSON.stringify(body),
+    token,
+  });
+
+export const completeAssetMaintenance = (
+  assetId: string,
+  body: { notes?: string },
+  token?: string,
+) =>
+  coreFetch<Asset>(`/api/v1/assets/${assetId}/maintenance/complete`, {
+    method: 'POST',
+    body: JSON.stringify(body),
+    token,
+  });
+
+export const recordAssetDamage = (
+  assetId: string,
+  body: { notes: string; condition?: ReturnCondition },
+  token?: string,
+) =>
+  coreFetch<AssetLifecycleEvent>(`/api/v1/assets/${assetId}/damage`, {
+    method: 'POST',
+    body: JSON.stringify(body),
+    token,
+  });
+
+export const recordAssetReplacement = (
+  assetId: string,
+  body: { replacementAssetId: string; notes?: string },
+  token?: string,
+) =>
+  coreFetch<AssetLifecycleEvent>(`/api/v1/assets/${assetId}/replacement`, {
+    method: 'POST',
+    body: JSON.stringify(body),
+    token,
+  });
+
+export const walkInReturnAsset = (
+  assetId: string,
+  body: { condition?: ReturnCondition; receiptNote?: string },
+  token?: string,
+) =>
+  coreFetch<AssetAssignment>(`/api/v1/assets/${assetId}/return`, {
+    method: 'POST',
+    body: JSON.stringify(body),
     token,
   });
 

@@ -1,5 +1,13 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { IsBoolean, IsOptional, IsString, MinLength } from 'class-validator';
+import {
+  IsBoolean,
+  IsIn,
+  IsOptional,
+  IsString,
+  MinLength,
+} from 'class-validator';
+
+const GATE_TYPES = ['PEDESTRIAN', 'VEHICLE', 'MIXED'] as const;
 
 export class CreateBranchDto {
   @ApiProperty({ example: 'DSM-HQ' })
@@ -138,16 +146,36 @@ export class CreateGateDto {
   @IsString()
   name!: string;
 
-  @ApiPropertyOptional({ enum: ['PEDESTRIAN', 'VEHICLE', 'MIXED'] })
+  @ApiPropertyOptional({ enum: GATE_TYPES })
+  @IsOptional()
+  @IsIn([...GATE_TYPES])
+  gateType?: (typeof GATE_TYPES)[number];
+}
+
+export class UpdateGateDto {
+  @ApiPropertyOptional()
   @IsOptional()
   @IsString()
-  gateType?: 'PEDESTRIAN' | 'VEHICLE' | 'MIXED';
+  @MinLength(2)
+  name?: string;
+
+  @ApiPropertyOptional({ enum: GATE_TYPES })
+  @IsOptional()
+  @IsIn([...GATE_TYPES])
+  gateType?: (typeof GATE_TYPES)[number];
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsBoolean()
+  isActive?: boolean;
 }
 
 export class GateResponseDto {
   @ApiProperty() id!: string;
   @ApiProperty() organizationId!: string;
   @ApiProperty() siteId!: string;
+  @ApiPropertyOptional() siteCode?: string | null;
+  @ApiPropertyOptional() siteName?: string | null;
   @ApiProperty() code!: string;
   @ApiProperty() name!: string;
   @ApiProperty() gateType!: string;

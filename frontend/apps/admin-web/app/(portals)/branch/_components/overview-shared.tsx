@@ -6,6 +6,8 @@ import {
   BookOpen,
   CalendarClock,
   ChevronRight,
+  DoorOpen,
+  FileBarChart,
   MapPin,
   Radio,
   Route,
@@ -76,6 +78,7 @@ export type KpiTone = keyof typeof KPI_TONES;
 /** Visual chips in the hero band (link where useful). */
 export const HERO_CHIPS: { label: string; href?: string }[] = [
   { label: 'Sites', href: '/branch/sites' },
+  { label: 'Access points', href: '/branch/access-points' },
   { label: 'Deployments', href: '/branch/deployments' },
   { label: 'Shifts', href: '/branch/shifts' },
   { label: 'Attendance', href: '/branch/attendance' },
@@ -83,6 +86,7 @@ export const HERO_CHIPS: { label: string; href?: string }[] = [
   { label: 'EOB', href: '/branch/eob' },
   { label: 'Patrols', href: '/branch/patrols' },
   { label: 'Incidents', href: '/branch/incidents' },
+  { label: 'Reports', href: '/branch/reports' },
 ];
 
 export type QuickLink = {
@@ -100,6 +104,13 @@ export const QUICK_LINKS: QuickLink[] = [
     hint: 'Facilities under each branch',
     Icon: MapPin,
     tone: 'sky',
+  },
+  {
+    href: '/branch/access-points',
+    label: 'Access points',
+    hint: 'Site gates · pedestrian / vehicle',
+    Icon: DoorOpen,
+    tone: 'teal',
   },
   {
     href: '/branch/deployments',
@@ -149,6 +160,13 @@ export const QUICK_LINKS: QuickLink[] = [
     hint: 'Create, list, escalate status',
     Icon: ShieldAlert,
     tone: 'rose',
+  },
+  {
+    href: '/branch/reports',
+    label: 'Reports',
+    hint: 'Period pack · attendance through gate',
+    Icon: FileBarChart,
+    tone: 'sky',
   },
   {
     href: '/operations',

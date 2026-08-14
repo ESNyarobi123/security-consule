@@ -89,7 +89,7 @@ export default function ComplianceOverviewPage() {
   return (
     <ComplianceShell
       title="Audit overview"
-      description="Append-only audit trail. Policies and the DPO breach register are under the tabs above. Risk register, DPIA, consent, and backup/DR are deferred."
+      description="Append-only audit trail. Policies, consent/lawful-basis records, and the DPO breach register are under the tabs above. Risk register, DPIA, and backup/DR are deferred."
       actions={
         <button
           type="button"
@@ -106,8 +106,9 @@ export default function ComplianceOverviewPage() {
     >
       <p className="mb-4 rounded border border-[#e1dfdd] bg-[#faf9f8] px-3 py-2 text-xs text-[#605e5c]">
         Honest scope: this portal covers audit logs, policy documents (thin
-        COMPLIANCE_OFFICER → GM approval), and the DPO data-breach register.
-        Risk register / DPIA / consent / backup-DR are not built yet.
+        COMPLIANCE_OFFICER → GM approval), DPO consent / lawful-basis records,
+        and the DPO data-breach register. Risk register / DPIA / backup-DR are
+        not built yet.
       </p>
 
       {error ? (

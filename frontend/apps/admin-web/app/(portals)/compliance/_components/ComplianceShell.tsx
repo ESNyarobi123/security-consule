@@ -21,6 +21,11 @@ export const COMPLIANCE_TABS = [
     permissions: ['compliance.manage', 'audit.read'] as const,
   },
   {
+    href: '/compliance/consents',
+    label: 'Consents',
+    permissions: ['dpo.manage', 'compliance.manage', 'audit.read'] as const,
+  },
+  {
     href: '/compliance/breaches',
     label: 'Breaches',
     permissions: ['dpo.manage', 'compliance.manage', 'audit.read'] as const,

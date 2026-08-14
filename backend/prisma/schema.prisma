@@ -9,33 +9,35 @@ datasource db {
 }
 
 model User {
-  id              String             @id @default(uuid())
-  organizationId  String             @map("organization_id")
-  email           String             @unique
-  passwordHash    String             @map("password_hash")
-  fullName        String             @map("full_name")
-  phone           String?
-  isActive        Boolean            @default(true) @map("is_active")
-  mfaEnabled      Boolean            @default(false) @map("mfa_enabled")
-  lastLoginAt     DateTime?          @map("last_login_at")
-  createdAt       DateTime           @default(now()) @map("created_at")
-  updatedAt       DateTime           @updatedAt @map("updated_at")
-  createdBy       String?            @map("created_by")
-  customerId      String?            @map("customer_id")
-  supplierId      String?            @map("supplier_id")
-  /** Portal 35.14 — other security company partner binding */
-  b2bPartnerId    String?            @map("b2b_partner_id")
-  keycloakSub     String?            @unique @map("keycloak_sub")
-  mfaSecret       String?            @map("mfa_secret")
-  mfaVerifiedAt   DateTime?          @map("mfa_verified_at")
-  suspendedAt     DateTime?          @map("suspended_at")
-  suspendedReason String?            @map("suspended_reason")
-  mustChangePassword Boolean         @default(false) @map("must_change_password")
-  loginHistory    LoginHistory[]
-  branchAccess    UserBranchAccess[]
-  roles           UserRole[]
-  siteAccess      UserSiteAccess[]
-  organization    Organization       @relation(fields: [organizationId], references: [id])
+  id                 String             @id @default(uuid())
+  organizationId     String             @map("organization_id")
+  email              String             @unique
+  passwordHash       String             @map("password_hash")
+  fullName           String             @map("full_name")
+  phone              String?
+  isActive           Boolean            @default(true) @map("is_active")
+  mfaEnabled         Boolean            @default(false) @map("mfa_enabled")
+  lastLoginAt        DateTime?          @map("last_login_at")
+  createdAt          DateTime           @default(now()) @map("created_at")
+  updatedAt          DateTime           @updatedAt @map("updated_at")
+  createdBy          String?            @map("created_by")
+  customerId         String?            @map("customer_id")
+  supplierId         String?            @map("supplier_id")
+  /**
+   * Portal 35.14 — other security company partner binding
+   */
+  b2bPartnerId       String?            @map("b2b_partner_id")
+  keycloakSub        String?            @unique @map("keycloak_sub")
+  mfaSecret          String?            @map("mfa_secret")
+  mfaVerifiedAt      DateTime?          @map("mfa_verified_at")
+  suspendedAt        DateTime?          @map("suspended_at")
+  suspendedReason    String?            @map("suspended_reason")
+  mustChangePassword Boolean            @default(false) @map("must_change_password")
+  loginHistory       LoginHistory[]
+  branchAccess       UserBranchAccess[]
+  roles              UserRole[]
+  siteAccess         UserSiteAccess[]
+  organization       Organization       @relation(fields: [organizationId], references: [id])
 
   @@index([organizationId, customerId])
   @@index([organizationId, supplierId])
@@ -114,7 +116,9 @@ model UserSiteAccess {
   @@schema("iam")
 }
 
-/** Module 5-E — pending IAM mutations gated by libs/approvals (creator ≠ approver). */
+/**
+ * Module 5-E — pending IAM mutations gated by libs/approvals (creator ≠ approver).
+ */
 enum IamChangeRequestStatus {
   PENDING
   APPROVED
@@ -131,7 +135,9 @@ model IamChangeRequest {
   changeType         String                 @default("ROLE_ASSIGNMENT") @map("change_type")
   proposedRoleCodes  String[]               @map("proposed_role_codes")
   previousRoleCodes  String[]               @map("previous_role_codes")
-  /** Suspend justification (M5-F); unused for role assignment. */
+  /**
+   * Suspend justification (M5-F); unused for role assignment.
+   */
   reason             String?
   status             IamChangeRequestStatus @default(PENDING)
   approvalInstanceId String?                @map("approval_instance_id")
@@ -263,56 +269,56 @@ model Gate {
 }
 
 model Customer {
-  id                   String                   @id @default(uuid())
-  organizationId       String                   @map("organization_id")
-  code                 String
-  name                 String
-  tradingName          String?                  @map("trading_name")
-  tin                  String?
-  vrn                  String?
-  businessLicense      String?                  @map("business_license")
-  email                String?
-  phone                String?
-  altPhone             String?                  @map("alt_phone")
-  address              String?
-  postalAddress        String?                  @map("postal_address")
-  city                 String?
-  region               String?
-  country              String?                  @default("Tanzania")
-  contactPerson        String?                  @map("contact_person")
-  contactDesignation   String?                  @map("contact_designation")
-  billingEmail         String?                  @map("billing_email")
-  opsEmail             String?                  @map("ops_email")
-  website              String?
-  category             String?
-  industry             String?
-  ranking              String?                  @default("NORMAL")
-  status               CustomerLifecycleStatus  @default(PROSPECT)
-  serviceTypes         String[]                 @default([]) @map("service_types")
-  preferredStartDate   DateTime?                @map("preferred_start_date") @db.Date
-  estimatedGuards      Int?                     @map("estimated_guards")
-  specialRequirements  String?                  @map("special_requirements")
-  slaLevel             String?                  @map("sla_level")
-  paymentTerms         String?                  @map("payment_terms")
-  paymentMethod        String?                  @map("payment_method")
-  bankName             String?                  @map("bank_name")
-  accountNumber        String?                  @map("account_number")
-  creditLimit          Decimal?                 @map("credit_limit") @db.Decimal(18, 2)
-  currency             String?                  @default("TZS")
-  invoiceFrequency     String?                  @map("invoice_frequency")
-  taxExempt            Boolean                  @default(false) @map("tax_exempt")
-  accountManagerName   String?                  @map("account_manager_name")
-  branchId             String?                  @map("branch_id")
-  isActive             Boolean                  @default(true) @map("is_active")
-  createdAt            DateTime                 @default(now()) @map("created_at")
-  updatedAt            DateTime                 @updatedAt @map("updated_at")
-  createdBy            String?                  @map("created_by")
-  version              Int                      @default(1)
-  contracts            Contract[]
-  serviceRequests      CustomerServiceRequest[]
-  complaints           CustomerComplaint[]
-  contacts             CustomerContact[]
-  organization         Organization             @relation(fields: [organizationId], references: [id])
+  id                  String                   @id @default(uuid())
+  organizationId      String                   @map("organization_id")
+  code                String
+  name                String
+  tradingName         String?                  @map("trading_name")
+  tin                 String?
+  vrn                 String?
+  businessLicense     String?                  @map("business_license")
+  email               String?
+  phone               String?
+  altPhone            String?                  @map("alt_phone")
+  address             String?
+  postalAddress       String?                  @map("postal_address")
+  city                String?
+  region              String?
+  country             String?                  @default("Tanzania")
+  contactPerson       String?                  @map("contact_person")
+  contactDesignation  String?                  @map("contact_designation")
+  billingEmail        String?                  @map("billing_email")
+  opsEmail            String?                  @map("ops_email")
+  website             String?
+  category            String?
+  industry            String?
+  ranking             String?                  @default("NORMAL")
+  status              CustomerLifecycleStatus  @default(PROSPECT)
+  serviceTypes        String[]                 @default([]) @map("service_types")
+  preferredStartDate  DateTime?                @map("preferred_start_date") @db.Date
+  estimatedGuards     Int?                     @map("estimated_guards")
+  specialRequirements String?                  @map("special_requirements")
+  slaLevel            String?                  @map("sla_level")
+  paymentTerms        String?                  @map("payment_terms")
+  paymentMethod       String?                  @map("payment_method")
+  bankName            String?                  @map("bank_name")
+  accountNumber       String?                  @map("account_number")
+  creditLimit         Decimal?                 @map("credit_limit") @db.Decimal(18, 2)
+  currency            String?                  @default("TZS")
+  invoiceFrequency    String?                  @map("invoice_frequency")
+  taxExempt           Boolean                  @default(false) @map("tax_exempt")
+  accountManagerName  String?                  @map("account_manager_name")
+  branchId            String?                  @map("branch_id")
+  isActive            Boolean                  @default(true) @map("is_active")
+  createdAt           DateTime                 @default(now()) @map("created_at")
+  updatedAt           DateTime                 @updatedAt @map("updated_at")
+  createdBy           String?                  @map("created_by")
+  version             Int                      @default(1)
+  contracts           Contract[]
+  serviceRequests     CustomerServiceRequest[]
+  complaints          CustomerComplaint[]
+  contacts            CustomerContact[]
+  organization        Organization             @relation(fields: [organizationId], references: [id])
 
   @@unique([organizationId, code])
   @@index([organizationId, tin])
@@ -320,7 +326,9 @@ model Customer {
   @@schema("customers")
 }
 
-/** Module 6-M — multi-contact directory (billing / ops / security beyond scalar contactPerson). */
+/**
+ * Module 6-M — multi-contact directory (billing / ops / security beyond scalar contactPerson).
+ */
 model CustomerContact {
   id             String              @id @default(uuid())
   organizationId String              @map("organization_id")
@@ -345,30 +353,32 @@ model CustomerContact {
   @@schema("customers")
 }
 
-/** Module 6-B — customer complaints (distinct from service-request tickets). */
+/**
+ * Module 6-B — customer complaints (distinct from service-request tickets).
+ */
 model CustomerComplaint {
-  id               String                   @id @default(uuid())
-  organizationId   String                   @map("organization_id")
-  customerId       String                   @map("customer_id")
-  referenceNumber  String                   @map("reference_number")
-  category         ComplaintCategory
-  severity         ComplaintSeverity        @default(MEDIUM)
-  status           ComplaintStatus          @default(OPEN)
-  title            String
-  description      String
-  siteId           String?                  @map("site_id")
-  callbackPhone    String?                  @map("callback_phone")
-  createdBy        String                   @map("created_by")
-  acknowledgedBy   String?                  @map("acknowledged_by")
-  acknowledgedAt   DateTime?                @map("acknowledged_at")
-  resolvedBy       String?                  @map("resolved_by")
-  resolvedAt       DateTime?                @map("resolved_at")
-  closedBy         String?                  @map("closed_by")
-  closedAt         DateTime?                @map("closed_at")
-  resolutionNotes  String?                  @map("resolution_notes")
-  createdAt        DateTime                 @default(now()) @map("created_at")
-  updatedAt        DateTime                 @updatedAt @map("updated_at")
-  customer         Customer                 @relation(fields: [customerId], references: [id])
+  id              String            @id @default(uuid())
+  organizationId  String            @map("organization_id")
+  customerId      String            @map("customer_id")
+  referenceNumber String            @map("reference_number")
+  category        ComplaintCategory
+  severity        ComplaintSeverity @default(MEDIUM)
+  status          ComplaintStatus   @default(OPEN)
+  title           String
+  description     String
+  siteId          String?           @map("site_id")
+  callbackPhone   String?           @map("callback_phone")
+  createdBy       String            @map("created_by")
+  acknowledgedBy  String?           @map("acknowledged_by")
+  acknowledgedAt  DateTime?         @map("acknowledged_at")
+  resolvedBy      String?           @map("resolved_by")
+  resolvedAt      DateTime?         @map("resolved_at")
+  closedBy        String?           @map("closed_by")
+  closedAt        DateTime?         @map("closed_at")
+  resolutionNotes String?           @map("resolution_notes")
+  createdAt       DateTime          @default(now()) @map("created_at")
+  updatedAt       DateTime          @updatedAt @map("updated_at")
+  customer        Customer          @relation(fields: [customerId], references: [id])
 
   @@unique([organizationId, referenceNumber])
   @@index([organizationId, customerId, status])
@@ -377,30 +387,32 @@ model CustomerComplaint {
   @@schema("customers")
 }
 
-/** Customer portal service tickets (thin call-centre handoff). */
+/**
+ * Customer portal service tickets (thin call-centre handoff).
+ */
 model CustomerServiceRequest {
-  id               String                 @id @default(uuid())
-  organizationId   String                 @map("organization_id")
-  customerId       String                 @map("customer_id")
-  referenceNumber  String                 @map("reference_number")
-  category         ServiceRequestCategory
-  urgency          ServiceRequestUrgency  @default(THIS_WEEK)
-  status           ServiceRequestStatus   @default(OPEN)
-  title            String
-  description      String
-  siteId           String?                @map("site_id")
-  callbackPhone    String?                @map("callback_phone")
-  createdBy        String                 @map("created_by")
-  acknowledgedBy   String?                @map("acknowledged_by")
-  acknowledgedAt   DateTime?              @map("acknowledged_at")
-  resolvedBy       String?                @map("resolved_by")
-  resolvedAt       DateTime?              @map("resolved_at")
-  closedBy         String?                @map("closed_by")
-  closedAt         DateTime?              @map("closed_at")
-  resolutionNotes  String?                @map("resolution_notes")
-  createdAt        DateTime               @default(now()) @map("created_at")
-  updatedAt        DateTime               @updatedAt @map("updated_at")
-  customer         Customer               @relation(fields: [customerId], references: [id])
+  id              String                 @id @default(uuid())
+  organizationId  String                 @map("organization_id")
+  customerId      String                 @map("customer_id")
+  referenceNumber String                 @map("reference_number")
+  category        ServiceRequestCategory
+  urgency         ServiceRequestUrgency  @default(THIS_WEEK)
+  status          ServiceRequestStatus   @default(OPEN)
+  title           String
+  description     String
+  siteId          String?                @map("site_id")
+  callbackPhone   String?                @map("callback_phone")
+  createdBy       String                 @map("created_by")
+  acknowledgedBy  String?                @map("acknowledged_by")
+  acknowledgedAt  DateTime?              @map("acknowledged_at")
+  resolvedBy      String?                @map("resolved_by")
+  resolvedAt      DateTime?              @map("resolved_at")
+  closedBy        String?                @map("closed_by")
+  closedAt        DateTime?              @map("closed_at")
+  resolutionNotes String?                @map("resolution_notes")
+  createdAt       DateTime               @default(now()) @map("created_at")
+  updatedAt       DateTime               @updatedAt @map("updated_at")
+  customer        Customer               @relation(fields: [customerId], references: [id])
 
   @@unique([organizationId, referenceNumber])
   @@index([organizationId, customerId, status])
@@ -410,35 +422,35 @@ model CustomerServiceRequest {
 }
 
 model Contract {
-  id                  String         @id @default(uuid())
-  organizationId      String         @map("organization_id")
-  customerId          String         @map("customer_id")
-  contractNumber      String         @map("contract_number")
-  title               String
-  serviceType         String         @map("service_type")
-  serviceTypes        String[]       @default([]) @map("service_types")
-  status              ContractStatus @default(DRAFT)
-  startDate           DateTime       @map("start_date")
-  endDate             DateTime       @map("end_date")
-  monthlyFee          Decimal        @map("monthly_fee") @db.Decimal(18, 2)
-  currency            String         @default("TZS")
-  paymentTerms        String?        @map("payment_terms")
-  contractKind        String         @default("NEW") @map("contract_kind")
-  renewalDate         DateTime?      @map("renewal_date") @db.Date
-  noticePeriodDays    Int            @default(30) @map("notice_period_days")
-  invoiceFrequency    String?        @default("MONTHLY") @map("invoice_frequency")
-  vatApplicable       Boolean        @default(true) @map("vat_applicable")
-  slaLevel            String?        @default("STANDARD") @map("sla_level")
-  guardCount          Int?           @map("guard_count")
-  slaTerms            String?        @map("sla_terms")
-  approvalInstanceId  String?        @map("approval_instance_id")
-  createdAt           DateTime       @default(now()) @map("created_at")
-  updatedAt           DateTime       @updatedAt @map("updated_at")
-  createdBy           String?        @map("created_by")
-  version             Int            @default(1)
-  customer            Customer       @relation(fields: [customerId], references: [id])
-  organization        Organization   @relation(fields: [organizationId], references: [id])
-  sites               ContractSite[]
+  id                 String         @id @default(uuid())
+  organizationId     String         @map("organization_id")
+  customerId         String         @map("customer_id")
+  contractNumber     String         @map("contract_number")
+  title              String
+  serviceType        String         @map("service_type")
+  serviceTypes       String[]       @default([]) @map("service_types")
+  status             ContractStatus @default(DRAFT)
+  startDate          DateTime       @map("start_date")
+  endDate            DateTime       @map("end_date")
+  monthlyFee         Decimal        @map("monthly_fee") @db.Decimal(18, 2)
+  currency           String         @default("TZS")
+  paymentTerms       String?        @map("payment_terms")
+  contractKind       String         @default("NEW") @map("contract_kind")
+  renewalDate        DateTime?      @map("renewal_date") @db.Date
+  noticePeriodDays   Int            @default(30) @map("notice_period_days")
+  invoiceFrequency   String?        @default("MONTHLY") @map("invoice_frequency")
+  vatApplicable      Boolean        @default(true) @map("vat_applicable")
+  slaLevel           String?        @default("STANDARD") @map("sla_level")
+  guardCount         Int?           @map("guard_count")
+  slaTerms           String?        @map("sla_terms")
+  approvalInstanceId String?        @map("approval_instance_id")
+  createdAt          DateTime       @default(now()) @map("created_at")
+  updatedAt          DateTime       @updatedAt @map("updated_at")
+  createdBy          String?        @map("created_by")
+  version            Int            @default(1)
+  customer           Customer       @relation(fields: [customerId], references: [id])
+  organization       Organization   @relation(fields: [organizationId], references: [id])
+  sites              ContractSite[]
 
   @@unique([organizationId, contractNumber])
   @@map("contracts")
@@ -557,32 +569,32 @@ model AuditLog {
 }
 
 model GuardProfile {
-  id                 String            @id @default(uuid())
-  organizationId     String            @map("organization_id")
-  userId             String            @map("user_id")
-  employeeNumber     String            @map("employee_number")
-  status             GuardStatus       @default(ACTIVE)
-  deploymentEligible Boolean           @default(false) @map("deployment_eligible")
+  id                     String            @id @default(uuid())
+  organizationId         String            @map("organization_id")
+  userId                 String            @map("user_id")
+  employeeNumber         String            @map("employee_number")
+  status                 GuardStatus       @default(ACTIVE)
+  deploymentEligible     Boolean           @default(false) @map("deployment_eligible")
   /// Thin G3 readiness checklist (not full §8 training matrix)
-  trainingCompleted  Boolean           @default(false) @map("training_completed")
-  firearmAuthorized  Boolean           @default(false) @map("firearm_authorized")
-  firearmExpiry      DateTime?         @map("firearm_expiry") @db.Date
-  clearanceVerified  Boolean           @default(false) @map("clearance_verified")
+  trainingCompleted      Boolean           @default(false) @map("training_completed")
+  firearmAuthorized      Boolean           @default(false) @map("firearm_authorized")
+  firearmExpiry          DateTime?         @map("firearm_expiry") @db.Date
+  clearanceVerified      Boolean           @default(false) @map("clearance_verified")
   /// Module 8-B — medical fitness + national ID ref (thin; not full document vault)
-  medicalFitnessVerified Boolean       @default(false) @map("medical_fitness_verified")
-  medicalFitnessExpiry   DateTime?     @map("medical_fitness_expiry") @db.Date
-  nationalIdRef          String?       @map("national_id_ref")
+  medicalFitnessVerified Boolean           @default(false) @map("medical_fitness_verified")
+  medicalFitnessExpiry   DateTime?         @map("medical_fitness_expiry") @db.Date
+  nationalIdRef          String?           @map("national_id_ref")
   /// Module 8-C — kit issued checklist (thin; full asset ledger stays libs/assets)
-  uniformIssued          Boolean       @default(false) @map("uniform_issued")
-  equipmentIssued        Boolean       @default(false) @map("equipment_issued")
-  photoUrl           String?           @map("photo_url")
-  phone              String?
-  createdAt          DateTime          @default(now()) @map("created_at")
-  updatedAt          DateTime          @updatedAt @map("updated_at")
-  attendances        GuardAttendance[]
-  deployments        GuardDeployment[]
-  assignments        ShiftAssignment[]
-  employee           Employee?
+  uniformIssued          Boolean           @default(false) @map("uniform_issued")
+  equipmentIssued        Boolean           @default(false) @map("equipment_issued")
+  photoUrl               String?           @map("photo_url")
+  phone                  String?
+  createdAt              DateTime          @default(now()) @map("created_at")
+  updatedAt              DateTime          @updatedAt @map("updated_at")
+  attendances            GuardAttendance[]
+  deployments            GuardDeployment[]
+  assignments            ShiftAssignment[]
+  employee               Employee?
 
   @@unique([organizationId, employeeNumber])
   @@unique([organizationId, userId])
@@ -708,24 +720,24 @@ model GuardAttendance {
 }
 
 model AlertnessCheck {
-  id               String            @id @default(uuid())
-  organizationId   String            @map("organization_id")
-  guardId          String            @map("guard_id")
-  siteId           String            @map("site_id")
-  shiftId          String?           @map("shift_id")
-  scheduledAt      DateTime          @map("scheduled_at")
-  confirmedAt      DateTime?         @map("confirmed_at")
-  status           AlertnessStatus   @default(SCHEDULED)
-  method           AttendanceMethod?
-  latitude         Float?
-  longitude        Float?
-  deviceTime       DateTime?         @map("device_time")
-  serverReceivedAt DateTime?         @map("server_received_at")
-  clientEventId    String?           @unique @map("client_event_id")
-  referenceNumber  String            @unique @map("reference_number")
+  id                String            @id @default(uuid())
+  organizationId    String            @map("organization_id")
+  guardId           String            @map("guard_id")
+  siteId            String            @map("site_id")
+  shiftId           String?           @map("shift_id")
+  scheduledAt       DateTime          @map("scheduled_at")
+  confirmedAt       DateTime?         @map("confirmed_at")
+  status            AlertnessStatus   @default(SCHEDULED)
+  method            AttendanceMethod?
+  latitude          Float?
+  longitude         Float?
+  deviceTime        DateTime?         @map("device_time")
+  serverReceivedAt  DateTime?         @map("server_received_at")
+  clientEventId     String?           @unique @map("client_event_id")
+  referenceNumber   String            @unique @map("reference_number")
   /// Module 10-B — supervisor note on miss (design §10 record fields)
-  supervisorRemarks String?          @map("supervisor_remarks")
-  createdAt        DateTime          @default(now()) @map("created_at")
+  supervisorRemarks String?           @map("supervisor_remarks")
+  createdAt         DateTime          @default(now()) @map("created_at")
 
   @@index([guardId, scheduledAt])
   @@map("alertness_checks")
@@ -757,19 +769,19 @@ model PatrolScan {
 }
 
 model FieldAlert {
-  id             String   @id @default(uuid())
-  organizationId String   @map("organization_id")
-  siteId         String   @map("site_id")
-  guardId        String?  @map("guard_id")
-  alertType      String   @map("alert_type")
-  severity       String   @default("MEDIUM")
-  message        String
-  acknowledged     Boolean   @default(false)
-  acknowledgedBy   String?   @map("acknowledged_by")
-  escalationStage  String    @default("SUPERVISOR") @map("escalation_stage")
-  escalatedAt      DateTime? @map("escalated_at")
-  escalatedBy      String?   @map("escalated_by")
-  createdAt        DateTime  @default(now()) @map("created_at")
+  id              String    @id @default(uuid())
+  organizationId  String    @map("organization_id")
+  siteId          String    @map("site_id")
+  guardId         String?   @map("guard_id")
+  alertType       String    @map("alert_type")
+  severity        String    @default("MEDIUM")
+  message         String
+  acknowledged    Boolean   @default(false)
+  acknowledgedBy  String?   @map("acknowledged_by")
+  escalationStage String    @default("SUPERVISOR") @map("escalation_stage")
+  escalatedAt     DateTime? @map("escalated_at")
+  escalatedBy     String?   @map("escalated_by")
+  createdAt       DateTime  @default(now()) @map("created_at")
 
   @@index([organizationId, createdAt])
   @@map("field_alerts")
@@ -797,24 +809,32 @@ model OccurrenceEntry {
 }
 
 model Incident {
-  id               String           @id @default(uuid())
-  organizationId   String           @map("organization_id")
-  siteId           String           @map("site_id")
-  incidentNumber   String           @map("incident_number")
-  category         String
-  severity         IncidentSeverity @default(MEDIUM)
-  status           IncidentStatus   @default(OPEN)
-  title            String
-  description      String
-  reporterId       String           @map("reporter_id")
-  assignedTo       String?          @map("assigned_to")
-  latitude         Float?
-  longitude        Float?
-  clientEventId    String?          @unique @map("client_event_id")
-  deviceReportedAt DateTime?        @map("device_reported_at")
-  serverReceivedAt DateTime         @default(now()) @map("server_received_at")
-  resolvedAt       DateTime?        @map("resolved_at")
-  createdAt        DateTime         @default(now()) @map("created_at")
+  id                  String           @id @default(uuid())
+  organizationId      String           @map("organization_id")
+  siteId              String           @map("site_id")
+  incidentNumber      String           @map("incident_number")
+  category            String
+  severity            IncidentSeverity @default(MEDIUM)
+  status              IncidentStatus   @default(OPEN)
+  title               String
+  description         String
+  reporterId          String           @map("reporter_id")
+  assignedTo          String?          @map("assigned_to")
+  locationDescription String?          @map("location_description")
+  actionTaken         String?          @map("action_taken")
+  resolution          String?
+  latitude            Float?
+  longitude           Float?
+  clientEventId       String?          @unique @map("client_event_id")
+  occurredAt          DateTime         @default(now()) @map("occurred_at")
+  deviceReportedAt    DateTime?        @map("device_reported_at")
+  serverReceivedAt    DateTime         @default(now()) @map("server_received_at")
+  resolvedAt          DateTime?        @map("resolved_at")
+  resolvedBy          String?          @map("resolved_by")
+  closedBy            String?          @map("closed_by")
+  closedAt            DateTime?        @map("closed_at")
+  closureApprovalNote String?          @map("closure_approval_note")
+  createdAt           DateTime         @default(now()) @map("created_at")
 
   @@unique([organizationId, incidentNumber])
   @@index([siteId, createdAt])
@@ -823,28 +843,32 @@ model Incident {
 }
 
 model CustomerEmployee {
-  id             String      @id @default(uuid())
-  organizationId String      @map("organization_id")
-  customerId     String      @map("customer_id")
-  /** Linked IAM login for Portal 35.9 self-scope (nullable until invited). */
-  userId         String?     @unique @map("user_id")
-  employeeNumber String?     @map("employee_number")
-  fullName       String      @map("full_name")
-  email          String?
-  phone          String?
-  bankAccountRef String?     @map("bank_account_ref")
-  bankName       String?     @map("bank_name")
-  mobileMoneyRef String?     @map("mobile_money_ref")
-  mobileMoneyProvider String? @map("mobile_money_provider")
-  department     String?
-  /** Module 11-B — gate/office privilege band (site grants deferred). */
-  accessLevel    AccessLevel @default(STANDARD) @map("access_level")
-  accessCardRef  String?     @map("access_card_ref")
-  biometricRef   String?     @map("biometric_ref")
-  isActive       Boolean     @default(true) @map("is_active")
-  createdAt      DateTime    @default(now()) @map("created_at")
-  updatedAt      DateTime    @updatedAt @map("updated_at")
-  createdBy      String?     @map("created_by")
+  id                  String      @id @default(uuid())
+  organizationId      String      @map("organization_id")
+  customerId          String      @map("customer_id")
+  /**
+   * Linked IAM login for Portal 35.9 self-scope (nullable until invited).
+   */
+  userId              String?     @unique @map("user_id")
+  employeeNumber      String?     @map("employee_number")
+  fullName            String      @map("full_name")
+  email               String?
+  phone               String?
+  bankAccountRef      String?     @map("bank_account_ref")
+  bankName            String?     @map("bank_name")
+  mobileMoneyRef      String?     @map("mobile_money_ref")
+  mobileMoneyProvider String?     @map("mobile_money_provider")
+  department          String?
+  /**
+   * Module 11-B — gate/office privilege band (site grants deferred).
+   */
+  accessLevel         AccessLevel @default(STANDARD) @map("access_level")
+  accessCardRef       String?     @map("access_card_ref")
+  biometricRef        String?     @map("biometric_ref")
+  isActive            Boolean     @default(true) @map("is_active")
+  createdAt           DateTime    @default(now()) @map("created_at")
+  updatedAt           DateTime    @updatedAt @map("updated_at")
+  createdBy           String?     @map("created_by")
 
   @@unique([customerId, email])
   @@index([customerId])
@@ -897,7 +921,9 @@ model VisitorAppointment {
   customerId        String             @map("customer_id")
   siteId            String             @map("site_id")
   gateId            String?            @map("gate_id")
-  /** Approved contractor/consultant/guest login binding (Portal 35.10 · E4/E5) */
+  /**
+   * Approved contractor/consultant/guest login binding (Portal 35.10 · E4/E5)
+   */
   userId            String?            @map("user_id")
   referenceNumber   String             @map("reference_number")
   visitorName       String             @map("visitor_name")
@@ -905,7 +931,9 @@ model VisitorAppointment {
   visitorPhone      String?            @map("visitor_phone")
   companyName       String?            @map("company_name")
   purpose           String
-  /** Module 12-D — ID document refs (not MinIO scan) */
+  /**
+   * Module 12-D — ID document refs (not MinIO scan)
+   */
   idType            VisitorIdType?     @map("id_type")
   idNumber          String?            @map("id_number")
   hostUserId        String?            @map("host_user_id")
@@ -960,7 +988,9 @@ model VisitorEntry {
   visitorName        String                @map("visitor_name")
   verificationCodeId String?               @map("verification_code_id")
   result             VerificationResult
-  /** Module 12-B — entry/exit log; legacy rows default IN */
+  /**
+   * Module 12-B — entry/exit log; legacy rows default IN
+   */
   direction          VisitorEntryDirection @default(IN)
   denyReason         String?               @map("deny_reason")
   verifiedBy         String?               @map("verified_by")
@@ -993,29 +1023,37 @@ model VisitorBlacklist {
 }
 
 model Vehicle {
-  id             String          @id @default(uuid())
-  organizationId String          @map("organization_id")
-  customerId     String?         @map("customer_id")
-  /** Approved vehicle owner/driver login binding (Portal external · E3) */
-  userId         String?         @map("user_id")
-  plateNumber    String          @map("plate_number")
-  vehicleType    VehicleType     @default(CAR) @map("vehicle_type")
-  /** Module 13-I — who the vehicle is for (not body type) */
+  id              String          @id @default(uuid())
+  organizationId  String          @map("organization_id")
+  customerId      String?         @map("customer_id")
+  /**
+   * Approved vehicle owner/driver login binding (Portal external · E3)
+   */
+  userId          String?         @map("user_id")
+  plateNumber     String          @map("plate_number")
+  vehicleType     VehicleType     @default(CAR) @map("vehicle_type")
+  /**
+   * Module 13-I — who the vehicle is for (not body type)
+   */
   parkingCategory ParkingCategory @default(CUSTOMER) @map("parking_category")
-  make           String?
-  model          String?
-  color          String?
-  ownerName      String?         @map("owner_name")
-  ownerPhone     String?         @map("owner_phone")
-  /** Module 13-I — optional driver contact */
-  driverName     String?         @map("driver_name")
-  driverPhone    String?         @map("driver_phone")
-  /** Module 13-A — RFID / tag reference (barrier ingest later) */
-  rfidTagRef     String?         @map("rfid_tag_ref")
-  isActive       Boolean         @default(true) @map("is_active")
-  createdAt      DateTime        @default(now()) @map("created_at")
-  createdBy      String?         @map("created_by")
-  permits        ParkingPermit[]
+  make            String?
+  model           String?
+  color           String?
+  ownerName       String?         @map("owner_name")
+  ownerPhone      String?         @map("owner_phone")
+  /**
+   * Module 13-I — optional driver contact
+   */
+  driverName      String?         @map("driver_name")
+  driverPhone     String?         @map("driver_phone")
+  /**
+   * Module 13-A — RFID / tag reference (barrier ingest later)
+   */
+  rfidTagRef      String?         @map("rfid_tag_ref")
+  isActive        Boolean         @default(true) @map("is_active")
+  createdAt       DateTime        @default(now()) @map("created_at")
+  createdBy       String?         @map("created_by")
+  permits         ParkingPermit[]
 
   @@unique([organizationId, plateNumber])
   @@unique([organizationId, rfidTagRef])
@@ -1027,32 +1065,40 @@ model Vehicle {
 }
 
 model ParkingPermit {
-  id             String       @id @default(uuid())
-  organizationId String       @map("organization_id")
-  vehicleId      String       @map("vehicle_id")
-  siteId         String       @map("site_id")
-  permitNumber   String       @map("permit_number")
-  permitType     PermitType   @map("permit_type")
-  status         PermitStatus @default(PENDING)
-  validFrom      DateTime     @map("valid_from")
-  validUntil     DateTime     @map("valid_until")
-  /** Module 13-B — net payable after calc (DRAFT invoice via finance bill action) */
-  feeAmount      Decimal?     @map("fee_amount") @db.Decimal(14, 2)
-  currency       String?      @default("TZS")
-  /** Soft link to finance.invoices.id (no cross-schema FK) */
-  invoiceId      String?      @map("invoice_id")
-  billedAt       DateTime?    @map("billed_at")
-  /** Module 13-O — charge calculation */
-  billingPeriod  ParkingBillingPeriod @default(ONE_TIME) @map("billing_period")
-  unitRate       Decimal?     @map("unit_rate") @db.Decimal(14, 2)
-  quantity       Decimal?     @db.Decimal(14, 2)
-  discountAmount Decimal?     @map("discount_amount") @db.Decimal(14, 2)
-  penaltyAmount  Decimal?     @map("penalty_amount") @db.Decimal(14, 2)
-  /** Module 13-H — soft link to visitors.visitor_appointments.id (no cross-schema FK) */
-  visitorAppointmentId String? @map("visitor_appointment_id")
-  createdAt      DateTime     @default(now()) @map("created_at")
-  createdBy      String?      @map("created_by")
-  vehicle        Vehicle      @relation(fields: [vehicleId], references: [id])
+  id                   String               @id @default(uuid())
+  organizationId       String               @map("organization_id")
+  vehicleId            String               @map("vehicle_id")
+  siteId               String               @map("site_id")
+  permitNumber         String               @map("permit_number")
+  permitType           PermitType           @map("permit_type")
+  status               PermitStatus         @default(PENDING)
+  validFrom            DateTime             @map("valid_from")
+  validUntil           DateTime             @map("valid_until")
+  /**
+   * Module 13-B — net payable after calc (DRAFT invoice via finance bill action)
+   */
+  feeAmount            Decimal?             @map("fee_amount") @db.Decimal(14, 2)
+  currency             String?              @default("TZS")
+  /**
+   * Soft link to finance.invoices.id (no cross-schema FK)
+   */
+  invoiceId            String?              @map("invoice_id")
+  billedAt             DateTime?            @map("billed_at")
+  /**
+   * Module 13-O — charge calculation
+   */
+  billingPeriod        ParkingBillingPeriod @default(ONE_TIME) @map("billing_period")
+  unitRate             Decimal?             @map("unit_rate") @db.Decimal(14, 2)
+  quantity             Decimal?             @db.Decimal(14, 2)
+  discountAmount       Decimal?             @map("discount_amount") @db.Decimal(14, 2)
+  penaltyAmount        Decimal?             @map("penalty_amount") @db.Decimal(14, 2)
+  /**
+   * Module 13-H — soft link to visitors.visitor_appointments.id (no cross-schema FK)
+   */
+  visitorAppointmentId String?              @map("visitor_appointment_id")
+  createdAt            DateTime             @default(now()) @map("created_at")
+  createdBy            String?              @map("created_by")
+  vehicle              Vehicle              @relation(fields: [vehicleId], references: [id])
 
   @@unique([organizationId, permitNumber])
   @@index([siteId, status])
@@ -1087,32 +1133,40 @@ model AnprResult {
 }
 
 model ParkingEntry {
-  id             String                @id @default(uuid())
-  organizationId String                @map("organization_id")
-  siteId         String                @map("site_id")
-  gateId         String?               @map("gate_id")
-  vehicleId      String?               @map("vehicle_id")
-  plateNumber    String                @map("plate_number")
-  direction      ParkingEntryDirection
-  anprResultId   String?               @map("anpr_result_id")
-  permitId       String?               @map("permit_id")
-  decision       ParkingDecision       @default(ALLOW)
-  recordedBy     String?               @map("recorded_by")
-  clientEventId  String?               @unique @map("client_event_id")
-  recordedAt     DateTime              @default(now()) @map("recorded_at")
-  createdAt      DateTime              @default(now()) @map("created_at")
-  /** Module 13-L — visit record enrichment */
-  driverName           String?                    @map("driver_name")
-  driverIdRef          String?                    @map("driver_id_ref")
-  verificationMethod   ParkingVerificationMethod  @default(MANUAL) @map("verification_method")
-  purposeOfVisit       String?                    @map("purpose_of_visit")
-  /** Soft link to visitors.visitor_appointments.id */
-  visitorAppointmentId String?                    @map("visitor_appointment_id")
-  /** Soft link to parking.parking_spaces.id */
-  parkingSpaceId       String?                    @map("parking_space_id")
-  /** EXIT → open ENTRY id (soft pair); ENTRY stays null */
-  pairedEntryId        String?                    @map("paired_entry_id")
-  anprResult     AnprResult?           @relation(fields: [anprResultId], references: [id])
+  id                   String                    @id @default(uuid())
+  organizationId       String                    @map("organization_id")
+  siteId               String                    @map("site_id")
+  gateId               String?                   @map("gate_id")
+  vehicleId            String?                   @map("vehicle_id")
+  plateNumber          String                    @map("plate_number")
+  direction            ParkingEntryDirection
+  anprResultId         String?                   @map("anpr_result_id")
+  permitId             String?                   @map("permit_id")
+  decision             ParkingDecision           @default(ALLOW)
+  recordedBy           String?                   @map("recorded_by")
+  clientEventId        String?                   @unique @map("client_event_id")
+  recordedAt           DateTime                  @default(now()) @map("recorded_at")
+  createdAt            DateTime                  @default(now()) @map("created_at")
+  /**
+   * Module 13-L — visit record enrichment
+   */
+  driverName           String?                   @map("driver_name")
+  driverIdRef          String?                   @map("driver_id_ref")
+  verificationMethod   ParkingVerificationMethod @default(MANUAL) @map("verification_method")
+  purposeOfVisit       String?                   @map("purpose_of_visit")
+  /**
+   * Soft link to visitors.visitor_appointments.id
+   */
+  visitorAppointmentId String?                   @map("visitor_appointment_id")
+  /**
+   * Soft link to parking.parking_spaces.id
+   */
+  parkingSpaceId       String?                   @map("parking_space_id")
+  /**
+   * EXIT → open ENTRY id (soft pair); ENTRY stays null
+   */
+  pairedEntryId        String?                   @map("paired_entry_id")
+  anprResult           AnprResult?               @relation(fields: [anprResultId], references: [id])
 
   @@index([siteId, recordedAt])
   @@index([organizationId, siteId, plateNumber, recordedAt])
@@ -1124,42 +1178,52 @@ model ParkingEntry {
 }
 
 model ParkingViolation {
-  id               String                 @id @default(uuid())
-  organizationId   String                 @map("organization_id")
-  siteId           String                 @map("site_id")
-  plateNumber      String                 @map("plate_number")
-  vehicleId        String?                @map("vehicle_id")
-  violationType    ViolationType          @map("violation_type")
-  description      String?
-  /** Module 13-G — OPEN until ops resolves (creator ≠ resolver). */
-  status           ParkingViolationStatus @default(OPEN)
-  /** Module 13-N — officer remarks at record time */
-  officerRemarks   String?                @map("officer_remarks")
-  /** Module 13-N — corrective action taken */
-  correctiveAction   String?              @map("corrective_action")
-  correctiveActionAt DateTime?            @map("corrective_action_at")
-  correctiveActionBy String?              @map("corrective_action_by")
-  submittedForClosureAt DateTime?         @map("submitted_for_closure_at")
-  submittedForClosureBy String?           @map("submitted_for_closure_by")
-  approvalNotes    String?                @map("approval_notes")
-  approvedBy       String?                @map("approved_by")
-  approvedAt       DateTime?              @map("approved_at")
-  closureNotes     String?                @map("closure_notes")
-  closedAt         DateTime?              @map("closed_at")
-  closedBy         String?                @map("closed_by")
-  resolvedAt       DateTime?              @map("resolved_at")
-  resolvedBy       String?                @map("resolved_by")
-  resolutionNotes  String?                @map("resolution_notes")
-  /** Module 13-P — fine → finance invoice */
-  fineAmount       Decimal?               @map("fine_amount") @db.Decimal(14, 2)
-  currency         String?                @default("TZS")
-  discountAmount   Decimal?               @map("discount_amount") @db.Decimal(14, 2)
-  /** Soft link to finance.invoices.id */
-  invoiceId        String?                @map("invoice_id")
-  billedAt         DateTime?              @map("billed_at")
-  recordedAt       DateTime               @default(now()) @map("recorded_at")
-  createdAt        DateTime               @default(now()) @map("created_at")
-  createdBy        String?                @map("created_by")
+  id                    String                 @id @default(uuid())
+  organizationId        String                 @map("organization_id")
+  siteId                String                 @map("site_id")
+  plateNumber           String                 @map("plate_number")
+  vehicleId             String?                @map("vehicle_id")
+  violationType         ViolationType          @map("violation_type")
+  description           String?
+  /**
+   * Module 13-G — OPEN until ops resolves (creator ≠ resolver).
+   */
+  status                ParkingViolationStatus @default(OPEN)
+  /**
+   * Module 13-N — officer remarks at record time
+   */
+  officerRemarks        String?                @map("officer_remarks")
+  /**
+   * Module 13-N — corrective action taken
+   */
+  correctiveAction      String?                @map("corrective_action")
+  correctiveActionAt    DateTime?              @map("corrective_action_at")
+  correctiveActionBy    String?                @map("corrective_action_by")
+  submittedForClosureAt DateTime?              @map("submitted_for_closure_at")
+  submittedForClosureBy String?                @map("submitted_for_closure_by")
+  approvalNotes         String?                @map("approval_notes")
+  approvedBy            String?                @map("approved_by")
+  approvedAt            DateTime?              @map("approved_at")
+  closureNotes          String?                @map("closure_notes")
+  closedAt              DateTime?              @map("closed_at")
+  closedBy              String?                @map("closed_by")
+  resolvedAt            DateTime?              @map("resolved_at")
+  resolvedBy            String?                @map("resolved_by")
+  resolutionNotes       String?                @map("resolution_notes")
+  /**
+   * Module 13-P — fine → finance invoice
+   */
+  fineAmount            Decimal?               @map("fine_amount") @db.Decimal(14, 2)
+  currency              String?                @default("TZS")
+  discountAmount        Decimal?               @map("discount_amount") @db.Decimal(14, 2)
+  /**
+   * Soft link to finance.invoices.id
+   */
+  invoiceId             String?                @map("invoice_id")
+  billedAt              DateTime?              @map("billed_at")
+  recordedAt            DateTime               @default(now()) @map("recorded_at")
+  createdAt             DateTime               @default(now()) @map("created_at")
+  createdBy             String?                @map("created_by")
 
   @@index([siteId, recordedAt])
   @@index([organizationId, status, recordedAt])
@@ -1187,25 +1251,29 @@ model VehicleBlacklist {
  * Soft links to vehicle/permit (no cross-schema FK). Sensor maps deferred.
  */
 model ParkingSpace {
-  id              String                 @id @default(uuid())
-  organizationId  String                 @map("organization_id")
-  siteId          String                 @map("site_id")
-  /** Optional customer-dedicated bay (customer policy scoping) */
-  customerId      String?                @map("customer_id")
-  code            String
-  label           String?
-  spaceType       ParkingSpaceType       @map("space_type")
-  status          ParkingSpaceStatus     @default(AVAILABLE)
-  /** MANUAL = officer picks; AUTO = eligible for auto-allocate */
-  allocationMode  ParkingAllocationMode  @default(MANUAL) @map("allocation_mode")
-  vehicleId       String?                @map("vehicle_id")
-  permitId        String?                @map("permit_id")
-  allocatedAt     DateTime?              @map("allocated_at")
-  allocatedBy     String?                @map("allocated_by")
-  notes           String?
-  isActive        Boolean                @default(true) @map("is_active")
-  createdAt       DateTime               @default(now()) @map("created_at")
-  createdBy       String?                @map("created_by")
+  id             String                @id @default(uuid())
+  organizationId String                @map("organization_id")
+  siteId         String                @map("site_id")
+  /**
+   * Optional customer-dedicated bay (customer policy scoping)
+   */
+  customerId     String?               @map("customer_id")
+  code           String
+  label          String?
+  spaceType      ParkingSpaceType      @map("space_type")
+  status         ParkingSpaceStatus    @default(AVAILABLE)
+  /**
+   * MANUAL = officer picks; AUTO = eligible for auto-allocate
+   */
+  allocationMode ParkingAllocationMode @default(MANUAL) @map("allocation_mode")
+  vehicleId      String?               @map("vehicle_id")
+  permitId       String?               @map("permit_id")
+  allocatedAt    DateTime?             @map("allocated_at")
+  allocatedBy    String?               @map("allocated_by")
+  notes          String?
+  isActive       Boolean               @default(true) @map("is_active")
+  createdAt      DateTime              @default(now()) @map("created_at")
+  createdBy      String?               @map("created_by")
 
   @@unique([organizationId, siteId, code])
   @@index([organizationId, siteId, spaceType, status])
@@ -1220,24 +1288,26 @@ model ParkingSpace {
  * Distinct from attendance checkpoint PatrolScan (Module 29 routes).
  */
 model ParkingPatrolObservation {
-  id               String                       @id @default(uuid())
-  organizationId   String                       @map("organization_id")
-  siteId           String                       @map("site_id")
-  guardId          String                       @map("guard_id")
-  inspectedAt      DateTime                     @map("inspected_at")
-  /** Free-text area / zone / lot name inspected */
-  parkingArea      String                       @map("parking_area")
-  observationType  ParkingPatrolObservationType @map("observation_type")
-  plateNumber      String?                      @map("plate_number")
-  vehicleId        String?                      @map("vehicle_id")
-  parkingSpaceId   String?                      @map("parking_space_id")
-  notes            String?
-  severity         String                       @default("MEDIUM")
-  latitude         Float?
-  longitude        Float?
-  clientEventId    String?                      @unique @map("client_event_id")
-  createdAt        DateTime                     @default(now()) @map("created_at")
-  createdBy        String?                      @map("created_by")
+  id              String                       @id @default(uuid())
+  organizationId  String                       @map("organization_id")
+  siteId          String                       @map("site_id")
+  guardId         String                       @map("guard_id")
+  inspectedAt     DateTime                     @map("inspected_at")
+  /**
+   * Free-text area / zone / lot name inspected
+   */
+  parkingArea     String                       @map("parking_area")
+  observationType ParkingPatrolObservationType @map("observation_type")
+  plateNumber     String?                      @map("plate_number")
+  vehicleId       String?                      @map("vehicle_id")
+  parkingSpaceId  String?                      @map("parking_space_id")
+  notes           String?
+  severity        String                       @default("MEDIUM")
+  latitude        Float?
+  longitude       Float?
+  clientEventId   String?                      @unique @map("client_event_id")
+  createdAt       DateTime                     @default(now()) @map("created_at")
+  createdBy       String?                      @map("created_by")
 
   @@index([organizationId, siteId, inspectedAt])
   @@index([organizationId, guardId, inspectedAt])
@@ -1247,33 +1317,33 @@ model ParkingPatrolObservation {
 }
 
 model Employee {
-  id                String             @id @default(uuid())
-  organizationId    String             @map("organization_id")
-  userId            String?            @map("user_id")
-  guardProfileId    String?            @unique @map("guard_profile_id")
-  employeeNumber    String             @map("employee_number")
-  fullName          String             @map("full_name")
-  email             String?
-  phone             String?
-  bankAccountRef    String?            @map("bank_account_ref")
-  bankName          String?            @map("bank_name")
-  mobileMoneyRef    String?            @map("mobile_money_ref")
-  mobileMoneyProvider String?          @map("mobile_money_provider")
-  department        String?
-  employmentType    EmploymentType     @default(GUARD) @map("employment_type")
-  status            EmployeeStatus     @default(ACTIVE)
-  hireDate          DateTime?          @map("hire_date")
-  createdAt         DateTime           @default(now()) @map("created_at")
-  updatedAt         DateTime           @updatedAt @map("updated_at")
-  createdBy         String?            @map("created_by")
-  loans             EmployeeLoan[]
-  payslips          PayslipSnapshot[]
-  disciplineCases   DisciplineCase[]
-  movements         EmployeeMovement[]
-  guardProfile      GuardProfile?      @relation(fields: [guardProfileId], references: [id])
-  leaveRequests     LeaveRequest[]
-  salaryAssignments SalaryAssignment[]
-  trainingRecords   TrainingRecord[]
+  id                  String             @id @default(uuid())
+  organizationId      String             @map("organization_id")
+  userId              String?            @map("user_id")
+  guardProfileId      String?            @unique @map("guard_profile_id")
+  employeeNumber      String             @map("employee_number")
+  fullName            String             @map("full_name")
+  email               String?
+  phone               String?
+  bankAccountRef      String?            @map("bank_account_ref")
+  bankName            String?            @map("bank_name")
+  mobileMoneyRef      String?            @map("mobile_money_ref")
+  mobileMoneyProvider String?            @map("mobile_money_provider")
+  department          String?
+  employmentType      EmploymentType     @default(GUARD) @map("employment_type")
+  status              EmployeeStatus     @default(ACTIVE)
+  hireDate            DateTime?          @map("hire_date")
+  createdAt           DateTime           @default(now()) @map("created_at")
+  updatedAt           DateTime           @updatedAt @map("updated_at")
+  createdBy           String?            @map("created_by")
+  loans               EmployeeLoan[]
+  payslips            PayslipSnapshot[]
+  disciplineCases     DisciplineCase[]
+  movements           EmployeeMovement[]
+  guardProfile        GuardProfile?      @relation(fields: [guardProfileId], references: [id])
+  leaveRequests       LeaveRequest[]
+  salaryAssignments   SalaryAssignment[]
+  trainingRecords     TrainingRecord[]
 
   @@unique([organizationId, employeeNumber])
   @@index([organizationId, status])
@@ -1452,7 +1522,9 @@ model JobApplication {
   @@schema("recruitment")
 }
 
-/** Portal 35.14 / §15 — external security firm (B2B partner). */
+/**
+ * Portal 35.14 / §15 — external security firm (B2B partner).
+ */
 model B2bSecurityPartner {
   id             String               @id @default(uuid())
   organizationId String               @map("organization_id")
@@ -1461,7 +1533,9 @@ model B2bSecurityPartner {
   email          String?
   phone          String?
   status         B2bPartnerStatus     @default(PENDING)
-  /** Module 15-B — soft link to customers.customers.id for AR billing */
+  /**
+   * Module 15-B — soft link to customers.customers.id for AR billing
+   */
   customerId     String?              @map("customer_id")
   createdAt      DateTime             @default(now()) @map("created_at")
   createdBy      String?              @map("created_by")
@@ -1473,47 +1547,57 @@ model B2bSecurityPartner {
   @@schema("recruitment")
 }
 
-/** External firm requests guards by criteria (Module 15-A criteria · invoice deferred). */
+/**
+ * External firm requests guards by criteria (Module 15-A criteria · invoice deferred).
+ */
 model GuardSupplyRequest {
-  id              String                   @id @default(uuid())
-  organizationId  String                   @map("organization_id")
-  partnerId       String                   @map("partner_id")
-  referenceNumber String                   @map("reference_number")
-  guardCount      Int                      @map("guard_count")
-  siteLocation    String?                  @map("site_location")
-  startDate       DateTime?                @map("start_date") @db.Date
-  endDate         DateTime?                @map("end_date") @db.Date
-  qualifications  String?
-  trainingNeeds   String?                  @map("training_needs")
-  urgency         GuardSupplyUrgency       @default(STANDARD)
-  serviceTerms    String?                  @map("service_terms")
-  criteriaNotes   String?                  @map("criteria_notes")
-  /** Module 15-A — detailed recruitment criteria */
-  experienceYearsMin         Int?                         @map("experience_years_min")
-  ageMin                     Int?                         @map("age_min")
-  ageMax                     Int?                         @map("age_max")
-  /** Optional preference only — where legally acceptable */
-  genderPreference           GuardSupplyGenderPreference? @map("gender_preference")
-  militaryTrainingRequired   Boolean                      @default(false) @map("military_training_required")
-  firearmTrainingRequired    Boolean                      @default(false) @map("firearm_training_required")
-  languages                  String?
-  heightMinCm                Int?                         @map("height_min_cm")
-  healthConditionNotes       String?                      @map("health_condition_notes")
-  /** Module 15-B — B2B recruitment service billing (net = rate × guards − discount) */
-  unitRatePerGuard           Decimal?                     @map("unit_rate_per_guard") @db.Decimal(14, 2)
-  serviceFeeAmount           Decimal?                     @map("service_fee_amount") @db.Decimal(14, 2)
-  currency                   String?                      @default("TZS")
-  discountAmount             Decimal?                     @map("discount_amount") @db.Decimal(14, 2)
-  /** Soft link to finance.invoices.id (no cross-schema FK) */
-  invoiceId                  String?                      @map("invoice_id")
-  billedAt                   DateTime?                    @map("billed_at")
-  status          GuardSupplyRequestStatus @default(SUBMITTED)
-  processedBy     String?                  @map("processed_by")
-  processedAt     DateTime?                @map("processed_at")
-  staffNotes      String?                  @map("staff_notes")
-  createdAt       DateTime                 @default(now()) @map("created_at")
-  createdBy       String?                  @map("created_by")
-  partner         B2bSecurityPartner       @relation(fields: [partnerId], references: [id])
+  id                       String                       @id @default(uuid())
+  organizationId           String                       @map("organization_id")
+  partnerId                String                       @map("partner_id")
+  referenceNumber          String                       @map("reference_number")
+  guardCount               Int                          @map("guard_count")
+  siteLocation             String?                      @map("site_location")
+  startDate                DateTime?                    @map("start_date") @db.Date
+  endDate                  DateTime?                    @map("end_date") @db.Date
+  qualifications           String?
+  trainingNeeds            String?                      @map("training_needs")
+  urgency                  GuardSupplyUrgency           @default(STANDARD)
+  serviceTerms             String?                      @map("service_terms")
+  criteriaNotes            String?                      @map("criteria_notes")
+  /**
+   * Module 15-A — detailed recruitment criteria
+   */
+  experienceYearsMin       Int?                         @map("experience_years_min")
+  ageMin                   Int?                         @map("age_min")
+  ageMax                   Int?                         @map("age_max")
+  /**
+   * Optional preference only — where legally acceptable
+   */
+  genderPreference         GuardSupplyGenderPreference? @map("gender_preference")
+  militaryTrainingRequired Boolean                      @default(false) @map("military_training_required")
+  firearmTrainingRequired  Boolean                      @default(false) @map("firearm_training_required")
+  languages                String?
+  heightMinCm              Int?                         @map("height_min_cm")
+  healthConditionNotes     String?                      @map("health_condition_notes")
+  /**
+   * Module 15-B — B2B recruitment service billing (net = rate × guards − discount)
+   */
+  unitRatePerGuard         Decimal?                     @map("unit_rate_per_guard") @db.Decimal(14, 2)
+  serviceFeeAmount         Decimal?                     @map("service_fee_amount") @db.Decimal(14, 2)
+  currency                 String?                      @default("TZS")
+  discountAmount           Decimal?                     @map("discount_amount") @db.Decimal(14, 2)
+  /**
+   * Soft link to finance.invoices.id (no cross-schema FK)
+   */
+  invoiceId                String?                      @map("invoice_id")
+  billedAt                 DateTime?                    @map("billed_at")
+  status                   GuardSupplyRequestStatus     @default(SUBMITTED)
+  processedBy              String?                      @map("processed_by")
+  processedAt              DateTime?                    @map("processed_at")
+  staffNotes               String?                      @map("staff_notes")
+  createdAt                DateTime                     @default(now()) @map("created_at")
+  createdBy                String?                      @map("created_by")
+  partner                  B2bSecurityPartner           @relation(fields: [partnerId], references: [id])
 
   @@unique([organizationId, referenceNumber])
   @@index([organizationId, partnerId])
@@ -1557,7 +1641,9 @@ model PayrollCycle {
   approvedBy         String?            @map("approved_by")
   paidAt             DateTime?          @map("paid_at")
   paymentReference   String?            @map("payment_reference")
-  /** Module 20-A — billing invoice that must be fully paid before customer payroll disbursement */
+  /**
+   * Module 20-A — billing invoice that must be fully paid before customer payroll disbursement
+   */
   billingInvoiceId   String?            @map("billing_invoice_id")
   createdAt          DateTime           @default(now()) @map("created_at")
   updatedAt          DateTime           @updatedAt @map("updated_at")
@@ -1571,30 +1657,32 @@ model PayrollCycle {
   @@schema("payroll")
 }
 
-/** Module 20-A — e-payroll due alert when billing invoice is fully paid (due 1st of next month). */
+/**
+ * Module 20-A — e-payroll due alert when billing invoice is fully paid (due 1st of next month).
+ */
 model PayrollDueAlert {
-  id                    String                 @id @default(uuid())
-  organizationId        String                 @map("organization_id")
-  customerId            String                 @map("customer_id")
-  payrollCycleId        String                 @map("payroll_cycle_id")
-  invoiceId             String?                @map("invoice_id")
-  invoiceNumber         String?                @map("invoice_number")
-  payrollMonth          String                 @map("payroll_month")
-  invoiceAmountPaid     Decimal                @map("invoice_amount_paid") @db.Decimal(14, 2)
-  employeesCovered      Int                    @map("employees_covered")
-  payrollPortionDue     Decimal                @map("payroll_portion_due") @db.Decimal(14, 2)
-  currency              String                 @default("TZS")
-  dueDate               DateTime               @map("due_date") @db.Date
-  invoicePaymentStatus  String                 @map("invoice_payment_status")
-  payrollApprovalStatus String                 @map("payroll_approval_status")
-  payrollPaymentStatus  String                 @map("payroll_payment_status")
-  responsibleOfficerId  String?                @map("responsible_officer_id")
+  id                     String                @id @default(uuid())
+  organizationId         String                @map("organization_id")
+  customerId             String                @map("customer_id")
+  payrollCycleId         String                @map("payroll_cycle_id")
+  invoiceId              String?               @map("invoice_id")
+  invoiceNumber          String?               @map("invoice_number")
+  payrollMonth           String                @map("payroll_month")
+  invoiceAmountPaid      Decimal               @map("invoice_amount_paid") @db.Decimal(14, 2)
+  employeesCovered       Int                   @map("employees_covered")
+  payrollPortionDue      Decimal               @map("payroll_portion_due") @db.Decimal(14, 2)
+  currency               String                @default("TZS")
+  dueDate                DateTime              @map("due_date") @db.Date
+  invoicePaymentStatus   String                @map("invoice_payment_status")
+  payrollApprovalStatus  String                @map("payroll_approval_status")
+  payrollPaymentStatus   String                @map("payroll_payment_status")
+  responsibleOfficerId   String?               @map("responsible_officer_id")
   responsibleOfficerName String?               @map("responsible_officer_name")
-  status                PayrollDueAlertStatus  @default(DUE)
-  notifiedAt            DateTime?              @map("notified_at")
-  idempotencyKey        String                 @unique @map("idempotency_key")
-  createdAt             DateTime               @default(now()) @map("created_at")
-  createdBy             String?                @map("created_by")
+  status                 PayrollDueAlertStatus @default(DUE)
+  notifiedAt             DateTime?             @map("notified_at")
+  idempotencyKey         String                @unique @map("idempotency_key")
+  createdAt              DateTime              @default(now()) @map("created_at")
+  createdBy              String?               @map("created_by")
 
   @@index([organizationId, dueDate])
   @@index([customerId, payrollMonth])
@@ -1614,9 +1702,13 @@ model PayslipSnapshot {
   id                 String       @id @default(uuid())
   organizationId     String       @map("organization_id")
   cycleId            String       @map("cycle_id")
-  /** Company payroll — workforce.Employee */
+  /**
+   * Company payroll — workforce.Employee
+   */
   employeeId         String?      @map("employee_id")
-  /** Customer payroll service — access.CustomerEmployee (soft ref) */
+  /**
+   * Customer payroll service — access.CustomerEmployee (soft ref)
+   */
   customerEmployeeId String?      @map("customer_employee_id")
   employeeNumber     String       @map("employee_number")
   employeeName       String       @map("employee_name")
@@ -1651,7 +1743,9 @@ model CustomerSalaryAssignment {
   currency           String    @default("TZS")
   hourlyRate         Decimal?  @map("hourly_rate") @db.Decimal(14, 2)
   allowances         Json?
-  /** Fixed monthly deductions e.g. union, advance recovery */
+  /**
+   * Fixed monthly deductions e.g. union, advance recovery
+   */
   deductions         Json?
   effectiveFrom      DateTime  @map("effective_from") @db.Date
   effectiveUntil     DateTime? @map("effective_until") @db.Date
@@ -1666,35 +1760,39 @@ model CustomerSalaryAssignment {
 }
 
 model EmployeeLoan {
-  id                 String            @id @default(uuid())
-  organizationId     String            @map("organization_id")
-  employeeId         String            @map("employee_id")
-  loanNumber         String            @map("loan_number")
-  /** Module 17-A — typed loan catalog */
-  loanType           LoanType          @default(OTHER) @map("loan_type")
-  principalAmount    Decimal           @map("principal_amount") @db.Decimal(14, 2)
-  interestRate       Decimal           @default(0) @map("interest_rate") @db.Decimal(5, 2)
-  termMonths         Int               @map("term_months")
-  monthlyInstallment Decimal           @map("monthly_installment") @db.Decimal(14, 2)
-  status             LoanStatus        @default(PENDING_APPROVAL)
-  purpose            String?
-  /** Item loans — boots, smartphone, uniform, equipment */
-  itemName           String?           @map("item_name")
-  supplierName       String?           @map("supplier_name")
-  itemCost           Decimal?          @map("item_cost") @db.Decimal(14, 2)
-  approvalInstanceId String?           @map("approval_instance_id")
-  approvedBy         String?           @map("approved_by")
-  approvedAt         DateTime?         @map("approved_at")
-  issuedBy           String?           @map("issued_by")
-  issuedAt           DateTime?         @map("issued_at")
-  employeeAcknowledgedAt DateTime?     @map("employee_acknowledged_at")
-  disbursedAt        DateTime?         @map("disbursed_at")
-  settledAt          DateTime?         @map("settled_at")
-  clearedBy          String?           @map("cleared_by")
-  createdAt          DateTime          @default(now()) @map("created_at")
-  createdBy          String            @map("created_by")
-  employee           Employee          @relation(fields: [employeeId], references: [id])
-  installments       LoanInstallment[]
+  id                     String            @id @default(uuid())
+  organizationId         String            @map("organization_id")
+  employeeId             String            @map("employee_id")
+  loanNumber             String            @map("loan_number")
+  /**
+   * Module 17-A — typed loan catalog
+   */
+  loanType               LoanType          @default(OTHER) @map("loan_type")
+  principalAmount        Decimal           @map("principal_amount") @db.Decimal(14, 2)
+  interestRate           Decimal           @default(0) @map("interest_rate") @db.Decimal(5, 2)
+  termMonths             Int               @map("term_months")
+  monthlyInstallment     Decimal           @map("monthly_installment") @db.Decimal(14, 2)
+  status                 LoanStatus        @default(PENDING_APPROVAL)
+  purpose                String?
+  /**
+   * Item loans — boots, smartphone, uniform, equipment
+   */
+  itemName               String?           @map("item_name")
+  supplierName           String?           @map("supplier_name")
+  itemCost               Decimal?          @map("item_cost") @db.Decimal(14, 2)
+  approvalInstanceId     String?           @map("approval_instance_id")
+  approvedBy             String?           @map("approved_by")
+  approvedAt             DateTime?         @map("approved_at")
+  issuedBy               String?           @map("issued_by")
+  issuedAt               DateTime?         @map("issued_at")
+  employeeAcknowledgedAt DateTime?         @map("employee_acknowledged_at")
+  disbursedAt            DateTime?         @map("disbursed_at")
+  settledAt              DateTime?         @map("settled_at")
+  clearedBy              String?           @map("cleared_by")
+  createdAt              DateTime          @default(now()) @map("created_at")
+  createdBy              String            @map("created_by")
+  employee               Employee          @relation(fields: [employeeId], references: [id])
+  installments           LoanInstallment[]
 
   @@unique([organizationId, loanNumber])
   @@index([employeeId, status])
@@ -1736,7 +1834,9 @@ model Invoice {
   amountPaid     Decimal          @default(0) @map("amount_paid") @db.Decimal(14, 2)
   currency       String           @default("TZS")
   status         InvoiceStatus    @default(DRAFT)
-  /** Module 21-A — commercial service this invoice covers (design §21). */
+  /**
+   * Module 21-A — commercial service this invoice covers (design §21).
+   */
   serviceType    String?          @map("service_type")
   notes          String?
   createdAt      DateTime         @default(now()) @map("created_at")
@@ -1810,7 +1910,9 @@ model PettyCashVoucher {
   status             PettyCashVoucherStatus @default(PENDING)
   approvalInstanceId String?                @map("approval_instance_id")
   approvedBy         String?                @map("approved_by")
-  /** Module 22-A — cash issue after approval (imprest debit). */
+  /**
+   * Module 22-A — cash issue after approval (imprest debit).
+   */
   issuedBy           String?                @map("issued_by")
   issuedAt           DateTime?              @map("issued_at")
   reimbursedAt       DateTime?              @map("reimbursed_at")
@@ -1885,27 +1987,29 @@ model Supplier {
   @@schema("procurement")
 }
 
-/** Module 24-A — supplier quotes / invoices / DNs / payment requests (own supplier only). */
+/**
+ * Module 24-A — supplier quotes / invoices / DNs / payment requests (own supplier only).
+ */
 model SupplierSubmission {
-  id               String                   @id @default(uuid())
-  organizationId   String                   @map("organization_id")
-  supplierId       String                   @map("supplier_id")
-  purchaseOrderId  String?                  @map("purchase_order_id")
-  referenceNumber  String                   @map("reference_number")
-  kind             SupplierSubmissionKind
-  status           SupplierSubmissionStatus @default(SUBMITTED)
-  title            String
-  description      String?
-  amount           Decimal?                 @db.Decimal(14, 2)
-  currency         String                   @default("TZS")
-  paymentStatus    SupplierPaymentStatus    @default(NONE)
-  rejectedReason   String?                  @map("rejected_reason")
-  approvedBy       String?                  @map("approved_by")
-  approvedAt       DateTime?                @map("approved_at")
-  paidAt           DateTime?                @map("paid_at")
-  createdBy        String                   @map("created_by")
-  createdAt        DateTime                 @default(now()) @map("created_at")
-  supplier         Supplier                 @relation(fields: [supplierId], references: [id])
+  id              String                   @id @default(uuid())
+  organizationId  String                   @map("organization_id")
+  supplierId      String                   @map("supplier_id")
+  purchaseOrderId String?                  @map("purchase_order_id")
+  referenceNumber String                   @map("reference_number")
+  kind            SupplierSubmissionKind
+  status          SupplierSubmissionStatus @default(SUBMITTED)
+  title           String
+  description     String?
+  amount          Decimal?                 @db.Decimal(14, 2)
+  currency        String                   @default("TZS")
+  paymentStatus   SupplierPaymentStatus    @default(NONE)
+  rejectedReason  String?                  @map("rejected_reason")
+  approvedBy      String?                  @map("approved_by")
+  approvedAt      DateTime?                @map("approved_at")
+  paidAt          DateTime?                @map("paid_at")
+  createdBy       String                   @map("created_by")
+  createdAt       DateTime                 @default(now()) @map("created_at")
+  supplier        Supplier                 @relation(fields: [supplierId], references: [id])
 
   @@unique([organizationId, referenceNumber])
   @@index([organizationId, supplierId, status])
@@ -1981,19 +2085,21 @@ model GoodsReceiptLine {
   @@schema("procurement")
 }
 
-/** Module 25-A — department purchase request → quote comparison → PO. */
+/**
+ * Module 25-A — department purchase request → quote comparison → PO.
+ */
 model PurchaseRequest {
-  id                 String                   @id @default(uuid())
-  organizationId     String                   @map("organization_id")
-  requestNumber      String                   @map("request_number")
+  id                 String                 @id @default(uuid())
+  organizationId     String                 @map("organization_id")
+  requestNumber      String                 @map("request_number")
   department         String
   purpose            String
-  status             PurchaseRequestStatus    @default(DRAFT)
-  currency           String                   @default("TZS")
-  approvalInstanceId String?                  @map("approval_instance_id")
-  awardedQuoteId     String?                  @map("awarded_quote_id")
-  createdAt          DateTime                 @default(now()) @map("created_at")
-  createdBy          String                   @map("created_by")
+  status             PurchaseRequestStatus  @default(DRAFT)
+  currency           String                 @default("TZS")
+  approvalInstanceId String?                @map("approval_instance_id")
+  awardedQuoteId     String?                @map("awarded_quote_id")
+  createdAt          DateTime               @default(now()) @map("created_at")
+  createdBy          String                 @map("created_by")
   lines              PurchaseRequestLine[]
   quotes             PurchaseRequestQuote[]
   purchaseOrder      PurchaseOrder?
@@ -2038,13 +2144,13 @@ model PurchaseRequestQuote {
 }
 
 model PurchaseRequestQuoteLine {
-  id                     String               @id @default(uuid())
-  quoteId                String               @map("quote_id")
-  purchaseRequestLineId  String               @map("purchase_request_line_id")
-  unitPrice              Decimal              @map("unit_price") @db.Decimal(14, 2)
-  amount                 Decimal              @db.Decimal(14, 2)
-  quote                  PurchaseRequestQuote @relation(fields: [quoteId], references: [id], onDelete: Cascade)
-  requestLine            PurchaseRequestLine  @relation(fields: [purchaseRequestLineId], references: [id], onDelete: Cascade)
+  id                    String               @id @default(uuid())
+  quoteId               String               @map("quote_id")
+  purchaseRequestLineId String               @map("purchase_request_line_id")
+  unitPrice             Decimal              @map("unit_price") @db.Decimal(14, 2)
+  amount                Decimal              @db.Decimal(14, 2)
+  quote                 PurchaseRequestQuote @relation(fields: [quoteId], references: [id], onDelete: Cascade)
+  requestLine           PurchaseRequestLine  @relation(fields: [purchaseRequestLineId], references: [id], onDelete: Cascade)
 
   @@unique([quoteId, purchaseRequestLineId])
   @@map("purchase_request_quote_lines")
@@ -2089,18 +2195,23 @@ model StockMovement {
 }
 
 model Asset {
-  id             String            @id @default(uuid())
-  organizationId String            @map("organization_id")
-  assetTag       String            @map("asset_tag")
-  name           String
-  category       String?
-  purchaseDate   DateTime?         @map("purchase_date") @db.Date
-  purchaseCost   Decimal?          @map("purchase_cost") @db.Decimal(14, 2)
-  serialNumber   String?           @map("serial_number")
-  status         AssetStatus       @default(AVAILABLE)
-  createdAt      DateTime          @default(now()) @map("created_at")
-  createdBy      String?           @map("created_by")
-  assignments    AssetAssignment[]
+  id               String                @id @default(uuid())
+  organizationId   String                @map("organization_id")
+  assetTag         String                @map("asset_tag")
+  name             String
+  category         String?
+  purchaseDate     DateTime?             @map("purchase_date") @db.Date
+  purchaseCost     Decimal?              @map("purchase_cost") @db.Decimal(14, 2)
+  serialNumber     String?               @map("serial_number")
+  status           AssetStatus           @default(AVAILABLE)
+  disposedAt       DateTime?             @map("disposed_at")
+  disposedBy       String?               @map("disposed_by")
+  disposalReason   String?               @map("disposal_reason")
+  maintenanceNotes String?               @map("maintenance_notes")
+  createdAt        DateTime              @default(now()) @map("created_at")
+  createdBy        String?               @map("created_by")
+  assignments      AssetAssignment[]
+  lifecycleEvents  AssetLifecycleEvent[]
 
   @@unique([organizationId, assetTag])
   @@map("assets")
@@ -2128,6 +2239,32 @@ model AssetAssignment {
   @@index([assetId, assignedAt])
   @@index([organizationId, returnRequestedAt])
   @@map("asset_assignments")
+  @@schema("assets")
+}
+
+/**
+ * Module 26-A — transfer / dispose / maintenance / damage / replacement trail.
+ */
+model AssetLifecycleEvent {
+  id                 String                  @id @default(uuid())
+  organizationId     String                  @map("organization_id")
+  assetId            String                  @map("asset_id")
+  eventType          AssetLifecycleEventType @map("event_type")
+  fromStatus         String?                 @map("from_status")
+  toStatus           String?                 @map("to_status")
+  notes              String?
+  fromEmployeeId     String?                 @map("from_employee_id")
+  fromGuardId        String?                 @map("from_guard_id")
+  toEmployeeId       String?                 @map("to_employee_id")
+  toGuardId          String?                 @map("to_guard_id")
+  replacementAssetId String?                 @map("replacement_asset_id")
+  condition          String?
+  createdAt          DateTime                @default(now()) @map("created_at")
+  createdBy          String                  @map("created_by")
+  asset              Asset                   @relation(fields: [assetId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, assetId, createdAt])
+  @@map("asset_lifecycle_events")
   @@schema("assets")
 }
 
@@ -2465,6 +2602,38 @@ model DataBreachCase {
   @@schema("compliance")
 }
 
+/**
+ * Module 32-A — DPO consent / lawful-basis records (not ops attendance).
+ */
+model ConsentRecord {
+  id             String             @id @default(uuid())
+  organizationId String             @map("organization_id")
+  referenceCode  String             @map("reference_code")
+  subjectType    ConsentSubjectType @map("subject_type")
+  subjectName    String             @map("subject_name")
+  subjectEmail   String?            @map("subject_email")
+  subjectRef     String?            @map("subject_ref")
+  purpose        String
+  lawfulBasis    ConsentLawfulBasis @map("lawful_basis")
+  channel        ConsentChannel
+  status         ConsentStatus      @default(ACTIVE)
+  grantedAt      DateTime           @map("granted_at")
+  expiresAt      DateTime?          @map("expires_at")
+  withdrawnAt    DateTime?          @map("withdrawn_at")
+  withdrawnBy    String?            @map("withdrawn_by")
+  withdrawReason String?            @map("withdraw_reason")
+  notes          String?
+  createdBy      String             @map("created_by")
+  createdAt      DateTime           @default(now()) @map("created_at")
+  updatedAt      DateTime           @updatedAt @map("updated_at")
+
+  @@unique([organizationId, referenceCode])
+  @@index([organizationId, status])
+  @@index([organizationId, subjectType])
+  @@map("consent_records")
+  @@schema("compliance")
+}
+
 model DocumentObject {
   id             String   @id @default(uuid())
   organizationId String   @map("organization_id")
@@ -2696,7 +2865,9 @@ enum AccessMethod {
   @@schema("access")
 }
 
-/** Module 11-B — customer employee access privilege (thin; not site ACL yet). */
+/**
+ * Module 11-B — customer employee access privilege (thin; not site ACL yet).
+ */
 enum AccessLevel {
   STANDARD
   RESTRICTED
@@ -2729,7 +2900,9 @@ enum VerificationResult {
   @@schema("visitors")
 }
 
-/** Module 12-B — visitor gate entry/exit direction */
+/**
+ * Module 12-B — visitor gate entry/exit direction
+ */
 enum VisitorEntryDirection {
   IN
   OUT
@@ -2737,7 +2910,9 @@ enum VisitorEntryDirection {
   @@schema("visitors")
 }
 
-/** Module 12-D — visitor ID document type (refs only) */
+/**
+ * Module 12-D — visitor ID document type (refs only)
+ */
 enum VisitorIdType {
   NIDA
   PASSPORT
@@ -2757,7 +2932,9 @@ enum VehicleType {
   @@schema("parking")
 }
 
-/** Module 13-I — registration taxonomy (party/use), distinct from VehicleType body class */
+/**
+ * Module 13-I — registration taxonomy (party/use), distinct from VehicleType body class
+ */
 enum ParkingCategory {
   CUSTOMER
   CUSTOMER_EMPLOYEE
@@ -2782,7 +2959,9 @@ enum PermitType {
   @@schema("parking")
 }
 
-/** Module 13-O — how unitRate × quantity is interpreted */
+/**
+ * Module 13-O — how unitRate × quantity is interpreted
+ */
 enum ParkingBillingPeriod {
   ONE_TIME
   DAILY
@@ -2808,7 +2987,9 @@ enum ParkingEntryDirection {
   @@schema("parking")
 }
 
-/** Module 13-L — how the gate officer / device verified the vehicle */
+/**
+ * Module 13-L — how the gate officer / device verified the vehicle
+ */
 enum ParkingVerificationMethod {
   MANUAL
   RFID
@@ -2848,13 +3029,17 @@ enum ParkingViolationStatus {
   CORRECTIVE_ACTION
   PENDING_CLOSURE
   CLOSED
-  /** Legacy — treat same as CLOSED in UI */
+  /**
+   * Legacy — treat same as CLOSED in UI
+   */
   RESOLVED
 
   @@schema("parking")
 }
 
-/** Module 13-J — bay purpose (allocation taxonomy) */
+/**
+ * Module 13-J — bay purpose (allocation taxonomy)
+ */
 enum ParkingSpaceType {
   EMPLOYEE
   VISITOR
@@ -2886,7 +3071,9 @@ enum ParkingAllocationMode {
   @@schema("parking")
 }
 
-/** Module 13-M — what the guard recorded on a parking inspection */
+/**
+ * Module 13-M — what the guard recorded on a parking inspection
+ */
 enum ParkingPatrolObservationType {
   IRREGULARITY
   SECURITY_OBSERVATION
@@ -3003,7 +3190,9 @@ enum GuardSupplyUrgency {
   @@schema("recruitment")
 }
 
-/** Module 15-A — optional gender preference (legally acceptable use only) */
+/**
+ * Module 15-A — optional gender preference (legally acceptable use only)
+ */
 enum GuardSupplyGenderPreference {
   ANY
   MALE
@@ -3211,6 +3400,17 @@ enum AssetStatus {
   @@schema("assets")
 }
 
+enum AssetLifecycleEventType {
+  TRANSFER
+  DISPOSE
+  MAINTENANCE_START
+  MAINTENANCE_COMPLETE
+  DAMAGE
+  REPLACEMENT
+
+  @@schema("assets")
+}
+
 enum WebhookInboxStatus {
   RECEIVED
   PROCESSING
@@ -3380,6 +3580,49 @@ enum BreachStatus {
   INVESTIGATING
   CONTAINED
   CLOSED
+
+  @@schema("compliance")
+}
+
+enum ConsentSubjectType {
+  EMPLOYEE
+  GUARD
+  CUSTOMER_EMPLOYEE
+  VISITOR
+  APPLICANT
+  SUPPLIER_CONTACT
+  OTHER
+
+  @@schema("compliance")
+}
+
+enum ConsentLawfulBasis {
+  CONSENT
+  CONTRACT
+  LEGAL_OBLIGATION
+  VITAL_INTERESTS
+  PUBLIC_TASK
+  LEGITIMATE_INTERESTS
+
+  @@schema("compliance")
+}
+
+enum ConsentChannel {
+  WEB_FORM
+  PAPER
+  EMAIL
+  SMS
+  IN_PERSON
+  MOBILE_APP
+  OTHER
+
+  @@schema("compliance")
+}
+
+enum ConsentStatus {
+  ACTIVE
+  WITHDRAWN
+  EXPIRED
 
   @@schema("compliance")
 }

@@ -23,13 +23,17 @@ import {
 } from '@pssms/shared';
 import { ComplianceService } from '../application/compliance.service';
 import {
+  CatalogOptionDto,
+  ConsentRecordResponseDto,
   CreateBreachDto,
+  CreateConsentDto,
   CreatePolicyDto,
   DataBreachCaseResponseDto,
   PolicyDocumentResponseDto,
   RejectPolicyDto,
   UpdateBreachDto,
   UpdatePolicyDto,
+  WithdrawConsentDto,
 } from './dto/compliance.dto';
 
 @ApiTags('Compliance')
@@ -40,6 +44,14 @@ export class ComplianceController {
   constructor(private readonly service: ComplianceService) {}
 
   // ── Policies ──
+
+  @Get('policy-category-options')
+  @RequireAnyPermissions('compliance.manage', 'audit.read')
+  @ApiOperation({ summary: 'Policy category catalog (design §32 domains)' })
+  @ApiOkResponse({ type: [CatalogOptionDto] })
+  policyCategoryOptions() {
+    return this.service.policyCategoryOptions();
+  }
 
   @Get('policies')
   @RequireAnyPermissions('compliance.manage', 'audit.read')
@@ -116,6 +128,49 @@ export class ComplianceController {
   @ApiOkResponse({ type: PolicyDocumentResponseDto })
   archivePolicy(@Param('id') id: string, @CurrentUser() user: AuthUser) {
     return this.service.archivePolicy(id, user);
+  }
+
+  // ── Consents (Module 32-A) ──
+
+  @Get('consent-options')
+  @RequireAnyPermissions('dpo.manage', 'compliance.manage', 'audit.read')
+  @ApiOperation({
+    summary: 'Consent purpose / subject / lawful-basis / channel catalogs',
+  })
+  consentOptions() {
+    return this.service.consentCatalogOptions();
+  }
+
+  @Get('consents')
+  @RequireAnyPermissions('dpo.manage', 'compliance.manage', 'audit.read')
+  @ApiOperation({
+    summary: 'List DPO consent / lawful-basis records (PII-sensitive)',
+  })
+  @ApiOkResponse({ type: [ConsentRecordResponseDto] })
+  listConsents(@CurrentUser() user: AuthUser) {
+    return this.service.listConsents(user);
+  }
+
+  @Post('consents')
+  @RequirePermissions('dpo.manage')
+  @ApiOperation({ summary: 'Record consent or lawful-basis entry (DPO/CISO)' })
+  @ApiCreatedResponse({ type: ConsentRecordResponseDto })
+  createConsent(@Body() dto: CreateConsentDto, @CurrentUser() user: AuthUser) {
+    return this.service.createConsent(dto, user);
+  }
+
+  @Post('consents/:id/withdraw')
+  @RequirePermissions('dpo.manage')
+  @ApiOperation({
+    summary: 'Withdraw an ACTIVE consent (reason required; audited)',
+  })
+  @ApiOkResponse({ type: ConsentRecordResponseDto })
+  withdrawConsent(
+    @Param('id') id: string,
+    @Body() dto: WithdrawConsentDto,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.service.withdrawConsent(id, dto, user);
   }
 
   // ── Breaches ──

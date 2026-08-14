@@ -5,6 +5,7 @@ import {
   Injectable,
 } from '@nestjs/common';
 import { AuthUser } from '../types/auth-user';
+import { assertSupplierPortalHasSupplierId } from '../utils/supplier-scope.util';
 
 /**
  * SUPPLIER_PORTAL users (JWT supplierId set) are limited to an allowlisted
@@ -35,7 +36,11 @@ export class SupplierPortalGuard implements CanActivate {
       user?: AuthUser;
     }>();
     const user = req.user;
-    if (!user?.supplierId) return true;
+    if (!user) return true;
+
+    // A role without its party binding must never fall through to staff APIs.
+    assertSupplierPortalHasSupplierId(user);
+    if (!user.supplierId) return true;
 
     const method = (req.method ?? 'GET').toUpperCase();
     const path = (req.url ?? '').split('?')[0];

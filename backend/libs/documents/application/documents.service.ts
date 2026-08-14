@@ -6,7 +6,12 @@ import {
 } from '@nestjs/common';
 import { createHash, randomUUID } from 'crypto';
 import { AuditService } from '@pssms/audit';
-import { AuthUser, PrismaService } from '@pssms/shared';
+import {
+  assertSiteAccess,
+  AuthUser,
+  isGuardSelfScoped,
+  PrismaService,
+} from '@pssms/shared';
 import { MinioStorageService } from '../infrastructure/minio-storage.service';
 import {
   DocumentDownloadUrlResponseDto,
@@ -36,6 +41,8 @@ const PARENT_PERMISSION_BY_RESOURCE: Record<string, string> = {
   /** Module 24-A — supplier licence / TIN / VRN and submission attachments */
   Supplier: 'procurement.manage',
   SupplierSubmission: 'procurement.manage',
+  /** Module 31-A — incident evidence */
+  Incident: 'incidents.manage',
 };
 
 const SUPPORTED_RESOURCE_TYPES = new Set(
@@ -152,6 +159,16 @@ async function assertResourceOwned(
       throw new BadRequestException(
         'SupplierSubmission not found in your organization',
       );
+    }
+    return;
+  }
+  if (resourceType === 'Incident') {
+    const incident = await prisma.incident.findFirst({
+      where: { id: resourceId, organizationId },
+      select: { id: true },
+    });
+    if (!incident) {
+      throw new BadRequestException('Incident not found in your organization');
     }
   }
 }
@@ -276,6 +293,24 @@ async function assertDocumentAccess(
   }
 
   assertParentPermission(resourceType, user);
+  if (resourceType === 'Incident') {
+    const incident = await prisma.incident.findFirst({
+      where: { id: resourceId, organizationId: user.organizationId },
+      select: { siteId: true, reporterId: true },
+    });
+    if (!incident) {
+      throw new BadRequestException('Incident not found in your organization');
+    }
+    if (isGuardSelfScoped(user)) {
+      if (incident.reporterId !== user.id) {
+        throw new ForbiddenException(
+          'Guards may only access evidence for incidents they reported',
+        );
+      }
+    } else {
+      assertSiteAccess(user, incident.siteId);
+    }
+  }
   await assertResourceOwned(
     prisma,
     resourceType,

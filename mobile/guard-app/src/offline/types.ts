@@ -13,6 +13,7 @@ export type FieldEventType =
   | 'CLOCK_IN'
   | 'ALERTNESS_CONFIRM'
   | 'PATROL_SCAN'
+  | 'PATROL_ISSUE'
   | 'CLOCK_OUT';
 
 export type OutboxRow = {
@@ -49,10 +50,24 @@ export type EnqueuePatrolScanInput = {
   deviceTime: string;
   siteId: string;
   checkpointId: string;
+  routeId?: string;
   qrOrNfcCode: string;
   latitude: number;
   longitude: number;
   method: 'QR';
+};
+
+export type EnqueuePatrolIssueInput = {
+  clientEventId: string;
+  deviceTime: string;
+  siteId: string;
+  routeId: string;
+  checkpointId?: string;
+  title: string;
+  description: string;
+  severity: 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL';
+  latitude: number;
+  longitude: number;
 };
 
 export type EnqueueClockOutInput = {

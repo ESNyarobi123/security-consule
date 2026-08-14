@@ -11,7 +11,7 @@ import {
   ValidateNested,
 } from 'class-validator';
 import { Type } from 'class-transformer';
-import { AttendanceMethod } from '@prisma/client';
+import { AttendanceMethod, IncidentSeverity } from '@prisma/client';
 
 export class GpsDto {
   @ApiProperty() @IsNumber() latitude!: number;
@@ -190,6 +190,35 @@ export class PatrolScanDto {
   @ApiPropertyOptional() @IsOptional() @IsDateString() deviceTime?: string;
   @ApiPropertyOptional() @IsOptional() @IsString() clientEventId?: string;
   @ApiPropertyOptional() @IsOptional() @IsString() qrOrNfcCode?: string;
+}
+
+/** Module 20-A — guard-reported issue while executing a patrol route. */
+export class PatrolIssueDto {
+  @ApiProperty() @IsString() siteId!: string;
+  @ApiProperty() @IsString() routeId!: string;
+  @ApiPropertyOptional() @IsOptional() @IsString() checkpointId?: string;
+
+  @ApiProperty({ example: 'Broken perimeter light' })
+  @IsString()
+  @MaxLength(160)
+  title!: string;
+
+  @ApiProperty({ example: 'Light near the north fence is not working.' })
+  @IsString()
+  @MaxLength(2000)
+  description!: string;
+
+  @ApiProperty({ enum: IncidentSeverity, default: IncidentSeverity.MEDIUM })
+  @IsEnum(IncidentSeverity)
+  severity!: IncidentSeverity;
+
+  @ApiProperty({ type: GpsDto })
+  @ValidateNested()
+  @Type(() => GpsDto)
+  gps!: GpsDto;
+
+  @ApiPropertyOptional() @IsOptional() @IsDateString() deviceTime?: string;
+  @ApiPropertyOptional() @IsOptional() @IsString() clientEventId?: string;
 }
 
 export class FieldSyncEventDto {

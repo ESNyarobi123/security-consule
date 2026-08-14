@@ -7,10 +7,12 @@ import {
   getDocumentDownloadUrl,
   getOccurrenceHistory,
   listDocuments,
+  listEobCategoryOptions,
   listOccurrenceEntries,
   listSites,
   uploadDocument,
   type DocumentObject,
+  type EobCategoryOption,
   type OccurrenceEntry,
   type OccurrenceHistoryVersion,
   type Site,
@@ -41,14 +43,26 @@ import {
   shortId,
 } from '../_components/shared';
 
-const CATEGORIES = [
-  'ROUTINE',
-  'VISITOR_ISSUE',
-  'INCIDENT',
-  'EQUIPMENT',
-  'SECURITY_NOTE',
-  'OTHER',
-] as const;
+/**
+ * Fallback if the category-options API is unreachable (design §30 taxonomy).
+ * Must mirror EOB_CATEGORIES in backend/libs/occurrence-book/presentation/dto/occurrence.dto.ts
+ * — stale values here would be rejected with INVALID_EOB_CATEGORY on submit.
+ */
+const FALLBACK_CATEGORIES: EobCategoryOption[] = [
+  { value: 'HANDOVER_NOTE', label: 'Guard handover note' },
+  { value: 'VISITOR_ISSUE', label: 'Visitor issue' },
+  { value: 'VEHICLE_ISSUE', label: 'Vehicle issue' },
+  { value: 'PARKING_VIOLATION', label: 'Parking violation' },
+  { value: 'INCIDENT', label: 'Incident' },
+  { value: 'PATROL_OBSERVATION', label: 'Patrol observation' },
+  { value: 'CUSTOMER_INSTRUCTION', label: 'Customer instruction' },
+  { value: 'LOST_PROPERTY', label: 'Lost property' },
+  { value: 'EMERGENCY_EVENT', label: 'Emergency event' },
+  { value: 'SUPERVISOR_COMMENT', label: 'Supervisor comment' },
+  { value: 'ROUTINE', label: 'Routine log' },
+  { value: 'EQUIPMENT', label: 'Equipment note' },
+  { value: 'OTHER', label: 'Other' },
+];
 
 function toLocalInput(d: Date) {
   const pad = (n: number) => String(n).padStart(2, '0');
@@ -58,6 +72,8 @@ function toLocalInput(d: Date) {
 export default function BranchEobPage() {
   const [rows, setRows] = useState<OccurrenceEntry[]>([]);
   const [sites, setSites] = useState<Site[]>([]);
+  const [categories, setCategories] =
+    useState<EobCategoryOption[]>(FALLBACK_CATEGORIES);
   const [siteId, setSiteId] = useState('');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -73,12 +89,14 @@ export default function BranchEobPage() {
     setLoading(true);
     setError(null);
     try {
-      const [entries, s] = await Promise.all([
+      const [entries, s, cats] = await Promise.all([
         listOccurrenceEntries(siteId ? { siteId } : undefined),
         listSites(),
+        listEobCategoryOptions().catch(() => FALLBACK_CATEGORIES),
       ]);
       setRows(entries);
       setSites(s);
+      setCategories(cats.length > 0 ? cats : FALLBACK_CATEGORIES);
     } catch (err) {
       setError(formatApiError(err));
     } finally {
@@ -197,6 +215,16 @@ export default function BranchEobPage() {
                 render: (r) => <StatusBadge status={r.category} />,
               },
               {
+                key: 'officerId',
+                label: 'Officer',
+                render: (r) => (
+                  <span className="text-xs text-[#323130]">
+                    {r.officerName ||
+                      (r.officerId ? shortId(r.officerId) : '—')}
+                  </span>
+                ),
+              },
+              {
                 key: 'description',
                 label: 'Narrative',
                 render: (r) => (
@@ -227,8 +255,12 @@ export default function BranchEobPage() {
                 label: 'Approval',
                 render: (r) =>
                   r.approvedBy ? (
-                    <span className="text-[11px] text-[#107c10]">
+                    <span
+                      className="text-[11px] text-[#107c10]"
+                      title={r.approvedByName || undefined}
+                    >
                       Approved
+                      {r.approvedByName ? ` · ${r.approvedByName}` : ''}
                     </span>
                   ) : (
                     <span className="text-[11px] text-[#876400]">
@@ -299,6 +331,7 @@ export default function BranchEobPage() {
       {createOpen ? (
         <CreateEobModal
           sites={sites}
+          categories={categories}
           defaultSiteId={siteId || sites[0]?.id || ''}
           onClose={() => setCreateOpen(false)}
           onCreated={async () => {
@@ -311,6 +344,7 @@ export default function BranchEobPage() {
       {correctRow ? (
         <CorrectEobModal
           entry={correctRow}
+          categories={categories}
           onClose={() => setCorrectRow(null)}
           onCorrected={async () => {
             setCorrectRow(null);
@@ -485,17 +519,21 @@ function AttachmentsEobModal({
 
 function CreateEobModal({
   sites,
+  categories,
   defaultSiteId,
   onClose,
   onCreated,
 }: {
   sites: Site[];
+  categories: EobCategoryOption[];
   defaultSiteId: string;
   onClose: () => void;
   onCreated: () => Promise<void>;
 }) {
   const [siteId, setSiteId] = useState(defaultSiteId);
-  const [category, setCategory] = useState<string>(CATEGORIES[0]);
+  const [category, setCategory] = useState<string>(
+    categories[0]?.value ?? 'ROUTINE',
+  );
   const [description, setDescription] = useState('');
   const [recordedAt, setRecordedAt] = useState(toLocalInput(new Date()));
   const [saving, setSaving] = useState(false);
@@ -555,15 +593,15 @@ function CreateEobModal({
           </select>
         </label>
         <label className="block text-xs text-[#605e5c]">
-          Category
+          Event category
           <select
             className={`${inputCls} mt-1`}
             value={category}
             onChange={(e) => setCategory(e.target.value)}
           >
-            {CATEGORIES.map((c) => (
-              <option key={c} value={c}>
-                {c}
+            {categories.map((c) => (
+              <option key={c.value} value={c.value}>
+                {c.label}
               </option>
             ))}
           </select>
@@ -682,7 +720,11 @@ function HistoryEobModal({
                 </div>
                 <p className="mt-1 text-xs text-[#605e5c]">
                   {formatDateTime(v.createdAt)}
-                  {v.officerId ? ` · officer ${shortId(v.officerId)}` : ''}
+                  {v.officerName
+                    ? ` · ${v.officerName}`
+                    : v.officerId
+                      ? ` · officer ${shortId(v.officerId)}`
+                      : ''}
                 </p>
                 <p className="mt-1 text-sm text-[#323130] whitespace-pre-wrap">
                   {v.description}
@@ -698,7 +740,7 @@ function HistoryEobModal({
                 ) : null}
                 {v.approvedBy ? (
                   <p className="mt-1 text-[11px] text-[#605e5c]">
-                    Approved by {shortId(v.approvedBy)}
+                    Approved by {v.approvedByName || shortId(v.approvedBy)}
                   </p>
                 ) : null}
               </li>
@@ -720,10 +762,12 @@ function HistoryEobModal({
 
 function CorrectEobModal({
   entry,
+  categories,
   onClose,
   onCorrected,
 }: {
   entry: OccurrenceEntry;
+  categories: EobCategoryOption[];
   onClose: () => void;
   onCorrected: () => Promise<void>;
 }) {
@@ -732,6 +776,9 @@ function CorrectEobModal({
   const [category, setCategory] = useState(entry.category);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const entryCategoryInCatalog = categories.some(
+    (c) => c.value === entry.category,
+  );
 
   async function onSubmit(e: FormEvent) {
     e.preventDefault();
@@ -749,7 +796,9 @@ function CorrectEobModal({
       await correctOccurrenceEntry(entry.id, {
         reason: reason.trim(),
         description: description.trim(),
-        category: category.trim() || undefined,
+        // Omit when unchanged — legacy categories outside the catalog
+        // stay valid on the original but are rejected on new writes.
+        category: category !== entry.category ? category : undefined,
       });
       await onCorrected();
     } catch (err) {
@@ -772,17 +821,20 @@ function CorrectEobModal({
           </p>
         ) : null}
         <label className="block text-xs text-[#605e5c]">
-          Category
+          Event category
           <select
             className={`${inputCls} mt-1`}
             value={category}
             onChange={(e) => setCategory(e.target.value)}
           >
-            {[
-              ...new Set([entry.category, ...CATEGORIES]),
-            ].map((c) => (
-              <option key={c} value={c}>
-                {c}
+            {!entryCategoryInCatalog ? (
+              <option value={entry.category}>
+                Keep: {entry.category} (legacy)
+              </option>
+            ) : null}
+            {categories.map((c) => (
+              <option key={c.value} value={c.value}>
+                {c.label}
               </option>
             ))}
           </select>

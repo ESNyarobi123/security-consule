@@ -92,6 +92,20 @@ export class UsersService {
           'CUSTOMER_EMPLOYEE must be created with a customer binding (use customer portal invite / access link flow)',
       });
     }
+    if (dto.roleCodes.includes('CUSTOMER_PORTAL')) {
+      throw new BadRequestException({
+        error: 'CUSTOMER_PORTAL_REQUIRES_CUSTOMER',
+        message:
+          'CUSTOMER_PORTAL must be created through the customer portal invite flow',
+      });
+    }
+    if (dto.roleCodes.includes('SUPPLIER_PORTAL')) {
+      throw new BadRequestException({
+        error: 'SUPPLIER_PORTAL_REQUIRES_SUPPLIER',
+        message:
+          'SUPPLIER_PORTAL must be created through the supplier registration/invite flow',
+      });
+    }
     if (dto.roleCodes.includes('OTHER_SECURITY_COMPANY')) {
       throw new BadRequestException({
         error: 'OTHER_SECURITY_REQUIRES_PARTNER',
@@ -1235,6 +1249,7 @@ export class UsersService {
     roleCodes: string[],
     target: {
       customerId?: string | null;
+      supplierId?: string | null;
       b2bPartnerId?: string | null;
     },
     organizationId: string,
@@ -1253,6 +1268,20 @@ export class UsersService {
         error: 'CUSTOMER_EMPLOYEE_REQUIRES_CUSTOMER',
         message:
           'Cannot assign CUSTOMER_EMPLOYEE without linking the user to a customer',
+      });
+    }
+    if (roleCodes.includes('CUSTOMER_PORTAL') && !target.customerId) {
+      throw new BadRequestException({
+        error: 'CUSTOMER_PORTAL_REQUIRES_CUSTOMER',
+        message:
+          'Cannot assign CUSTOMER_PORTAL without linking the user to a customer',
+      });
+    }
+    if (roleCodes.includes('SUPPLIER_PORTAL') && !target.supplierId) {
+      throw new BadRequestException({
+        error: 'SUPPLIER_PORTAL_REQUIRES_SUPPLIER',
+        message:
+          'Cannot assign SUPPLIER_PORTAL without linking the user to a supplier',
       });
     }
     if (roleCodes.includes('OTHER_SECURITY_COMPANY') && !target.b2bPartnerId) {

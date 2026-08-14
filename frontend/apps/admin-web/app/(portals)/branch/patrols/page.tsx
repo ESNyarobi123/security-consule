@@ -4,12 +4,14 @@ import {
   createCheckpoint,
   createPatrolRoute,
   listCheckpoints,
+  listIncidents,
   listPatrolRoutes,
   listPatrolScans,
   listSites,
   markPatrolRouteMissed,
   scanMissedPatrolRoutes,
   type Checkpoint,
+  type Incident,
   type PatrolRoute,
   type PatrolScan,
   type Site,
@@ -23,13 +25,20 @@ import {
   btnSecondary,
   inputCls,
 } from '@pssms/ui';
-import { MapPinned, Plus, RefreshCw, Route, ScanLine } from 'lucide-react';
+import {
+  MapPinned,
+  Plus,
+  RefreshCw,
+  Route,
+  ScanLine,
+  ShieldAlert,
+} from 'lucide-react';
 import Link from 'next/link';
 import { FormEvent, useCallback, useEffect, useMemo, useState } from 'react';
 import { BranchShell } from '../_components/BranchShell';
 import { formatApiError, formatDateTime, shortId } from '../_components/shared';
 
-type Section = 'routes' | 'checkpoints' | 'scans';
+type Section = 'routes' | 'checkpoints' | 'scans' | 'issues';
 
 export default function BranchPatrolsPage() {
   const [section, setSection] = useState<Section>('routes');
@@ -38,6 +47,7 @@ export default function BranchPatrolsPage() {
   const [checkpoints, setCheckpoints] = useState<Checkpoint[]>([]);
   const [routes, setRoutes] = useState<PatrolRoute[]>([]);
   const [scans, setScans] = useState<PatrolScan[]>([]);
+  const [patrolIssues, setPatrolIssues] = useState<Incident[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
@@ -52,14 +62,18 @@ export default function BranchPatrolsPage() {
       const siteList = await listSites();
       setSites(siteList);
       const filter = siteId || undefined;
-      const [cps, rts, ps] = await Promise.all([
+      const [cps, rts, ps, incidents] = await Promise.all([
         listCheckpoints(filter),
         listPatrolRoutes(filter),
         listPatrolScans(filter),
+        listIncidents({ siteId: filter }).catch(() => [] as Incident[]),
       ]);
       setCheckpoints(cps);
       setRoutes(rts);
       setScans(ps);
+      setPatrolIssues(
+        incidents.filter((incident) => incident.category === 'PATROL_ISSUE'),
+      );
     } catch (err) {
       setError(formatApiError(err));
     } finally {
@@ -172,12 +186,14 @@ export default function BranchPatrolsPage() {
       }
     >
       <p className="mb-4 rounded border border-[#e1dfdd] bg-[#faf9f8] px-3 py-2 text-xs text-[#605e5c]">
-        Supervisor sets route + due window → Guard scans stops → Board shows
-        coverage + SLA (ON_TRACK / LATE / MISSED). Scan missed raises{' '}
+        Supervisor sets route + due window → Guard scans stops or reports an
+        issue → Board shows coverage + SLA (ON_TRACK / LATE / MISSED). Scan
+        missed raises{' '}
         <Link href="/branch/alerts" className="text-[#0078d4] underline">
           Field alerts
         </Link>{' '}
-        (PATROL_MISSED) for escalate/ack. GPS map + on-spot→incident deferred.
+        (PATROL_MISSED) for escalate/ack. Guard-reported issues become auditable
+        PATROL_ISSUE incidents; GPS map remains deferred.
       </p>
 
       <div className="mb-4 flex flex-wrap items-end gap-3">
@@ -202,6 +218,11 @@ export default function BranchPatrolsPage() {
               { id: 'routes' as const, label: 'Routes', icon: Route },
               { id: 'checkpoints' as const, label: 'Checkpoints', icon: MapPinned },
               { id: 'scans' as const, label: 'Scans', icon: ScanLine },
+              {
+                id: 'issues' as const,
+                label: `Issues ${patrolIssues.length}`,
+                icon: ShieldAlert,
+              },
             ] as const
           ).map((tab) => {
             const Icon = tab.icon;
@@ -480,6 +501,82 @@ export default function BranchPatrolsPage() {
                     <span className="font-mono text-[11px] text-[#605e5c]">
                       {shortId(r.guardId)}
                     </span>
+                  ),
+                },
+              ]}
+            />
+          )}
+        </GlassCard>
+      ) : null}
+
+      {section === 'issues' ? (
+        <GlassCard className="!p-0 overflow-hidden">
+          {patrolIssues.length === 0 && !loading ? (
+            <div className="flex flex-col items-center gap-2 px-4 py-10 text-center text-sm text-[#605e5c]">
+              <ShieldAlert className="h-5 w-5 text-[#a19f9d]" />
+              <p>No guard-reported patrol issues</p>
+              <p className="max-w-sm text-xs">
+                Issues queued in the Guard App become PATROL_ISSUE incidents
+                after Outbox sync.
+              </p>
+            </div>
+          ) : (
+            <DataTable<Incident>
+              loading={loading}
+              keyField="id"
+              rows={patrolIssues}
+              emptyMessage="No patrol issues"
+              columns={[
+                {
+                  key: 'incidentNumber',
+                  label: 'Incident',
+                  render: (r) => (
+                    <span className="font-mono text-xs">
+                      {r.incidentNumber}
+                    </span>
+                  ),
+                },
+                { key: 'title', label: 'Issue' },
+                {
+                  key: 'siteId',
+                  label: 'Site',
+                  render: (r) => (
+                    <span className="text-xs text-[#605e5c]">
+                      {r.siteCode && r.siteName
+                        ? `${r.siteCode} — ${r.siteName}`
+                        : siteLabel(r.siteId)}
+                    </span>
+                  ),
+                },
+                {
+                  key: 'severity',
+                  label: 'Severity',
+                  render: (r) => <StatusBadge status={r.severity} />,
+                },
+                {
+                  key: 'status',
+                  label: 'Status',
+                  render: (r) => <StatusBadge status={r.status} />,
+                },
+                {
+                  key: 'createdAt',
+                  label: 'Reported',
+                  render: (r) => (
+                    <span className="text-xs">
+                      {formatDateTime(r.createdAt)}
+                    </span>
+                  ),
+                },
+                {
+                  key: 'id',
+                  label: 'Action',
+                  render: () => (
+                    <Link
+                      href="/branch/incidents"
+                      className="text-[11px] font-medium text-[#0078d4] underline"
+                    >
+                      Open incident queue
+                    </Link>
                   ),
                 },
               ]}

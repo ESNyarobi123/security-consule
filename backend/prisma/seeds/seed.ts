@@ -3169,6 +3169,12 @@ async function main() {
           title: s.title,
           description: s.description,
           reporterId: supervisorUser.id,
+          locationDescription: 'SITE-WAREHOUSE-A security zone',
+          occurredAt: createdAt,
+          actionTaken: 'Area secured and Branch Operations notified.',
+          resolution: s.resolved
+            ? 'Corrective action completed and site operations restored.'
+            : null,
           createdAt,
           resolvedAt: s.resolved ? createdAt : null,
         },
@@ -3198,6 +3204,10 @@ async function main() {
         description:
           'Major security breach resolved at site. Close requires GENERAL_MANAGER or CEO (reporter SoD applies).',
         reporterId: supervisorUser.id,
+        locationDescription: 'SITE-WAREHOUSE-A main perimeter',
+        occurredAt: createdAt,
+        actionTaken: 'Perimeter secured and executive escalation completed.',
+        resolution: 'Breach contained and corrective controls implemented.',
         createdAt,
         resolvedAt: createdAt,
       },
@@ -3436,6 +3446,41 @@ async function main() {
       data: { status: 'ASSIGNED' },
     });
   }
+
+  await prisma.asset.upsert({
+    where: {
+      organizationId_assetTag: {
+        organizationId: org.id,
+        assetTag: 'AST-BOOTS-001',
+      },
+    },
+    update: { name: 'Security Boots Size 43', category: 'SECURITY_BOOTS' },
+    create: {
+      organizationId: org.id,
+      assetTag: 'AST-BOOTS-001',
+      name: 'Security Boots Size 43',
+      category: 'SECURITY_BOOTS',
+      status: 'AVAILABLE',
+      createdBy: admin.id,
+    },
+  });
+  await prisma.asset.upsert({
+    where: {
+      organizationId_assetTag: {
+        organizationId: org.id,
+        assetTag: 'AST-CCTV-001',
+      },
+    },
+    update: { name: 'Outdoor CCTV Camera', category: 'CCTV' },
+    create: {
+      organizationId: org.id,
+      assetTag: 'AST-CCTV-001',
+      name: 'Outdoor CCTV Camera',
+      category: 'CCTV',
+      status: 'AVAILABLE',
+      createdBy: admin.id,
+    },
+  });
 
   await prisma.leaveType.upsert({
     where: {
@@ -4593,6 +4638,36 @@ async function main() {
     });
   }
 
+  // Module 32-A — demo consent / lawful-basis record (DPO register).
+  const dpoUser =
+    (await prisma.user.findUnique({ where: { email: 'dpo1@highlink.co.tz' } })) ??
+    admin;
+  const existingConsent = await prisma.consentRecord.findFirst({
+    where: {
+      organizationId: org.id,
+      referenceCode: 'CNS-00001',
+    },
+  });
+  if (!existingConsent) {
+    await prisma.consentRecord.create({
+      data: {
+        organizationId: org.id,
+        referenceCode: 'CNS-00001',
+        subjectType: 'CUSTOMER_EMPLOYEE',
+        subjectName: 'Jane Doe',
+        subjectEmail: 'jane.doe@demo-mfg.co.tz',
+        subjectRef: 'EMP-1001',
+        purpose: 'ACCESS_CONTROL',
+        lawfulBasis: 'CONSENT',
+        channel: 'WEB_FORM',
+        status: 'ACTIVE',
+        grantedAt: new Date('2026-06-01T08:00:00.000Z'),
+        notes: 'Demo consent for site access / biometric gate processing.',
+        createdBy: dpoUser.id,
+      },
+    });
+  }
+
   const supplier = await prisma.supplier.upsert({
     where: {
       organizationId_code: { organizationId: org.id, code: 'SUP-UNIFORM' },
@@ -5577,7 +5652,7 @@ async function main() {
   console.log('  §4 Harden A6: CISO/IT users.manage cannot assign SUPER_ADMIN/GM/CEO/CMD/CISO');
   console.log('  §4 Harden A5: leave-approval Supervisor→HR→DeptHead→GM (supervisor1 has approvals.act)');
   console.log('  §4 Phase 6: CALL_CENTRE + IT_SUPPORT + DEVELOPER refine (visitors staff gated)');
-  console.log('  Compliance demo: policy POL-DPP-001 (PUBLISHED), breach BRCH-00001 (REPORTED)');
+  console.log('  Compliance demo: policy POL-DPP-001 (PUBLISHED), breach BRCH-00001 (REPORTED), consent CNS-00001 (ACTIVE)');
   console.log('  Workflow policy-change-approval: CO submits → GENERAL_MANAGER publishes');
   console.log('  Workflow iam-role-change-approval: IT/CISO submits → GENERAL_MANAGER applies');
   console.log('  Workflow contract-approval (B3): Legal → GM → CEO → CMD@10M monthlyFee');

@@ -15,7 +15,7 @@ import {
   RequirePermissions,
 } from '@pssms/shared';
 import { PatrolService } from '../application/patrol.service';
-import { PatrolScanDto } from './dto/attendance.dto';
+import { PatrolIssueDto, PatrolScanDto } from './dto/attendance.dto';
 
 @ApiTags('Patrols')
 @ApiBearerAuth()
@@ -23,6 +23,22 @@ import { PatrolScanDto } from './dto/attendance.dto';
 @Controller('attendance/patrols')
 export class PatrolController {
   constructor(private readonly service: PatrolService) {}
+
+  @Get('routes')
+  @RequirePermissions('attendance.manage')
+  @ApiOperation({
+    summary: 'List active patrol routes for the Guard Mobile App',
+    description:
+      'Site-scoped route/checkpoint catalog. Does not disclose QR or NFC token values.',
+  })
+  @ApiQuery({ name: 'siteId', required: false })
+  @ApiOkResponse({ description: 'Guard-safe active route catalog' })
+  listRoutes(
+    @CurrentUser() user: AuthUser,
+    @Query('siteId') siteId?: string,
+  ) {
+    return this.service.listGuardRoutes(user, siteId);
+  }
 
   @Post('scan')
   @RequirePermissions('attendance.manage')
@@ -34,6 +50,18 @@ export class PatrolController {
   @ApiCreatedResponse({ description: 'PatrolScan recorded' })
   scan(@Body() dto: PatrolScanDto, @CurrentUser() user: AuthUser) {
     return this.service.scan(dto, user);
+  }
+
+  @Post('issues')
+  @RequirePermissions('attendance.manage')
+  @ApiOperation({
+    summary: 'Report a patrol issue as a security incident',
+    description:
+      'Guard Mobile/offline path. Validates route/checkpoint/site, records GPS and creates PATROL_ISSUE via IncidentsService.',
+  })
+  @ApiCreatedResponse({ description: 'PATROL_ISSUE incident recorded' })
+  reportIssue(@Body() dto: PatrolIssueDto, @CurrentUser() user: AuthUser) {
+    return this.service.reportIssue(dto, user);
   }
 
   @Get()

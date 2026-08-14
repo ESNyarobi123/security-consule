@@ -5,8 +5,10 @@ import {
   archivePolicy,
   createPolicy,
   listPolicies,
+  listPolicyCategoryOptions,
   rejectPolicy,
   submitPolicy,
+  type CatalogOption,
   type CreatePolicyBody,
   type PolicyDocument,
 } from '@pssms/api-client';
@@ -268,6 +270,9 @@ function CreatePolicyModal({
   onClose: () => void;
   onCreated: () => Promise<void>;
 }) {
+  const [categories, setCategories] = useState<CatalogOption[]>([
+    { value: 'DATA_PROTECTION', label: 'Data protection' },
+  ]);
   const [form, setForm] = useState<CreatePolicyBody>({
     code: '',
     title: '',
@@ -277,6 +282,24 @@ function CreatePolicyModal({
   });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    void listPolicyCategoryOptions()
+      .then((rows) => {
+        if (rows.length > 0) {
+          setCategories(rows);
+          setForm((prev) => ({
+            ...prev,
+            category: rows.some((r) => r.value === prev.category)
+              ? prev.category
+              : rows[0]!.value,
+          }));
+        }
+      })
+      .catch(() => {
+        /* keep fallback */
+      });
+  }, []);
 
   const onSubmit = async (e: FormEvent) => {
     e.preventDefault();
@@ -325,12 +348,18 @@ function CreatePolicyModal({
         </label>
         <label className="block text-xs text-[#605e5c]">
           Category
-          <input
+          <select
             className={`${inputCls} mt-1`}
             required
             value={form.category}
             onChange={(e) => setForm({ ...form, category: e.target.value })}
-          />
+          >
+            {categories.map((c) => (
+              <option key={c.value} value={c.value}>
+                {c.label}
+              </option>
+            ))}
+          </select>
         </label>
         <label className="block text-xs text-[#605e5c]">
           Summary (optional)

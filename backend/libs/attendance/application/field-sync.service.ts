@@ -7,7 +7,7 @@ import {
   FieldSyncBatchDto,
   FieldSyncResultDto,
 } from '../presentation/dto/attendance.dto';
-import { AttendanceMethod } from '@prisma/client';
+import { AttendanceMethod, IncidentSeverity } from '@prisma/client';
 
 @Injectable()
 export class FieldSyncService {
@@ -116,6 +116,37 @@ export class FieldSyncService {
                 deviceTime: event.deviceTime,
                 clientEventId: event.clientEventId,
                 qrOrNfcCode: p.qrOrNfcCode,
+              },
+              user,
+            );
+            results.push({
+              clientEventId: event.clientEventId,
+              status: 'ACCEPTED',
+              serverId: res.id,
+            });
+            break;
+          }
+          case 'PATROL_ISSUE': {
+            const p = event.payload as {
+              siteId: string;
+              routeId: string;
+              checkpointId?: string;
+              title: string;
+              description: string;
+              severity: IncidentSeverity;
+              gps: { latitude: number; longitude: number };
+            };
+            const res = await this.patrol.reportIssue(
+              {
+                siteId: p.siteId,
+                routeId: p.routeId,
+                checkpointId: p.checkpointId,
+                title: p.title,
+                description: p.description,
+                severity: p.severity,
+                gps: p.gps,
+                deviceTime: event.deviceTime,
+                clientEventId: event.clientEventId,
               },
               user,
             );

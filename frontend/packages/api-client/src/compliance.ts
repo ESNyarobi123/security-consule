@@ -147,6 +147,71 @@ export type CreateBreachBody = {
   estimatedRecords?: number;
 };
 
+export type ConsentStatus = 'ACTIVE' | 'WITHDRAWN' | 'EXPIRED';
+export type ConsentSubjectType =
+  | 'EMPLOYEE'
+  | 'GUARD'
+  | 'CUSTOMER_EMPLOYEE'
+  | 'VISITOR'
+  | 'APPLICANT'
+  | 'SUPPLIER_CONTACT'
+  | 'OTHER';
+export type ConsentLawfulBasis =
+  | 'CONSENT'
+  | 'CONTRACT'
+  | 'LEGAL_OBLIGATION'
+  | 'VITAL_INTERESTS'
+  | 'PUBLIC_TASK'
+  | 'LEGITIMATE_INTERESTS';
+export type ConsentChannel =
+  | 'WEB_FORM'
+  | 'PAPER'
+  | 'EMAIL'
+  | 'SMS'
+  | 'IN_PERSON'
+  | 'MOBILE_APP'
+  | 'OTHER';
+
+export type CatalogOption = { value: string; label: string };
+
+export type ConsentRecord = {
+  id: string;
+  organizationId: string;
+  referenceCode: string;
+  subjectType: ConsentSubjectType | string;
+  subjectName: string;
+  subjectEmail?: string | null;
+  subjectRef?: string | null;
+  purpose: string;
+  lawfulBasis: ConsentLawfulBasis | string;
+  channel: ConsentChannel | string;
+  status: ConsentStatus | string;
+  grantedAt: string;
+  expiresAt?: string | null;
+  withdrawnAt?: string | null;
+  withdrawnBy?: string | null;
+  withdrawnByName?: string | null;
+  withdrawReason?: string | null;
+  notes?: string | null;
+  createdBy: string;
+  createdByName?: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type CreateConsentBody = {
+  subjectType: ConsentSubjectType;
+  subjectName: string;
+  subjectEmail?: string;
+  subjectRef?: string;
+  purpose: string;
+  lawfulBasis: ConsentLawfulBasis;
+  channel: ConsentChannel;
+  grantedAt: string;
+  expiresAt?: string;
+  notes?: string;
+};
+
 export const listPolicies = (token?: string) =>
   coreFetch<PolicyDocument[]>('/api/v1/compliance/policies', { token });
 
@@ -228,5 +293,39 @@ export const updateBreach = (
   coreFetch<DataBreachCase>(`/api/v1/compliance/breaches/${id}`, {
     method: 'PATCH',
     body: JSON.stringify(body),
+    token,
+  });
+
+export const listPolicyCategoryOptions = (token?: string) =>
+  coreFetch<CatalogOption[]>('/api/v1/compliance/policy-category-options', {
+    token,
+  });
+
+export const listConsentOptions = (token?: string) =>
+  coreFetch<{
+    purposes: CatalogOption[];
+    subjectTypes: CatalogOption[];
+    lawfulBases: CatalogOption[];
+    channels: CatalogOption[];
+  }>('/api/v1/compliance/consent-options', { token });
+
+export const listConsents = (token?: string) =>
+  coreFetch<ConsentRecord[]>('/api/v1/compliance/consents', { token });
+
+export const createConsent = (body: CreateConsentBody, token?: string) =>
+  coreFetch<ConsentRecord>('/api/v1/compliance/consents', {
+    method: 'POST',
+    body: JSON.stringify(body),
+    token,
+  });
+
+export const withdrawConsent = (
+  id: string,
+  reason: string,
+  token?: string,
+) =>
+  coreFetch<ConsentRecord>(`/api/v1/compliance/consents/${id}/withdraw`, {
+    method: 'POST',
+    body: JSON.stringify({ reason }),
     token,
   });

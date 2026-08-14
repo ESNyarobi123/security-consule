@@ -3,18 +3,32 @@ import {
   AlertnessStatus,
   ApplicationStatus,
   BreachStatus,
+  ComplaintStatus,
   ContractStatus,
   DeploymentStatus,
+  DeviceEventStatus,
+  DeviceEventType,
   EmployeeStatus,
+  GuardSupplyRequestStatus,
   GuardStatus,
   IncidentSeverity,
   IncidentStatus,
   InvoiceStatus,
   KpiPeriodGranularity,
   KpiSnapshotStatus,
+  LoanStatus,
+  ParkingDecision,
+  ParkingSpaceStatus,
+  PayrollDueAlertStatus,
   PayrollCycleStatus,
+  PayrollTenantType,
+  PermitStatus,
+  PaymentVoucherStatus,
+  PettyCashVoucherStatus,
   PolicyStatus,
   Prisma,
+  ServiceRequestStatus,
+  SupplierStatus,
   VerificationResult,
 } from '@prisma/client';
 import { createHash } from 'crypto';
@@ -43,12 +57,18 @@ export const KPI_CATALOG: KpiCatalogEntry[] = [
   { code: 'DEPLOYMENTS_ACTIVE', name: 'Active deployments', category: 'OPS', unit: 'COUNT' },
   { code: 'BRANCHES_ACTIVE', name: 'Active branches', category: 'ENTERPRISE', unit: 'COUNT' },
   { code: 'SITES_ACTIVE', name: 'Active sites', category: 'ENTERPRISE', unit: 'COUNT' },
+  { code: 'CUSTOMER_SITES_ACTIVE', name: 'Active customer sites', category: 'ENTERPRISE', unit: 'COUNT' },
   { code: 'OPEN_INCIDENTS', name: 'Open incidents', category: 'SAFETY', unit: 'COUNT' },
   { code: 'INCIDENTS_BY_SEVERITY', name: 'Incidents by severity', category: 'SAFETY', unit: 'JSON' },
   { code: 'INCIDENTS_RESOLVED', name: 'Resolved incidents', category: 'SAFETY', unit: 'COUNT' },
   { code: 'VISITOR_APPOINTMENTS', name: 'Visitor appointments', category: 'ACCESS', unit: 'COUNT' },
   { code: 'VISITOR_ENTRIES_ALLOWED', name: 'Visitor entries allowed', category: 'ACCESS', unit: 'COUNT' },
+  { code: 'GATE_VERIFICATIONS', name: 'Gate verifications', category: 'ACCESS', unit: 'COUNT' },
+  { code: 'CUSTOMER_EMPLOYEE_ACCESS_EVENTS', name: 'Customer employee access events', category: 'ACCESS', unit: 'COUNT' },
   { code: 'PARKING_ENTRIES', name: 'Parking entries', category: 'ACCESS', unit: 'COUNT' },
+  { code: 'VEHICLE_ACCESS_ALLOWED', name: 'Allowed vehicle access', category: 'ACCESS', unit: 'COUNT' },
+  { code: 'PARKING_OCCUPANCY_RATE', name: 'Parking occupancy', category: 'ACCESS', unit: 'PERCENT' },
+  { code: 'PARKING_PERMITS_ACTIVE', name: 'Active parking permits', category: 'ACCESS', unit: 'COUNT' },
   { code: 'PARKING_VIOLATIONS', name: 'Parking violations', category: 'ACCESS', unit: 'COUNT' },
   { code: 'CONTRACTS_ACTIVE', name: 'Active contracts', category: 'COMMERCIAL', unit: 'COUNT' },
   { code: 'CONTRACTS_MRR', name: 'Contract MRR', category: 'COMMERCIAL', unit: 'TZS' },
@@ -56,15 +76,32 @@ export const KPI_CATALOG: KpiCatalogEntry[] = [
   { code: 'REVENUE_COLLECTED', name: 'Revenue collected', category: 'FINANCE', unit: 'TZS' },
   { code: 'INVOICE_OUTSTANDING', name: 'Invoice outstanding', category: 'FINANCE', unit: 'TZS' },
   { code: 'INVOICE_COLLECTED', name: 'Payments collected', category: 'FINANCE', unit: 'TZS' },
+  { code: 'PETTY_CASH_ISSUED', name: 'Petty cash issued', category: 'FINANCE', unit: 'TZS' },
+  { code: 'PAYMENT_VOUCHERS_PAID', name: 'Payment vouchers paid', category: 'FINANCE', unit: 'TZS' },
   { code: 'PAYROLL_NET_TOTAL', name: 'Payroll net total', category: 'PAYROLL', unit: 'TZS' },
   { code: 'PAYROLL_GROSS_TOTAL', name: 'Payroll gross total', category: 'PAYROLL', unit: 'TZS' },
   { code: 'PAYROLL_CYCLES_PAID', name: 'Paid payroll cycles', category: 'PAYROLL', unit: 'COUNT' },
+  { code: 'CUSTOMER_PAYROLL_NET_TOTAL', name: 'Customer payroll net total', category: 'PAYROLL', unit: 'TZS' },
+  { code: 'EPAYROLL_DUE_ALERTS', name: 'Electronic payroll due alerts', category: 'PAYROLL', unit: 'COUNT' },
+  { code: 'EMPLOYEE_LOANS_ACTIVE', name: 'Active employee loans', category: 'HR', unit: 'COUNT' },
   { code: 'EMPLOYEES_ACTIVE', name: 'Active employees', category: 'HR', unit: 'COUNT' },
   { code: 'RECRUITMENT_PIPELINE', name: 'Recruitment pipeline', category: 'HR', unit: 'COUNT' },
+  { code: 'B2B_RECRUITMENT_REQUESTS_OPEN', name: 'Open B2B guard requests', category: 'HR', unit: 'COUNT' },
+  { code: 'SUPPLIERS_APPROVED', name: 'Approved suppliers', category: 'COMMERCIAL', unit: 'COUNT' },
+  { code: 'CUSTOMER_SERVICE_RESOLUTION_RATE', name: 'Customer service resolution', category: 'COMMERCIAL', unit: 'PERCENT' },
+  { code: 'PATROL_SCANS', name: 'Patrol checkpoint scans', category: 'OPS', unit: 'COUNT' },
+  { code: 'CCTV_ALERTS_OPEN', name: 'Open CCTV alerts', category: 'SAFETY', unit: 'COUNT' },
   { code: 'CRITICAL_INCIDENTS_OPEN', name: 'Critical open incidents', category: 'SAFETY', unit: 'COUNT' },
   { code: 'COMPLIANCE_POLICIES_PUBLISHED', name: 'Published policies', category: 'COMPLIANCE', unit: 'COUNT' },
   { code: 'COMPLIANCE_BREACHES_OPEN', name: 'Open data breaches', category: 'COMPLIANCE', unit: 'COUNT' },
+  { code: 'AUDIT_EVENTS', name: 'Audit events', category: 'COMPLIANCE', unit: 'COUNT' },
 ];
+
+const SNAPSHOT_KPI_CODES = new Set([
+  'PAYROLL_NET_TOTAL',
+  'PAYROLL_GROSS_TOTAL',
+  'CUSTOMER_PAYROLL_NET_TOTAL',
+]);
 
 @Injectable()
 export class KpiService {
@@ -105,7 +142,7 @@ export class KpiService {
           priorValue: null,
           deltaPct: null,
           asOf: new Date(),
-          source: def.category === 'PAYROLL' ? 'snapshot' : 'live',
+          source: SNAPSHOT_KPI_CODES.has(def.code) ? 'snapshot' : 'live',
           breakdown: computed.breakdown,
         });
       } catch (err) {
@@ -294,7 +331,7 @@ export class KpiService {
       category: def.category,
       unit: def.unit,
       value: computed.value,
-      source: def.category === 'PAYROLL' ? 'snapshot' : 'live',
+      source: SNAPSHOT_KPI_CODES.has(def.code) ? 'snapshot' : 'live',
       asOf: new Date(),
       period: {
         from: from.toISOString().slice(0, 10),
@@ -426,6 +463,30 @@ export class KpiService {
         pairs = rows.map((r) => ({ siteId: r.siteId, value: r._count._all }));
         break;
       }
+      case 'GATE_VERIFICATIONS': {
+        const rows = await this.prisma.visitorEntry.groupBy({
+          by: ['siteId'],
+          where: {
+            organizationId,
+            recordedAt: { gte: from, lte: toEnd },
+          },
+          _count: { _all: true },
+        });
+        pairs = rows.map((r) => ({ siteId: r.siteId, value: r._count._all }));
+        break;
+      }
+      case 'CUSTOMER_EMPLOYEE_ACCESS_EVENTS': {
+        const rows = await this.prisma.accessEntry.groupBy({
+          by: ['siteId'],
+          where: {
+            organizationId,
+            recordedAt: { gte: from, lte: toEnd },
+          },
+          _count: { _all: true },
+        });
+        pairs = rows.map((r) => ({ siteId: r.siteId, value: r._count._all }));
+        break;
+      }
       case 'PARKING_ENTRIES': {
         const rows = await this.prisma.parkingEntry.groupBy({
           by: ['siteId'],
@@ -433,6 +494,28 @@ export class KpiService {
             organizationId,
             recordedAt: { gte: from, lte: toEnd },
           },
+          _count: { _all: true },
+        });
+        pairs = rows.map((r) => ({ siteId: r.siteId, value: r._count._all }));
+        break;
+      }
+      case 'VEHICLE_ACCESS_ALLOWED': {
+        const rows = await this.prisma.parkingEntry.groupBy({
+          by: ['siteId'],
+          where: {
+            organizationId,
+            decision: ParkingDecision.ALLOW,
+            recordedAt: { gte: from, lte: toEnd },
+          },
+          _count: { _all: true },
+        });
+        pairs = rows.map((r) => ({ siteId: r.siteId, value: r._count._all }));
+        break;
+      }
+      case 'PARKING_PERMITS_ACTIVE': {
+        const rows = await this.prisma.parkingPermit.groupBy({
+          by: ['siteId'],
+          where: { organizationId, status: PermitStatus.ACTIVE },
           _count: { _all: true },
         });
         pairs = rows.map((r) => ({ siteId: r.siteId, value: r._count._all }));
@@ -463,15 +546,29 @@ export class KpiService {
         pairs = rows.map((r) => ({ siteId: r.siteId, value: r._count._all }));
         break;
       }
+      case 'PATROL_SCANS': {
+        const rows = await this.prisma.patrolScan.groupBy({
+          by: ['siteId'],
+          where: {
+            organizationId,
+            scannedAt: { gte: from, lte: toEnd },
+          },
+          _count: { _all: true },
+        });
+        pairs = rows.map((r) => ({ siteId: r.siteId, value: r._count._all }));
+        break;
+      }
       case 'BRANCHES_ACTIVE':
       case 'SITES_ACTIVE':
+      case 'CUSTOMER_SITES_ACTIVE':
       case 'CUSTOMERS_ACTIVE': {
         // Footprint: active sites (customer-linked sites prioritized for CUSTOMERS).
         const sites = await this.prisma.site.findMany({
           where: {
             organizationId,
             isActive: true,
-            ...(code === 'CUSTOMERS_ACTIVE'
+            ...(code === 'CUSTOMERS_ACTIVE' ||
+            code === 'CUSTOMER_SITES_ACTIVE'
               ? { customerId: { not: null } }
               : {}),
           },
@@ -682,6 +779,41 @@ export class KpiService {
           }),
         };
 
+      case 'GATE_VERIFICATIONS': {
+        const [total, allowed] = await Promise.all([
+          this.prisma.visitorEntry.count({
+            where: {
+              organizationId,
+              recordedAt: { gte: from, lte: toEnd },
+              ...siteFilter,
+            },
+          }),
+          this.prisma.visitorEntry.count({
+            where: {
+              organizationId,
+              result: VerificationResult.ALLOWED,
+              recordedAt: { gte: from, lte: toEnd },
+              ...siteFilter,
+            },
+          }),
+        ]);
+        return {
+          value: total,
+          breakdown: { allowed, denied: total - allowed },
+        };
+      }
+
+      case 'CUSTOMER_EMPLOYEE_ACCESS_EVENTS':
+        return {
+          value: await this.prisma.accessEntry.count({
+            where: {
+              organizationId,
+              recordedAt: { gte: from, lte: toEnd },
+              ...siteFilter,
+            },
+          }),
+        };
+
       case 'PARKING_ENTRIES':
         return {
           value: await this.prisma.parkingEntry.count({
@@ -693,12 +825,72 @@ export class KpiService {
           }),
         };
 
+      case 'VEHICLE_ACCESS_ALLOWED':
+        return {
+          value: await this.prisma.parkingEntry.count({
+            where: {
+              organizationId,
+              decision: ParkingDecision.ALLOW,
+              recordedAt: { gte: from, lte: toEnd },
+              ...siteFilter,
+            },
+          }),
+        };
+
+      case 'PARKING_OCCUPANCY_RATE': {
+        const where = {
+          organizationId,
+          isActive: true,
+          status: { not: ParkingSpaceStatus.OUT_OF_SERVICE },
+          ...(filters?.siteId ? { siteId: filters.siteId } : {}),
+        };
+        const [total, occupied, reserved, available, outOfService] =
+          await Promise.all([
+            this.prisma.parkingSpace.count({ where }),
+            this.prisma.parkingSpace.count({
+              where: { ...where, status: ParkingSpaceStatus.OCCUPIED },
+            }),
+            this.prisma.parkingSpace.count({
+              where: { ...where, status: ParkingSpaceStatus.RESERVED },
+            }),
+            this.prisma.parkingSpace.count({
+              where: { ...where, status: ParkingSpaceStatus.AVAILABLE },
+            }),
+            this.prisma.parkingSpace.count({
+              where: {
+                organizationId,
+                isActive: true,
+                status: ParkingSpaceStatus.OUT_OF_SERVICE,
+                ...(filters?.siteId ? { siteId: filters.siteId } : {}),
+              },
+            }),
+          ]);
+        return {
+          value:
+            total === 0
+              ? 0
+              : Math.round(((occupied + reserved) / total) * 10000) / 100,
+          breakdown: { total, occupied, reserved, available, outOfService },
+        };
+      }
+
+      case 'PARKING_PERMITS_ACTIVE':
+        return {
+          value: await this.prisma.parkingPermit.count({
+            where: {
+              organizationId,
+              status: PermitStatus.ACTIVE,
+              ...siteFilter,
+            },
+          }),
+        };
+
       case 'PARKING_VIOLATIONS':
         return {
           value: await this.prisma.parkingViolation.count({
             where: {
               organizationId,
-              createdAt: { gte: from, lte: toEnd },
+              recordedAt: { gte: from, lte: toEnd },
               ...siteFilter,
             },
           }),
@@ -758,6 +950,40 @@ export class KpiService {
         return {
           value: await this.prisma.site.count({
             where: { organizationId, isActive: true },
+          }),
+          breakdown: {
+            items: sites.map((s) => ({
+              code: s.code,
+              name: s.name,
+              branchCode: s.branch.code,
+              branchName: s.branch.name,
+            })),
+          },
+        };
+      }
+
+      case 'CUSTOMER_SITES_ACTIVE': {
+        const sites = await this.prisma.site.findMany({
+          where: {
+            organizationId,
+            isActive: true,
+            customerId: { not: null },
+          },
+          select: {
+            code: true,
+            name: true,
+            branch: { select: { code: true, name: true } },
+          },
+          orderBy: { code: 'asc' },
+          take: 80,
+        });
+        return {
+          value: await this.prisma.site.count({
+            where: {
+              organizationId,
+              isActive: true,
+              customerId: { not: null },
+            },
           }),
           breakdown: {
             items: sites.map((s) => ({
@@ -832,6 +1058,35 @@ export class KpiService {
         };
       }
 
+      case 'PETTY_CASH_ISSUED': {
+        const agg = await this.prisma.pettyCashVoucher.aggregate({
+          where: {
+            organizationId,
+            status: {
+              in: [
+                PettyCashVoucherStatus.ISSUED,
+                PettyCashVoucherStatus.REIMBURSED,
+              ],
+            },
+            issuedAt: { gte: from, lte: toEnd },
+          },
+          _sum: { amount: true },
+        });
+        return { value: Number(agg._sum.amount ?? 0) };
+      }
+
+      case 'PAYMENT_VOUCHERS_PAID': {
+        const agg = await this.prisma.paymentVoucher.aggregate({
+          where: {
+            organizationId,
+            status: PaymentVoucherStatus.PAID,
+            paidAt: { gte: from, lte: toEnd },
+          },
+          _sum: { amount: true },
+        });
+        return { value: Number(agg._sum.amount ?? 0) };
+      }
+
       case 'CRITICAL_INCIDENTS_OPEN':
         return {
           value: await this.prisma.incident.count({
@@ -874,6 +1129,7 @@ export class KpiService {
         const cycles = await this.prisma.payrollCycle.findMany({
           where: {
             organizationId,
+            tenantType: PayrollTenantType.INTERNAL_COMPANY,
             status: {
               in: [PayrollCycleStatus.APPROVED, PayrollCycleStatus.PAID],
             },
@@ -891,6 +1147,7 @@ export class KpiService {
           where: {
             organizationId,
             cycleId: { in: cycleIds },
+            employeeId: { not: null },
             supersededById: null,
           },
           _sum: { [field]: true },
@@ -910,9 +1167,64 @@ export class KpiService {
           value: await this.prisma.payrollCycle.count({
             where: {
               organizationId,
+              tenantType: PayrollTenantType.INTERNAL_COMPANY,
               status: PayrollCycleStatus.PAID,
               periodStart: { lte: toEnd },
               periodEnd: { gte: from },
+            },
+          }),
+        };
+
+      case 'CUSTOMER_PAYROLL_NET_TOTAL': {
+        const cycles = await this.prisma.payrollCycle.findMany({
+          where: {
+            organizationId,
+            tenantType: PayrollTenantType.CUSTOMER_MANAGED_PAYROLL,
+            status: {
+              in: [PayrollCycleStatus.APPROVED, PayrollCycleStatus.PAID],
+            },
+            periodStart: { lte: toEnd },
+            periodEnd: { gte: from },
+          },
+          select: { id: true },
+        });
+        const cycleIds = cycles.map((cycle) => cycle.id);
+        if (cycleIds.length === 0) return { value: 0 };
+        const agg = await this.prisma.payslipSnapshot.aggregate({
+          where: {
+            organizationId,
+            cycleId: { in: cycleIds },
+            customerEmployeeId: { not: null },
+            supersededById: null,
+          },
+          _sum: { netPay: true },
+        });
+        return {
+          value: Number(agg._sum.netPay ?? 0),
+          breakdown: {
+            cycleCount: cycleIds.length,
+            source: 'PayslipSnapshot',
+          },
+        };
+      }
+
+      case 'EPAYROLL_DUE_ALERTS':
+        return {
+          value: await this.prisma.payrollDueAlert.count({
+            where: {
+              organizationId,
+              status: PayrollDueAlertStatus.DUE,
+              dueDate: { gte: from, lte: toEnd },
+            },
+          }),
+        };
+
+      case 'EMPLOYEE_LOANS_ACTIVE':
+        return {
+          value: await this.prisma.employeeLoan.count({
+            where: {
+              organizationId,
+              status: LoanStatus.ACTIVE,
             },
           }),
         };
@@ -936,6 +1248,111 @@ export class KpiService {
                   ApplicationStatus.WITHDRAWN,
                 ],
               },
+            },
+          }),
+        };
+
+      case 'B2B_RECRUITMENT_REQUESTS_OPEN':
+        return {
+          value: await this.prisma.guardSupplyRequest.count({
+            where: {
+              organizationId,
+              status: {
+                in: [
+                  GuardSupplyRequestStatus.SUBMITTED,
+                  GuardSupplyRequestStatus.UNDER_REVIEW,
+                ],
+              },
+            },
+          }),
+        };
+
+      case 'SUPPLIERS_APPROVED':
+        return {
+          value: await this.prisma.supplier.count({
+            where: {
+              organizationId,
+              status: SupplierStatus.APPROVED,
+            },
+          }),
+        };
+
+      case 'CUSTOMER_SERVICE_RESOLUTION_RATE': {
+        const period = { gte: from, lte: toEnd };
+        const [requestTotal, requestResolved, complaintTotal, complaintResolved] =
+          await Promise.all([
+            this.prisma.customerServiceRequest.count({
+              where: { organizationId, createdAt: period },
+            }),
+            this.prisma.customerServiceRequest.count({
+              where: {
+                organizationId,
+                createdAt: period,
+                status: {
+                  in: [
+                    ServiceRequestStatus.RESOLVED,
+                    ServiceRequestStatus.CLOSED,
+                  ],
+                },
+              },
+            }),
+            this.prisma.customerComplaint.count({
+              where: { organizationId, createdAt: period },
+            }),
+            this.prisma.customerComplaint.count({
+              where: {
+                organizationId,
+                createdAt: period,
+                status: {
+                  in: [ComplaintStatus.RESOLVED, ComplaintStatus.CLOSED],
+                },
+              },
+            }),
+          ]);
+        const total = requestTotal + complaintTotal;
+        const resolved = requestResolved + complaintResolved;
+        return {
+          value:
+            total === 0 ? 0 : Math.round((resolved / total) * 10000) / 100,
+          breakdown: {
+            total,
+            resolved,
+            serviceRequests: requestTotal,
+            complaints: complaintTotal,
+          },
+        };
+      }
+
+      case 'PATROL_SCANS':
+        return {
+          value: await this.prisma.patrolScan.count({
+            where: {
+              organizationId,
+              scannedAt: { gte: from, lte: toEnd },
+              ...siteFilter,
+            },
+          }),
+        };
+
+      case 'CCTV_ALERTS_OPEN':
+        return {
+          value: await this.prisma.deviceEvent.count({
+            where: {
+              organizationId,
+              type: DeviceEventType.CCTV_EVENT,
+              status: {
+                in: [DeviceEventStatus.RECEIVED, DeviceEventStatus.FAILED],
+              },
+            },
+          }),
+        };
+
+      case 'AUDIT_EVENTS':
+        return {
+          value: await this.prisma.auditLog.count({
+            where: {
+              organizationId,
+              createdAt: { gte: from, lte: toEnd },
             },
           }),
         };

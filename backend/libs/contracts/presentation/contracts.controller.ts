@@ -94,6 +94,8 @@ export class ContractsController {
   }
 
   @Get()
+  @UseGuards(PermissionsGuard)
+  @RequirePermissions('contracts.manage')
   @ApiOperation({ summary: 'List contracts (customer-portal users are force-scoped)' })
   @ApiQuery({ name: 'customerId', required: false })
   @ApiOkResponse({ type: [ContractResponseDto] })

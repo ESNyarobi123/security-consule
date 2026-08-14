@@ -8,12 +8,17 @@ import { AttendanceMethod } from '@prisma/client';
 import {
   PrismaService,
   AuthUser,
+  assertSiteAccess,
   isGuardSelfScoped,
   siteScopeWhere,
 } from '@pssms/shared';
 import { AuditService } from '@pssms/audit';
+import { IncidentsService } from '@pssms/incidents';
 import { GuardsService } from '@pssms/workforce';
-import { PatrolScanDto } from '../presentation/dto/attendance.dto';
+import {
+  PatrolIssueDto,
+  PatrolScanDto,
+} from '../presentation/dto/attendance.dto';
 
 @Injectable()
 export class PatrolService {
@@ -21,6 +26,7 @@ export class PatrolService {
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
     private readonly guards: GuardsService,
+    private readonly incidents: IncidentsService,
   ) {}
 
   async scan(dto: PatrolScanDto, user: AuthUser) {
@@ -33,6 +39,7 @@ export class PatrolService {
 
     const guard = await this.guards.getByUserId(user.id, user.organizationId);
     if (!guard) throw new BadRequestException('User is not a registered guard');
+    assertSiteAccess(user, dto.siteId);
 
     const checkpoint = await this.prisma.checkpoint.findFirst({
       where: {
@@ -43,6 +50,24 @@ export class PatrolService {
       },
     });
     if (!checkpoint) throw new NotFoundException('Checkpoint not found');
+
+    if (dto.routeId) {
+      const route = await this.prisma.patrolRoute.findFirst({
+        where: {
+          id: dto.routeId,
+          organizationId: user.organizationId,
+          siteId: dto.siteId,
+          isActive: true,
+        },
+        select: { checkpointIds: true },
+      });
+      if (!route) throw new NotFoundException('Patrol route not found');
+      if (!route.checkpointIds.includes(dto.checkpointId)) {
+        throw new BadRequestException(
+          'Checkpoint does not belong to the selected patrol route',
+        );
+      }
+    }
 
     if (dto.qrOrNfcCode) {
       const match =
@@ -82,6 +107,124 @@ export class PatrolService {
     });
 
     return scan;
+  }
+
+  /**
+   * Guard-safe active route catalog. It intentionally excludes QR/NFC token
+   * values; the physical token is submitted only when scanning.
+   */
+  async listGuardRoutes(user: AuthUser, siteId?: string) {
+    if (siteId) assertSiteAccess(user, siteId);
+    const routes = await this.prisma.patrolRoute.findMany({
+      where: {
+        organizationId: user.organizationId,
+        isActive: true,
+        ...siteScopeWhere(user, siteId),
+      },
+      orderBy: [{ siteId: 'asc' }, { name: 'asc' }],
+      take: 100,
+    });
+    const checkpointIds = [...new Set(routes.flatMap((r) => r.checkpointIds))];
+    const checkpoints = checkpointIds.length
+      ? await this.prisma.checkpoint.findMany({
+          where: {
+            organizationId: user.organizationId,
+            id: { in: checkpointIds },
+            isActive: true,
+          },
+          select: {
+            id: true,
+            siteId: true,
+            code: true,
+            name: true,
+            zone: true,
+            latitude: true,
+            longitude: true,
+          },
+        })
+      : [];
+    const checkpointMap = new Map(checkpoints.map((cp) => [cp.id, cp]));
+    return routes.map((route) => ({
+      id: route.id,
+      siteId: route.siteId,
+      name: route.name,
+      dueMinutesFromMidnight: route.dueMinutesFromMidnight,
+      checkpoints: route.checkpointIds
+        .map((id) => checkpointMap.get(id))
+        .filter((cp): cp is NonNullable<typeof cp> => Boolean(cp)),
+    }));
+  }
+
+  /** Module 20-A — create an auditable patrol incident via the incidents port. */
+  async reportIssue(dto: PatrolIssueDto, user: AuthUser) {
+    const guard = await this.guards.getByUserId(user.id, user.organizationId);
+    if (!guard) throw new BadRequestException('User is not a registered guard');
+    assertSiteAccess(user, dto.siteId);
+
+    const route = await this.prisma.patrolRoute.findFirst({
+      where: {
+        id: dto.routeId,
+        organizationId: user.organizationId,
+        siteId: dto.siteId,
+        isActive: true,
+      },
+      select: { id: true, name: true, checkpointIds: true },
+    });
+    if (!route) throw new NotFoundException('Patrol route not found');
+
+    let checkpoint:
+      | { id: string; code: string; name: string }
+      | undefined;
+    if (dto.checkpointId) {
+      if (!route.checkpointIds.includes(dto.checkpointId)) {
+        throw new BadRequestException(
+          'Checkpoint does not belong to the selected patrol route',
+        );
+      }
+      checkpoint = await this.prisma.checkpoint.findFirst({
+        where: {
+          id: dto.checkpointId,
+          organizationId: user.organizationId,
+          siteId: dto.siteId,
+          isActive: true,
+        },
+        select: { id: true, code: true, name: true },
+      }) ?? undefined;
+      if (!checkpoint) throw new NotFoundException('Checkpoint not found');
+    }
+
+    const context = checkpoint
+      ? `Route ${route.name}; checkpoint ${checkpoint.code} — ${checkpoint.name}.`
+      : `Route ${route.name}.`;
+    const incident = await this.incidents.create(
+      {
+        siteId: dto.siteId,
+        category: 'PATROL_ISSUE',
+        title: dto.title,
+        description: `${context}\n${dto.description}`,
+        severity: dto.severity,
+        latitude: dto.gps.latitude,
+        longitude: dto.gps.longitude,
+        deviceReportedAt: dto.deviceTime,
+        clientEventId: dto.clientEventId,
+      },
+      user,
+    );
+
+    await this.audit.record({
+      organizationId: user.organizationId,
+      actorId: user.id,
+      action: 'patrol.issue.reported',
+      resourceType: 'Incident',
+      resourceId: incident.id,
+      after: {
+        incidentNumber: incident.incidentNumber,
+        guardId: guard.id,
+        routeId: route.id,
+        checkpointId: checkpoint?.id ?? null,
+      },
+    });
+    return incident;
   }
 
   async list(organizationId: string, user: AuthUser, siteId?: string) {

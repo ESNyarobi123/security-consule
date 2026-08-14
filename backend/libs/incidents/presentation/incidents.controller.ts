@@ -25,6 +25,8 @@ import {
 import { IncidentsService } from '../application/incidents.service';
 import {
   CreateIncidentDto,
+  IncidentCategoryOptionDto,
+  IncidentOfficerOptionDto,
   IncidentResponseDto,
   UpdateIncidentStatusDto,
 } from './dto/incident.dto';
@@ -42,6 +44,20 @@ export class IncidentsController {
   @ApiCreatedResponse({ type: IncidentResponseDto })
   create(@Body() dto: CreateIncidentDto, @CurrentUser() user: AuthUser) {
     return this.service.create(dto, user);
+  }
+
+  @Get('category-options')
+  @ApiOperation({ summary: 'Incident category catalog (design §31)' })
+  @ApiOkResponse({ type: IncidentCategoryOptionDto, isArray: true })
+  categoryOptions() {
+    return this.service.categoryOptions();
+  }
+
+  @Get('officer-options')
+  @ApiOperation({ summary: 'Active internal users assignable as responsible officer' })
+  @ApiOkResponse({ type: IncidentOfficerOptionDto, isArray: true })
+  officerOptions(@CurrentUser() user: AuthUser) {
+    return this.service.officerOptions(user);
   }
 
   @Get()
@@ -65,6 +81,6 @@ export class IncidentsController {
     @Body() dto: UpdateIncidentStatusDto,
     @CurrentUser() user: AuthUser,
   ) {
-    return this.service.updateStatus(id, dto.status, dto.assignedTo, user);
+    return this.service.updateStatus(id, dto, user);
   }
 }

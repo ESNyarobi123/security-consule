@@ -25,12 +25,22 @@ export async function listIncidents(siteId: string): Promise<Incident[]> {
   return Array.isArray(rows) ? rows : [];
 }
 
+export type IncidentStatusUpdate =
+  | { status: 'OPEN' | 'INVESTIGATING' }
+  | { status: 'RESOLVED'; resolution: string; actionTaken?: string }
+  | {
+      status: 'CLOSED';
+      resolution: string;
+      closureApprovalNote: string;
+      actionTaken?: string;
+    };
+
 export async function updateStatus(
   id: string,
-  status: IncidentStatus,
+  update: IncidentStatusUpdate,
 ): Promise<Incident> {
   return apiRequest<Incident>(`/incidents/${id}/status`, {
     method: 'PATCH',
-    body: { status },
+    body: update,
   });
 }

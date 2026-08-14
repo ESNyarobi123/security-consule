@@ -15,6 +15,9 @@ import { AuditService } from '@pssms/audit';
 import {
   CorrectOccurrenceDto,
   CreateOccurrenceDto,
+  EOB_CATEGORIES,
+  EOB_CATEGORY_LABELS,
+  EobCategoryOptionDto,
   OccurrenceHistoryVersionDto,
   OccurrenceResponseDto,
 } from '../presentation/dto/occurrence.dto';
@@ -40,6 +43,28 @@ export class OccurrenceService {
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
   ) {}
+
+  /** Design §30 event category catalog (value + human label). */
+  categoryOptions(): EobCategoryOptionDto[] {
+    return EOB_CATEGORIES.map((value) => ({
+      value,
+      label: EOB_CATEGORY_LABELS[value],
+    }));
+  }
+
+  /** Batch-resolve officer/approver full names (org-scoped). */
+  private async userNames(
+    organizationId: string,
+    ids: Array<string | null | undefined>,
+  ): Promise<Map<string, string>> {
+    const unique = [...new Set(ids.filter((x): x is string => !!x))];
+    if (unique.length === 0) return new Map();
+    const users = await this.prisma.user.findMany({
+      where: { id: { in: unique }, organizationId },
+      select: { id: true, fullName: true },
+    });
+    return new Map(users.map((u) => [u.id, u.fullName]));
+  }
 
   async create(
     dto: CreateOccurrenceDto,
@@ -72,7 +97,8 @@ export class OccurrenceService {
       after: entry,
     });
 
-    return this.toDto(entry, site);
+    const names = await this.userNames(user.organizationId, [user.id]);
+    return this.toDto(entry, site, names);
   }
 
   /**
@@ -145,7 +171,8 @@ export class OccurrenceService {
       select: { id: true, code: true, name: true },
     });
 
-    return this.toDto(correction, site ?? undefined);
+    const names = await this.userNames(user.organizationId, [user.id]);
+    return this.toDto(correction, site ?? undefined, names);
   }
 
   /**
@@ -198,7 +225,11 @@ export class OccurrenceService {
       select: { id: true, code: true, name: true },
     });
 
-    return this.toDto(updated, site ?? undefined);
+    const names = await this.userNames(user.organizationId, [
+      updated.officerId,
+      updated.approvedBy,
+    ]);
+    return this.toDto(updated, site ?? undefined, names);
   }
 
   async list(
@@ -227,8 +258,12 @@ export class OccurrenceService {
             select: { id: true, code: true, name: true },
           });
     const siteMap = new Map(sites.map((s) => [s.id, s]));
+    const names = await this.userNames(
+      organizationId,
+      rows.flatMap((r) => [r.officerId, r.approvedBy]),
+    );
 
-    return rows.map((e) => this.toDto(e, siteMap.get(e.siteId)));
+    return rows.map((e) => this.toDto(e, siteMap.get(e.siteId), names));
   }
 
   /**
@@ -285,14 +320,20 @@ export class OccurrenceService {
       cursor = child;
     }
 
+    const names = await this.userNames(
+      organizationId,
+      chain.flatMap((c) => [c.officerId, c.approvedBy]),
+    );
+
     return chain
       .sort((a, b) => a.version - b.version)
-      .map((e) => this.toHistoryDto(e));
+      .map((e) => this.toHistoryDto(e, names));
   }
 
   private toDto(
     e: OccurrenceRow,
     site?: { code: string; name: string },
+    names?: Map<string, string>,
   ): OccurrenceResponseDto {
     return {
       id: e.id,
@@ -305,13 +346,18 @@ export class OccurrenceService {
       isCurrent: e.isCurrent,
       correctionReason: e.correctionReason,
       officerId: e.officerId,
+      officerName: (e.officerId && names?.get(e.officerId)) || null,
       approvedBy: e.approvedBy ?? null,
+      approvedByName: (e.approvedBy && names?.get(e.approvedBy)) || null,
       recordedAt: e.recordedAt,
       createdAt: e.createdAt,
     };
   }
 
-  private toHistoryDto(e: OccurrenceRow): OccurrenceHistoryVersionDto {
+  private toHistoryDto(
+    e: OccurrenceRow,
+    names?: Map<string, string>,
+  ): OccurrenceHistoryVersionDto {
     return {
       id: e.id,
       version: e.version,
@@ -320,10 +366,12 @@ export class OccurrenceService {
       description: e.description,
       correctionReason: e.correctionReason,
       officerId: e.officerId,
+      officerName: (e.officerId && names?.get(e.officerId)) || null,
       recordedAt: e.recordedAt,
       createdAt: e.createdAt,
       parentEntryId: e.parentEntryId ?? null,
       approvedBy: e.approvedBy ?? null,
+      approvedByName: (e.approvedBy && names?.get(e.approvedBy)) || null,
     };
   }
 }

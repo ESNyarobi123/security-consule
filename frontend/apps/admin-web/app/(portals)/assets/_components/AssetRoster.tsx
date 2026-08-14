@@ -1,8 +1,18 @@
 'use client';
 
 import type { Asset, PendingReturnAssignment } from '@pssms/api-client';
-import { btnPrimary } from '@pssms/ui';
-import { Package, PackageCheck, UserPlus } from 'lucide-react';
+import { btnPrimary, btnSecondary } from '@pssms/ui';
+import {
+  ArrowRightLeft,
+  History,
+  Package,
+  PackageCheck,
+  RotateCcw,
+  ShieldAlert,
+  Trash2,
+  UserPlus,
+  Wrench,
+} from 'lucide-react';
 import type { ReactNode } from 'react';
 
 function formatDate(value?: string | null) {
@@ -109,6 +119,14 @@ export function AssetRoster({
   loading,
   assigneeLabel,
   onAssign,
+  onTransfer,
+  onDispose,
+  onMaintenance,
+  onCompleteMaintenance,
+  onDamage,
+  onReplace,
+  onHistory,
+  onWalkInReturn,
   toolbar,
   empty,
 }: {
@@ -116,12 +134,77 @@ export function AssetRoster({
   loading?: boolean;
   assigneeLabel: (r: Asset) => string | null;
   onAssign?: (r: Asset) => void;
+  onTransfer?: (r: Asset) => void;
+  onDispose?: (r: Asset) => void;
+  onMaintenance?: (r: Asset) => void;
+  onCompleteMaintenance?: (r: Asset) => void;
+  onDamage?: (r: Asset) => void;
+  onReplace?: (r: Asset) => void;
+  onHistory?: (r: Asset) => void;
+  onWalkInReturn?: (r: Asset) => void;
   toolbar?: ReactNode;
   empty?: ReactNode;
 }) {
   const grid =
-    'md:grid-cols-[minmax(0,1.5fr)_auto_minmax(0,1.2fr)_auto_auto_auto]';
+    'md:grid-cols-[minmax(0,1.5fr)_auto_minmax(0,1.1fr)_auto_auto_minmax(16rem,auto)]';
   const showEmpty = !loading && rows.length === 0;
+  const secondary = `${btnSecondary} !px-2 !py-1 text-[11px]`;
+
+  function actions(r: Asset, mobile = false) {
+    const status = r.status.trim().toUpperCase();
+    const buttons: {
+      label: string;
+      icon: typeof UserPlus;
+      primary?: boolean;
+      run?: (asset: Asset) => void;
+    }[] = [];
+    if (status === 'AVAILABLE') {
+      buttons.push(
+        { label: 'Assign', icon: UserPlus, primary: true, run: onAssign },
+        { label: 'Maintenance', icon: Wrench, run: onMaintenance },
+        { label: 'Dispose', icon: Trash2, run: onDispose },
+        { label: 'Damage', icon: ShieldAlert, run: onDamage },
+        { label: 'Replace', icon: RotateCcw, run: onReplace },
+      );
+    } else if (status === 'ASSIGNED') {
+      buttons.push(
+        { label: 'Transfer', icon: ArrowRightLeft, run: onTransfer },
+        { label: 'Walk-in return', icon: PackageCheck, run: onWalkInReturn },
+        { label: 'Damage', icon: ShieldAlert, run: onDamage },
+        { label: 'Replace', icon: RotateCcw, run: onReplace },
+      );
+    } else if (status === 'RETURN_PENDING') {
+      // No transfer — confirm/walk-in first (SoD; transfer must not self-close ESS return).
+      buttons.push(
+        { label: 'Walk-in return', icon: PackageCheck, run: onWalkInReturn },
+        { label: 'Damage', icon: ShieldAlert, run: onDamage },
+        { label: 'Replace', icon: RotateCcw, run: onReplace },
+      );
+    } else if (status === 'MAINTENANCE') {
+      buttons.push(
+        { label: 'Complete maintenance', icon: Wrench, run: onCompleteMaintenance },
+        { label: 'Dispose', icon: Trash2, run: onDispose },
+      );
+    }
+    buttons.push({ label: 'History', icon: History, run: onHistory });
+    return (
+      <div
+        className={`flex flex-wrap gap-1 ${mobile ? '' : 'justify-end'}`}
+      >
+        {buttons.map(({ label, icon: Icon, primary, run }) => (
+          <button
+            key={label}
+            type="button"
+            className={primary ? `${btnPrimary} !px-2 !py-1 text-[11px]` : secondary}
+            onClick={() => run?.(r)}
+          >
+            <Icon className="h-3 w-3" />
+            {label}
+          </button>
+        ))}
+      </div>
+    );
+  }
 
   return (
     <div className="overflow-hidden rounded-xl border border-[#e1dfdd] bg-white shadow-sm">
@@ -162,8 +245,6 @@ export function AssetRoster({
         <ul className="divide-y divide-[#f3f2f1]">
           {rows.map((r) => {
             const bg = avatarColor(r.id);
-            const s = r.status.trim().toUpperCase();
-            const canAssign = s === 'AVAILABLE';
             const who = assigneeLabel(r);
 
             return (
@@ -203,22 +284,7 @@ export function AssetRoster({
                         </p>
                       </div>
                     </div>
-                    {canAssign ? (
-                      <button
-                        type="button"
-                        className={btnPrimary}
-                        onClick={() => onAssign?.(r)}
-                      >
-                        <UserPlus className="h-3 w-3" />
-                        Assign
-                      </button>
-                    ) : (
-                      <span className="text-[11px] text-[#a19f9d]">
-                        {s === 'ASSIGNED' || s === 'RETURN_PENDING'
-                          ? 'Issued'
-                          : s.replace(/_/g, ' ')}
-                      </span>
-                    )}
+                    {actions(r, true)}
                   </div>
 
                   {/* Desktop */}
@@ -262,24 +328,7 @@ export function AssetRoster({
 
                     <StatusPill status={r.status} />
 
-                    <div className="flex justify-end">
-                      {canAssign ? (
-                        <button
-                          type="button"
-                          className={btnPrimary}
-                          onClick={() => onAssign?.(r)}
-                        >
-                          <UserPlus className="h-3 w-3" />
-                          Assign
-                        </button>
-                      ) : (
-                        <span className="text-[11px] text-[#c8c6c4]">
-                          {s === 'ASSIGNED' || s === 'RETURN_PENDING'
-                            ? 'Issued'
-                            : '—'}
-                        </span>
-                      )}
-                    </div>
+                    {actions(r)}
                   </div>
                 </div>
               </li>

@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { AuditModule } from '@pssms/audit';
 import { WorkforceModule } from '@pssms/workforce';
 import { NotificationsModule } from '@pssms/notifications';
+import { IncidentsModule } from '@pssms/incidents';
 import { AttendanceService } from './application/attendance.service';
 import { AlertnessService } from './application/alertness.service';
 import { PatrolService } from './application/patrol.service';
@@ -15,7 +16,7 @@ import { FieldSyncController } from './presentation/field-sync.controller';
 import { FieldAlertsController } from './presentation/field-alerts.controller';
 
 @Module({
-  imports: [AuditModule, WorkforceModule, NotificationsModule],
+  imports: [AuditModule, WorkforceModule, NotificationsModule, IncidentsModule],
   controllers: [
     AttendanceController,
     AlertnessController,

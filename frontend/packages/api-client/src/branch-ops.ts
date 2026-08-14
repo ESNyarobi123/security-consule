@@ -1,8 +1,8 @@
 /**
- * Branch Operations (portal 35.23) — sites, deployments, shifts, attendance board,
- * field alerts, electronic occurrence book (EOB), patrol checkpoints/scans,
- * incidents (create/list/status).
- * Permission: `operations.manage` (sites also accept `enterprise.manage`;
+ * Branch Operations (portal 35.23) — sites, access points (gates), deployments,
+ * shifts, attendance board, field alerts, electronic occurrence book (EOB),
+ * patrol checkpoints/scans, incidents (create/list/status).
+ * Permission: `operations.manage` (sites/gates also accept `enterprise.manage`;
  * attendance/field-alerts/patrol list also accept `attendance.manage`;
  * incidents require `incidents.manage`).
  * Keep `/operations` as guard readiness; this module is BOM/Field site ops.
@@ -227,6 +227,65 @@ export const createSite = (
 ) =>
   coreFetch<Site>('/api/v1/enterprise/sites', {
     method: 'POST',
+    body: JSON.stringify(body),
+    token,
+  });
+
+/** Module 27-A — site access points (gates) for Branch Ops. */
+export type GateType = 'PEDESTRIAN' | 'VEHICLE' | 'MIXED';
+
+export type SiteGate = {
+  id: string;
+  organizationId: string;
+  siteId: string;
+  siteCode?: string | null;
+  siteName?: string | null;
+  code: string;
+  name: string;
+  gateType: string;
+  isActive: boolean;
+  createdAt: string;
+};
+
+export const listGates = (
+  params?: { siteId?: string; active?: boolean },
+  token?: string,
+) => {
+  const sp = new URLSearchParams();
+  if (params?.siteId) sp.set('siteId', params.siteId);
+  if (typeof params?.active === 'boolean') {
+    sp.set('active', String(params.active));
+  }
+  const q = sp.toString() ? `?${sp}` : '';
+  return coreFetch<SiteGate[]>(`/api/v1/enterprise/gates${q}`, { token });
+};
+
+export const createGate = (
+  body: {
+    siteId: string;
+    code: string;
+    name: string;
+    gateType?: GateType;
+  },
+  token?: string,
+) =>
+  coreFetch<SiteGate>('/api/v1/enterprise/gates', {
+    method: 'POST',
+    body: JSON.stringify(body),
+    token,
+  });
+
+export const updateGate = (
+  id: string,
+  body: {
+    name?: string;
+    gateType?: GateType;
+    isActive?: boolean;
+  },
+  token?: string,
+) =>
+  coreFetch<SiteGate>(`/api/v1/enterprise/gates/${id}`, {
+    method: 'PATCH',
     body: JSON.stringify(body),
     token,
   });
@@ -457,7 +516,9 @@ export type OccurrenceEntry = {
   isCurrent: boolean;
   correctionReason?: string | null;
   officerId?: string | null;
+  officerName?: string | null;
   approvedBy?: string | null;
+  approvedByName?: string | null;
   recordedAt: string;
   createdAt: string;
 };
@@ -471,11 +532,22 @@ export type OccurrenceHistoryVersion = {
   description: string;
   correctionReason?: string | null;
   officerId?: string | null;
+  officerName?: string | null;
   recordedAt: string;
   createdAt: string;
   parentEntryId?: string | null;
   approvedBy?: string | null;
+  approvedByName?: string | null;
 };
+
+/** EOB event category catalog entry (design §30 taxonomy). */
+export type EobCategoryOption = { value: string; label: string };
+
+export const listEobCategoryOptions = (token?: string) =>
+  coreFetch<EobCategoryOption[]>(
+    '/api/v1/occurrence-book/category-options',
+    { token },
+  );
 
 export const listOccurrenceEntries = (
   params?: { siteId?: string },
@@ -676,6 +748,13 @@ export type IncidentStatus =
   | 'RESOLVED'
   | 'CLOSED';
 
+export type IncidentCategoryOption = { value: string; label: string };
+export type IncidentOfficerOption = {
+  id: string;
+  fullName: string;
+  email: string;
+};
+
 export type Incident = {
   id: string;
   incidentNumber: string;
@@ -688,8 +767,23 @@ export type Incident = {
   title: string;
   description: string;
   reporterId: string;
+  reporterName?: string | null;
   assignedTo?: string | null;
+  assignedToName?: string | null;
+  locationDescription?: string | null;
+  latitude?: number | null;
+  longitude?: number | null;
+  actionTaken?: string | null;
+  resolution?: string | null;
+  occurredAt: string;
+  deviceReportedAt?: string | null;
   resolvedAt?: string | null;
+  resolvedBy?: string | null;
+  resolvedByName?: string | null;
+  closedBy?: string | null;
+  closedByName?: string | null;
+  closedAt?: string | null;
+  closureApprovalNote?: string | null;
   createdAt: string;
   allowedNextStatuses?: IncidentStatus[];
   blockedReason?: string;
@@ -713,6 +807,11 @@ export const createIncident = (
     title: string;
     description: string;
     severity: IncidentSeverity;
+    locationDescription?: string;
+    assignedTo?: string;
+    occurredAt?: string;
+    latitude?: number;
+    longitude?: number;
   },
   token?: string,
 ) =>
@@ -724,7 +823,13 @@ export const createIncident = (
 
 export const updateIncidentStatus = (
   id: string,
-  body: { status: IncidentStatus; assignedTo?: string },
+  body: {
+    status: IncidentStatus;
+    assignedTo?: string | null;
+    actionTaken?: string;
+    resolution?: string;
+    closureApprovalNote?: string;
+  },
   token?: string,
 ) =>
   coreFetch<Incident>(`/api/v1/incidents/${id}/status`, {
@@ -732,4 +837,105 @@ export const updateIncidentStatus = (
     body: JSON.stringify(body),
     token,
   });
+
+export const listIncidentCategoryOptions = (token?: string) =>
+  coreFetch<IncidentCategoryOption[]>(
+    '/api/v1/incidents/category-options',
+    { token },
+  );
+
+export const listIncidentOfficerOptions = (token?: string) =>
+  coreFetch<IncidentOfficerOption[]>('/api/v1/incidents/officer-options', {
+    token,
+  });
+
+/** Module 34-A — Branch / Field Ops reports pack */
+export type BranchOpsReport = {
+  organizationId: string;
+  period: { from: string; to: string };
+  siteId?: string | null;
+  summary: {
+    sitesInScope: number;
+    activeDeployments: number;
+    openPunchesNow: number;
+  };
+  attendance: {
+    clockInsInPeriod: number;
+    clockOutsInPeriod: number;
+    supervisorApprovedInPeriod: number;
+    pendingApprovalNow: number;
+    geofenceWarningsInPeriod: number;
+  };
+  alertness: {
+    scheduledInPeriod: number;
+    confirmed: number;
+    late: number;
+    missed: number;
+    cancelled: number;
+    confirmationRatePercent: number;
+    byStatus: Record<string, number>;
+  };
+  fieldAlerts: {
+    raisedInPeriod: number;
+    openNow: number;
+    acknowledgedInPeriod: number;
+    byType: Record<string, number>;
+    byEscalationStage: Record<string, number>;
+  };
+  patrols: {
+    scansInPeriod: number;
+    patrolIssuesInPeriod: number;
+    patrolMissedAlertsInPeriod: number;
+  };
+  incidents: {
+    openedInPeriod: number;
+    openNow: number;
+    criticalOpenNow: number;
+    bySeverity: Record<string, number>;
+  };
+  eob: {
+    entriesInPeriod: number;
+    pendingApprovalNow: number;
+  };
+  visitors: {
+    appointmentsInPeriod: number;
+    gateAllowed: number;
+    gateDenied: number;
+    gateExits: number;
+  };
+  cctv: {
+    openAlertsNow: number;
+    eventsInPeriod: number;
+    triagedInPeriod: number;
+  };
+  bySite: Array<{
+    siteId: string;
+    siteCode: string;
+    siteName: string;
+    clockIns: number;
+    alertnessMissed: number;
+    fieldAlerts: number;
+    patrolScans: number;
+    incidentsOpened: number;
+    eobEntries: number;
+    visitorDenied: number;
+  }>;
+  generatedAt: string;
+  notes: string[];
+};
+
+/** GET /operations/reports?from=&to=&siteId= */
+export const getBranchOpsReport = (
+  params?: { from?: string; to?: string; siteId?: string },
+  token?: string,
+) => {
+  const sp = new URLSearchParams();
+  if (params?.from) sp.set('from', params.from);
+  if (params?.to) sp.set('to', params.to);
+  if (params?.siteId) sp.set('siteId', params.siteId);
+  const q = sp.toString() ? `?${sp}` : '';
+  return coreFetch<BranchOpsReport>(`/api/v1/operations/reports${q}`, {
+    token,
+  });
+};
 

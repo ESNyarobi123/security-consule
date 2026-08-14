@@ -7,6 +7,10 @@ import {
 import {
   BreachSeverity,
   BreachStatus,
+  ConsentChannel,
+  ConsentLawfulBasis,
+  ConsentStatus,
+  ConsentSubjectType,
   PolicyStatus,
   Prisma,
 } from '@prisma/client';
@@ -14,13 +18,21 @@ import { PrismaService, AuthUser } from '@pssms/shared';
 import { AuditService } from '@pssms/audit';
 import { ApprovalsService } from '@pssms/approvals';
 import {
+  CatalogOptionDto,
+  CONSENT_PURPOSE_LABELS,
+  CONSENT_PURPOSES,
+  ConsentRecordResponseDto,
   CreateBreachDto,
+  CreateConsentDto,
   CreatePolicyDto,
   DataBreachCaseResponseDto,
+  POLICY_CATEGORIES,
+  POLICY_CATEGORY_LABELS,
   PolicyDocumentResponseDto,
   RejectPolicyDto,
   UpdateBreachDto,
   UpdatePolicyDto,
+  WithdrawConsentDto,
 } from '../presentation/dto/compliance.dto';
 
 const BREACH_NEXT: Record<BreachStatus, BreachStatus | null> = {
@@ -308,7 +320,11 @@ export class ComplianceService {
    * Allowed: dpo.manage / compliance.manage / CISO / GM / Super Admin /
    * Internal Auditor (audit.read + role).
    */
-  private assertCanReadBreachRegister(user: AuthUser): void {
+  private assertCanReadPiiRegister(
+    user: AuthUser,
+    error: string,
+    message: string,
+  ): void {
     if (
       user.permissions.includes('dpo.manage') ||
       user.permissions.includes('compliance.manage')
@@ -327,10 +343,15 @@ export class ComplianceService {
     ) {
       return;
     }
-    throw new ForbiddenException({
-      error: 'BREACH_REGISTER_DENIED',
-      message: 'Not authorized to view the DPO data-breach register',
-    });
+    throw new ForbiddenException({ error, message });
+  }
+
+  private assertCanReadBreachRegister(user: AuthUser): void {
+    this.assertCanReadPiiRegister(
+      user,
+      'BREACH_REGISTER_DENIED',
+      'Not authorized to view the DPO data-breach register',
+    );
   }
 
   async listBreaches(user: AuthUser): Promise<DataBreachCaseResponseDto[]> {
@@ -458,6 +479,221 @@ export class ComplianceService {
     return this.toBreachDto(updated);
   }
 
+  // ── Consent records (Module 32-A) ─────────────────────────
+
+  /**
+   * Consent register is PII-sensitive — same role gate as breach register,
+   * distinct error code for smoke/clients.
+   */
+  private assertCanReadConsentRegister(user: AuthUser): void {
+    this.assertCanReadPiiRegister(
+      user,
+      'CONSENT_REGISTER_DENIED',
+      'Not authorized to view the DPO consent register',
+    );
+  }
+
+  policyCategoryOptions(): CatalogOptionDto[] {
+    return POLICY_CATEGORIES.map((value) => ({
+      value,
+      label: POLICY_CATEGORY_LABELS[value],
+    }));
+  }
+
+  consentCatalogOptions(): {
+    purposes: CatalogOptionDto[];
+    subjectTypes: CatalogOptionDto[];
+    lawfulBases: CatalogOptionDto[];
+    channels: CatalogOptionDto[];
+  } {
+    const labelize = (value: string) =>
+      value
+        .split('_')
+        .map((p) => p.charAt(0) + p.slice(1).toLowerCase())
+        .join(' ');
+    return {
+      purposes: CONSENT_PURPOSES.map((value) => ({
+        value,
+        label: CONSENT_PURPOSE_LABELS[value],
+      })),
+      subjectTypes: Object.values(ConsentSubjectType).map((value) => ({
+        value,
+        label: labelize(value),
+      })),
+      lawfulBases: Object.values(ConsentLawfulBasis).map((value) => ({
+        value,
+        label: labelize(value),
+      })),
+      channels: Object.values(ConsentChannel).map((value) => ({
+        value,
+        label: labelize(value),
+      })),
+    };
+  }
+
+  async listConsents(user: AuthUser): Promise<ConsentRecordResponseDto[]> {
+    this.assertCanReadConsentRegister(user);
+    const rows = await this.prisma.consentRecord.findMany({
+      where: { organizationId: user.organizationId },
+      orderBy: { grantedAt: 'desc' },
+      take: 200,
+    });
+    const refreshed = await this.refreshExpiredConsents(rows, user.organizationId);
+    const names = await this.userNames(
+      user.organizationId,
+      refreshed.flatMap((r) => [r.createdBy, r.withdrawnBy]),
+    );
+    return refreshed.map((r) => this.toConsentDto(r, names));
+  }
+
+  async createConsent(
+    dto: CreateConsentDto,
+    user: AuthUser,
+  ): Promise<ConsentRecordResponseDto> {
+    const grantedAt = new Date(dto.grantedAt);
+    const expiresAt = dto.expiresAt ? new Date(dto.expiresAt) : null;
+    if (expiresAt && expiresAt.getTime() <= grantedAt.getTime()) {
+      throw new BadRequestException({
+        error: 'INVALID_CONSENT_EXPIRY',
+        message: 'expiresAt must be after grantedAt',
+      });
+    }
+
+    const referenceCode = await this.nextConsentRef(user.organizationId);
+    const row = await this.prisma.consentRecord.create({
+      data: {
+        organizationId: user.organizationId,
+        referenceCode,
+        subjectType: dto.subjectType,
+        subjectName: dto.subjectName.trim(),
+        subjectEmail: dto.subjectEmail?.trim().toLowerCase() || null,
+        subjectRef: dto.subjectRef?.trim() || null,
+        purpose: dto.purpose.trim(),
+        lawfulBasis: dto.lawfulBasis,
+        channel: dto.channel,
+        status: ConsentStatus.ACTIVE,
+        grantedAt,
+        expiresAt,
+        notes: dto.notes?.trim() || null,
+        createdBy: user.id,
+      },
+    });
+
+    await this.audit.record({
+      organizationId: user.organizationId,
+      actorId: user.id,
+      action: 'consent.recorded',
+      resourceType: 'ConsentRecord',
+      resourceId: row.id,
+      after: row,
+    });
+
+    const names = await this.userNames(user.organizationId, [user.id]);
+    return this.toConsentDto(row, names);
+  }
+
+  async withdrawConsent(
+    id: string,
+    dto: WithdrawConsentDto,
+    user: AuthUser,
+  ): Promise<ConsentRecordResponseDto> {
+    const existing = await this.findConsentOrThrow(id, user.organizationId);
+    if (existing.status === ConsentStatus.WITHDRAWN) {
+      throw new BadRequestException({
+        error: 'CONSENT_ALREADY_WITHDRAWN',
+        message: 'Consent record is already withdrawn',
+      });
+    }
+    if (
+      existing.status === ConsentStatus.EXPIRED ||
+      (existing.expiresAt && existing.expiresAt.getTime() <= Date.now())
+    ) {
+      if (existing.status === ConsentStatus.ACTIVE && existing.expiresAt) {
+        await this.prisma.consentRecord.update({
+          where: { id },
+          data: { status: ConsentStatus.EXPIRED },
+        });
+      }
+      throw new BadRequestException({
+        error: 'CONSENT_EXPIRED',
+        message: 'Expired consent cannot be withdrawn — record a new consent if needed',
+      });
+    }
+
+    const updated = await this.prisma.consentRecord.update({
+      where: { id },
+      data: {
+        status: ConsentStatus.WITHDRAWN,
+        withdrawnAt: new Date(),
+        withdrawnBy: user.id,
+        withdrawReason: dto.reason.trim(),
+      },
+    });
+
+    await this.audit.record({
+      organizationId: user.organizationId,
+      actorId: user.id,
+      action: 'consent.withdrawn',
+      resourceType: 'ConsentRecord',
+      resourceId: id,
+      before: existing,
+      after: updated,
+    });
+
+    const names = await this.userNames(user.organizationId, [
+      updated.createdBy,
+      updated.withdrawnBy,
+    ]);
+    return this.toConsentDto(updated, names);
+  }
+
+  private async refreshExpiredConsents<
+    T extends {
+      id: string;
+      status: ConsentStatus;
+      expiresAt: Date | null;
+    },
+  >(rows: T[], organizationId: string): Promise<T[]> {
+    const now = Date.now();
+    const expiredIds = rows
+      .filter(
+        (r) =>
+          r.status === ConsentStatus.ACTIVE &&
+          r.expiresAt &&
+          r.expiresAt.getTime() <= now,
+      )
+      .map((r) => r.id);
+    if (expiredIds.length === 0) return rows;
+
+    await this.prisma.consentRecord.updateMany({
+      where: {
+        organizationId,
+        id: { in: expiredIds },
+        status: ConsentStatus.ACTIVE,
+      },
+      data: { status: ConsentStatus.EXPIRED },
+    });
+
+    return rows.map((r) =>
+      expiredIds.includes(r.id)
+        ? { ...r, status: ConsentStatus.EXPIRED }
+        : r,
+    );
+  }
+
+  private async userNames(
+    organizationId: string,
+    ids: Array<string | null | undefined>,
+  ): Promise<Map<string, string>> {
+    const unique = [...new Set(ids.filter((id): id is string => !!id))];
+    if (unique.length === 0) return new Map();
+    const users = await this.prisma.user.findMany({
+      where: { organizationId, id: { in: unique } },
+      select: { id: true, fullName: true },
+    });
+    return new Map(users.map((u) => [u.id, u.fullName]));
+  }
+
   // ── Helpers ───────────────────────────────────────────────
 
   private async findPolicyOrThrow(id: string, organizationId: string) {
@@ -476,6 +712,14 @@ export class ComplianceService {
     return row;
   }
 
+  private async findConsentOrThrow(id: string, organizationId: string) {
+    const row = await this.prisma.consentRecord.findFirst({
+      where: { id, organizationId },
+    });
+    if (!row) throw new NotFoundException('Consent record not found');
+    return row;
+  }
+
   private async nextBreachRef(organizationId: string): Promise<string> {
     const last = await this.prisma.dataBreachCase.findFirst({
       where: { organizationId },
@@ -485,6 +729,17 @@ export class ComplianceService {
     const match = last?.referenceCode?.match(/(\d+)$/);
     const next = match ? Number(match[1]) + 1 : 1;
     return `BRCH-${String(Number.isFinite(next) ? next : 1).padStart(5, '0')}`;
+  }
+
+  private async nextConsentRef(organizationId: string): Promise<string> {
+    const last = await this.prisma.consentRecord.findFirst({
+      where: { organizationId },
+      orderBy: { referenceCode: 'desc' },
+      select: { referenceCode: true },
+    });
+    const match = last?.referenceCode?.match(/(\d+)$/);
+    const next = match ? Number(match[1]) + 1 : 1;
+    return `CNS-${String(Number.isFinite(next) ? next : 1).padStart(5, '0')}`;
   }
 
   private toPolicyDto(r: {
@@ -558,6 +813,59 @@ export class ComplianceService {
       closedAt: r.closedAt,
       closedBy: r.closedBy,
       createdBy: r.createdBy,
+      createdAt: r.createdAt,
+      updatedAt: r.updatedAt,
+    };
+  }
+
+  private toConsentDto(
+    r: {
+      id: string;
+      organizationId: string;
+      referenceCode: string;
+      subjectType: ConsentSubjectType;
+      subjectName: string;
+      subjectEmail: string | null;
+      subjectRef: string | null;
+      purpose: string;
+      lawfulBasis: ConsentLawfulBasis;
+      channel: ConsentChannel;
+      status: ConsentStatus;
+      grantedAt: Date;
+      expiresAt: Date | null;
+      withdrawnAt: Date | null;
+      withdrawnBy: string | null;
+      withdrawReason: string | null;
+      notes: string | null;
+      createdBy: string;
+      createdAt: Date;
+      updatedAt: Date;
+    },
+    names?: Map<string, string>,
+  ): ConsentRecordResponseDto {
+    return {
+      id: r.id,
+      organizationId: r.organizationId,
+      referenceCode: r.referenceCode,
+      subjectType: r.subjectType,
+      subjectName: r.subjectName,
+      subjectEmail: r.subjectEmail,
+      subjectRef: r.subjectRef,
+      purpose: r.purpose,
+      lawfulBasis: r.lawfulBasis,
+      channel: r.channel,
+      status: r.status,
+      grantedAt: r.grantedAt,
+      expiresAt: r.expiresAt,
+      withdrawnAt: r.withdrawnAt,
+      withdrawnBy: r.withdrawnBy,
+      withdrawnByName: r.withdrawnBy
+        ? names?.get(r.withdrawnBy) ?? null
+        : null,
+      withdrawReason: r.withdrawReason,
+      notes: r.notes,
+      createdBy: r.createdBy,
+      createdByName: names?.get(r.createdBy) ?? null,
       createdAt: r.createdAt,
       updatedAt: r.updatedAt,
     };

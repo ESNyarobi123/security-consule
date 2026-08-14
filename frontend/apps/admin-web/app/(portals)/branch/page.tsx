@@ -361,8 +361,9 @@ export default function BranchOverviewPage() {
         </section>
 
         <p className="mt-5 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2.5 text-[11px] leading-relaxed text-slate-600">
-          Deferred (honest): Live SSE, GPS map, branch petty cash, parking,
-          gates CRUD, ABAC branch filter. No fake coverage % or risk scores.
+          Deferred (honest): Live SSE, GPS map, branch petty cash, parking board
+          in Branch Ops, ABAC branch filter, field ops reports pack, equipment
+          inspections, vendor field board. No fake coverage % or risk scores.
           Sub-routes (Sites → Incidents) remain thin boards — this overview is
           control-room chrome over live list APIs.
         </p>

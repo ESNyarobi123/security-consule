@@ -2578,6 +2578,33 @@ export const registerGateway = (
     token,
   });
 
+/** Module 28-A — acknowledge an open CCTV AI alert (RECEIVED → PROCESSED). */
+export const acknowledgeCctvEvent = (
+  id: string,
+  body?: { note?: string },
+  token?: string,
+) =>
+  coreFetch<DeviceEvent>(`/api/v1/devices/events/${id}/acknowledge`, {
+    method: 'POST',
+    body: JSON.stringify(body ?? {}),
+    token,
+  });
+
+/** Module 28-A — record an incident (category CCTV_ALERT) from a CCTV alert. */
+export const createIncidentFromCctvEvent = (
+  id: string,
+  body?: { severity?: string; title?: string; description?: string },
+  token?: string,
+) =>
+  coreFetch<{
+    incident: { id: string; incidentNumber: string; siteId: string };
+    event: DeviceEvent;
+  }>(`/api/v1/devices/events/${id}/create-incident`, {
+    method: 'POST',
+    body: JSON.stringify(body ?? {}),
+    token,
+  });
+
 /** GET /devices/events — may 404 until backend lands; callers should catch. */
 export const listDeviceEvents = (
   filters?: { type?: string; deviceId?: string; limit?: number },

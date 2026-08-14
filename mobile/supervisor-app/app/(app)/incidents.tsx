@@ -54,7 +54,7 @@ export default function IncidentsScreen() {
     setActing(id);
     setError(null);
     try {
-      await updateStatus(id, 'INVESTIGATING');
+      await updateStatus(id, { status: 'INVESTIGATING' });
       await load();
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Status update failed');

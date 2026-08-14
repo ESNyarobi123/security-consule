@@ -1,6 +1,6 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { newClientEventId } from '@/lib/uuid';
-import { enqueuePatrolScan } from '@/offline/outbox';
+import { enqueuePatrolIssue, enqueuePatrolScan } from '@/offline/outbox';
 import type { OutboxRow } from '@/offline/types';
 import { apiRequest } from '@/services/api';
 import {
@@ -20,8 +20,51 @@ export type CheckpointSummary = {
   isActive: boolean;
 };
 
+export type PatrolRouteSummary = {
+  id: string;
+  siteId: string;
+  name: string;
+  dueMinutesFromMidnight: number;
+  checkpoints: Array<{
+    id: string;
+    siteId: string;
+    code: string;
+    name: string;
+    zone?: string | null;
+    latitude?: number | null;
+    longitude?: number | null;
+  }>;
+};
+
+export type PatrolIssueSeverity = 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL';
+
 function checkpointsCacheKey(siteId: string): string {
   return `pssms.guard.checkpoints.${siteId}`;
+}
+
+function routesCacheKey(siteId: string): string {
+  return `pssms.guard.patrol-routes.${siteId}`;
+}
+
+export async function listPatrolRoutes(
+  siteId: string,
+  options?: { allowCache?: boolean },
+): Promise<PatrolRouteSummary[]> {
+  const allowCache = options?.allowCache ?? true;
+  try {
+    const rows = await apiRequest<PatrolRouteSummary[]>(
+      `/attendance/patrols/routes?siteId=${encodeURIComponent(siteId)}`,
+    );
+    const list = Array.isArray(rows) ? rows : [];
+    await AsyncStorage.setItem(routesCacheKey(siteId), JSON.stringify(list));
+    return list;
+  } catch (err) {
+    if (allowCache) {
+      const raw = await AsyncStorage.getItem(routesCacheKey(siteId));
+      if (raw) return JSON.parse(raw) as PatrolRouteSummary[];
+    }
+    throw err;
+  }
 }
 
 export async function getCachedCheckpoints(
@@ -121,6 +164,54 @@ export async function enqueuePatrolScanByCode(
   });
 
   return { row, checkpoint, gps };
+}
+
+/** Route-aware scan; the physical QR/NFC token is never returned by route API. */
+export async function enqueuePatrolRouteScan(
+  route: PatrolRouteSummary,
+  checkpoint: PatrolRouteSummary['checkpoints'][number],
+  qrOrNfcCode: string,
+): Promise<{ row: OutboxRow; gps: FieldGps }> {
+  const token = qrOrNfcCode.trim();
+  if (!token) throw new Error('Scan or enter the checkpoint QR/NFC token');
+  const gps = await getFieldGps({ allowFallback: true });
+  const row = await enqueuePatrolScan({
+    clientEventId: newClientEventId(),
+    deviceTime: new Date().toISOString(),
+    siteId: route.siteId,
+    routeId: route.id,
+    checkpointId: checkpoint.id,
+    qrOrNfcCode: token,
+    latitude: gps.latitude,
+    longitude: gps.longitude,
+    method: 'QR',
+  });
+  return { row, gps };
+}
+
+export async function enqueuePatrolIssueReport(input: {
+  route: PatrolRouteSummary;
+  checkpointId?: string;
+  title: string;
+  description: string;
+  severity: PatrolIssueSeverity;
+}): Promise<{ row: OutboxRow; gps: FieldGps }> {
+  if (!input.title.trim()) throw new Error('Issue title is required');
+  if (!input.description.trim()) throw new Error('Issue description is required');
+  const gps = await getFieldGps({ allowFallback: true });
+  const row = await enqueuePatrolIssue({
+    clientEventId: newClientEventId(),
+    deviceTime: new Date().toISOString(),
+    siteId: input.route.siteId,
+    routeId: input.route.id,
+    checkpointId: input.checkpointId,
+    title: input.title.trim(),
+    description: input.description.trim(),
+    severity: input.severity,
+    latitude: gps.latitude,
+    longitude: gps.longitude,
+  });
+  return { row, gps };
 }
 
 export { formatGpsLabel };

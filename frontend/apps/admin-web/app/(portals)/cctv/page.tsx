@@ -343,6 +343,7 @@ export default function CctvPage() {
             alerts={alerts}
             anpr={anpr}
             eventsAvailable={eventsAvailable}
+            onTriaged={load}
           />
         </div>
       </section>

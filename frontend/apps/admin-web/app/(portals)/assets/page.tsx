@@ -2,12 +2,24 @@
 
 import {
   assignAsset,
+  completeAssetMaintenance,
   createAsset,
+  disposeAsset,
+  getAssetHistory,
   listAssetAssigneeOptions,
+  listAssetCategoryOptions,
   listAssets,
+  recordAssetDamage,
+  recordAssetReplacement,
+  startAssetMaintenance,
+  transferAsset,
+  walkInReturnAsset,
   type Asset,
   type AssetAssigneeOptions,
+  type AssetLifecycleEvent,
+  type CategoryOption,
   type CreateAssetBody,
+  type ReturnCondition,
 } from '@pssms/api-client';
 import {
   Modal,
@@ -19,6 +31,7 @@ import {
 import {
   CheckCircle2,
   Clock3,
+  History,
   Package,
   Plus,
   RefreshCw,
@@ -34,6 +47,8 @@ type StatusFilter =
   | 'available'
   | 'assigned'
   | 'return_pending'
+  | 'maintenance'
+  | 'disposed'
   | 'other';
 
 const FILTERS: { id: StatusFilter; label: string }[] = [
@@ -41,8 +56,19 @@ const FILTERS: { id: StatusFilter; label: string }[] = [
   { id: 'available', label: 'Available' },
   { id: 'assigned', label: 'Assigned' },
   { id: 'return_pending', label: 'Return pending' },
+  { id: 'maintenance', label: 'Maintenance' },
+  { id: 'disposed', label: 'Disposed' },
   { id: 'other', label: 'Other' },
 ];
+
+type LifecycleAction =
+  | 'dispose'
+  | 'maintenance'
+  | 'complete-maintenance'
+  | 'damage'
+  | 'replace'
+  | 'return'
+  | 'history';
 
 function norm(s: string) {
   return s.trim().toLowerCase().replace(/[\s-]+/g, '_');
@@ -70,10 +96,16 @@ export default function AssetsRegisterPage() {
     employees: [],
     guards: [],
   });
+  const [categories, setCategories] = useState<CategoryOption[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [createOpen, setCreateOpen] = useState(false);
   const [assignTarget, setAssignTarget] = useState<Asset | null>(null);
+  const [transferTarget, setTransferTarget] = useState<Asset | null>(null);
+  const [lifecycleTarget, setLifecycleTarget] = useState<{
+    action: LifecycleAction;
+    asset: Asset;
+  } | null>(null);
   const [query, setQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
 
@@ -81,12 +113,14 @@ export default function AssetsRegisterPage() {
     setLoading(true);
     setError(null);
     try {
-      const [rows, opts] = await Promise.all([
+      const [rows, opts, categoryOptions] = await Promise.all([
         listAssets(),
         listAssetAssigneeOptions(),
+        listAssetCategoryOptions(),
       ]);
       setAssets(rows);
       setAssignees(opts);
+      setCategories(categoryOptions);
     } catch (err) {
       setError(formatApiError(err));
     } finally {
@@ -142,6 +176,8 @@ export default function AssetsRegisterPage() {
       available: 0,
       assigned: 0,
       return_pending: 0,
+      maintenance: 0,
+      disposed: 0,
       other: 0,
     };
     for (const r of assets) {
@@ -149,6 +185,8 @@ export default function AssetsRegisterPage() {
       if (s === 'available') c.available += 1;
       else if (s === 'assigned') c.assigned += 1;
       else if (s === 'return_pending') c.return_pending += 1;
+      else if (s === 'maintenance') c.maintenance += 1;
+      else if (s === 'disposed') c.disposed += 1;
       else c.other += 1;
     }
     return c;
@@ -162,9 +200,15 @@ export default function AssetsRegisterPage() {
       if (statusFilter === 'assigned' && s !== 'assigned') return false;
       if (statusFilter === 'return_pending' && s !== 'return_pending')
         return false;
+      if (statusFilter === 'maintenance' && s !== 'maintenance') return false;
+      if (statusFilter === 'disposed' && s !== 'disposed') return false;
       if (
         statusFilter === 'other' &&
-        (s === 'available' || s === 'assigned' || s === 'return_pending')
+        (s === 'available' ||
+          s === 'assigned' ||
+          s === 'return_pending' ||
+          s === 'maintenance' ||
+          s === 'disposed')
       )
         return false;
       if (!q) return true;
@@ -182,7 +226,7 @@ export default function AssetsRegisterPage() {
   return (
     <AssetsShell
       title="Asset register"
-      description="Register equipment and assign to employees or guards. ESS return confirm stays under Returns."
+      description="Register, assign, transfer, maintain and dispose equipment with a complete lifecycle history."
       actions={
         <>
           <button
@@ -256,7 +300,7 @@ export default function AssetsRegisterPage() {
             </span>
           </div>
           <p className="mt-0.5 text-[11px] text-[#605e5c]">
-            Register tags · assign to employee/guard · ESS returns under Returns
+            Register · assign · transfer · maintain · dispose · audit history
           </p>
         </div>
       </div>
@@ -266,6 +310,20 @@ export default function AssetsRegisterPage() {
         loading={loading}
         assigneeLabel={resolveAssignee}
         onAssign={setAssignTarget}
+        onTransfer={setTransferTarget}
+        onDispose={(asset) => setLifecycleTarget({ action: 'dispose', asset })}
+        onMaintenance={(asset) =>
+          setLifecycleTarget({ action: 'maintenance', asset })
+        }
+        onCompleteMaintenance={(asset) =>
+          setLifecycleTarget({ action: 'complete-maintenance', asset })
+        }
+        onDamage={(asset) => setLifecycleTarget({ action: 'damage', asset })}
+        onReplace={(asset) => setLifecycleTarget({ action: 'replace', asset })}
+        onHistory={(asset) => setLifecycleTarget({ action: 'history', asset })}
+        onWalkInReturn={(asset) =>
+          setLifecycleTarget({ action: 'return', asset })
+        }
         toolbar={
           <div className="flex flex-col gap-2.5 sm:flex-row sm:items-center sm:justify-between">
             <label className="flex min-w-0 flex-1 items-center gap-2 rounded-lg border border-[#e1dfdd] bg-white px-3 py-2 shadow-sm focus-within:border-[#0078d4] focus-within:ring-1 focus-within:ring-[#0078d4]">
@@ -324,6 +382,7 @@ export default function AssetsRegisterPage() {
 
       {createOpen ? (
         <CreateAssetModal
+          categories={categories}
           onClose={() => setCreateOpen(false)}
           onCreated={async () => {
             setCreateOpen(false);
@@ -343,14 +402,42 @@ export default function AssetsRegisterPage() {
           }}
         />
       ) : null}
+
+      {transferTarget ? (
+        <AssignAssetModal
+          asset={transferTarget}
+          assignees={assignees}
+          operation="transfer"
+          onClose={() => setTransferTarget(null)}
+          onAssigned={async () => {
+            setTransferTarget(null);
+            await refresh();
+          }}
+        />
+      ) : null}
+
+      {lifecycleTarget ? (
+        <LifecycleModal
+          action={lifecycleTarget.action}
+          asset={lifecycleTarget.asset}
+          assets={assets}
+          onClose={() => setLifecycleTarget(null)}
+          onCompleted={async () => {
+            setLifecycleTarget(null);
+            await refresh();
+          }}
+        />
+      ) : null}
     </AssetsShell>
   );
 }
 
 function CreateAssetModal({
+  categories,
   onClose,
   onCreated,
 }: {
+  categories: CategoryOption[];
   onClose: () => void;
   onCreated: () => Promise<void>;
 }) {
@@ -419,12 +506,18 @@ function CreateAssetModal({
         </label>
         <label className="block text-sm font-medium text-[#323130]">
           Category
-          <input
+          <select
             className={`${inputCls} mt-1`}
             value={category}
             onChange={(e) => setCategory(e.target.value)}
-            placeholder="RADIO / BOOTS / PHONE"
-          />
+          >
+            <option value="">Select category…</option>
+            {categories.map((option) => (
+              <option key={option.code} value={option.code}>
+                {option.label}
+              </option>
+            ))}
+          </select>
         </label>
         <label className="block text-sm font-medium text-[#323130]">
           Serial number
@@ -472,11 +565,13 @@ function CreateAssetModal({
 function AssignAssetModal({
   asset,
   assignees,
+  operation = 'assign',
   onClose,
   onAssigned,
 }: {
   asset: Asset;
   assignees: AssetAssigneeOptions;
+  operation?: 'assign' | 'transfer';
   onClose: () => void;
   onAssigned: () => Promise<void>;
 }) {
@@ -494,16 +589,20 @@ function AssignAssetModal({
     try {
       if (mode === 'employee') {
         if (!employeeId) throw new Error('Select an employee');
-        await assignAsset(asset.id, {
+        const body = {
           assignedToEmployeeId: employeeId,
           ...(notes.trim() ? { notes: notes.trim() } : {}),
-        });
+        };
+        if (operation === 'transfer') await transferAsset(asset.id, body);
+        else await assignAsset(asset.id, body);
       } else {
         if (!guardId) throw new Error('Select a guard');
-        await assignAsset(asset.id, {
+        const body = {
           assignedToGuardId: guardId,
           ...(notes.trim() ? { notes: notes.trim() } : {}),
-        });
+        };
+        if (operation === 'transfer') await transferAsset(asset.id, body);
+        else await assignAsset(asset.id, body);
       }
       await onAssigned();
     } catch (err) {
@@ -515,7 +614,7 @@ function AssignAssetModal({
 
   return (
     <Modal
-      title="Assign asset"
+      title={operation === 'transfer' ? 'Transfer asset' : 'Assign asset'}
       description={`${asset.assetTag} · ${asset.name}`}
       onClose={onClose}
       size="md"
@@ -589,7 +688,11 @@ function AssignAssetModal({
             className={`${inputCls} mt-1 min-h-[64px]`}
             value={notes}
             onChange={(e) => setNotes(e.target.value)}
-            placeholder="Optional issue notes"
+            placeholder={
+              operation === 'transfer'
+                ? 'Optional transfer notes'
+                : 'Optional issue notes'
+            }
           />
         </label>
 
@@ -607,7 +710,280 @@ function AssignAssetModal({
             className={btnPrimary}
             disabled={submitting}
           >
-            {submitting ? 'Assigning…' : 'Assign'}
+            {submitting
+              ? operation === 'transfer'
+                ? 'Transferring…'
+                : 'Assigning…'
+              : operation === 'transfer'
+                ? 'Transfer'
+                : 'Assign'}
+          </button>
+        </div>
+      </form>
+    </Modal>
+  );
+}
+
+const ACTION_COPY: Record<
+  Exclude<LifecycleAction, 'history'>,
+  { title: string; description: string; submit: string }
+> = {
+  dispose: {
+    title: 'Dispose asset',
+    description: 'Permanently remove this asset from active inventory.',
+    submit: 'Dispose',
+  },
+  maintenance: {
+    title: 'Start maintenance',
+    description: 'Move this asset into maintenance.',
+    submit: 'Start maintenance',
+  },
+  'complete-maintenance': {
+    title: 'Complete maintenance',
+    description: 'Return this asset to available inventory.',
+    submit: 'Complete',
+  },
+  damage: {
+    title: 'Record damage',
+    description: 'Record the asset condition and damage details.',
+    submit: 'Record damage',
+  },
+  replace: {
+    title: 'Record replacement',
+    description: 'Link another registered asset as its replacement.',
+    submit: 'Record replacement',
+  },
+  return: {
+    title: 'Walk-in return',
+    description: 'Receive an assigned asset directly into inventory.',
+    submit: 'Receive asset',
+  },
+};
+
+function LifecycleModal({
+  action,
+  asset,
+  assets,
+  onClose,
+  onCompleted,
+}: {
+  action: LifecycleAction;
+  asset: Asset;
+  assets: Asset[];
+  onClose: () => void;
+  onCompleted: () => Promise<void>;
+}) {
+  const [notes, setNotes] = useState('');
+  const [condition, setCondition] = useState<ReturnCondition>('GOOD');
+  const [replacementAssetId, setReplacementAssetId] = useState('');
+  const [events, setEvents] = useState<AssetLifecycleEvent[]>([]);
+  const [loadingHistory, setLoadingHistory] = useState(action === 'history');
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (action !== 'history') return;
+    let active = true;
+    void getAssetHistory(asset.id)
+      .then((rows) => {
+        if (active) setEvents(rows);
+      })
+      .catch((err: unknown) => {
+        if (active) setError(formatApiError(err));
+      })
+      .finally(() => {
+        if (active) setLoadingHistory(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, [action, asset.id]);
+
+  if (action === 'history') {
+    return (
+      <Modal
+        title="Asset history"
+        description={`${asset.assetTag} · ${asset.name}`}
+        onClose={onClose}
+        size="lg"
+      >
+        {error ? (
+          <p className="rounded border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+            {error}
+          </p>
+        ) : loadingHistory ? (
+          <p className="py-8 text-center text-sm text-[#605e5c]">
+            Loading history…
+          </p>
+        ) : events.length === 0 ? (
+          <AssetsEmpty
+            title="No lifecycle events"
+            description="Transfers, maintenance, damage and disposal events will appear here."
+          />
+        ) : (
+          <ol className="space-y-0">
+            {events.map((event, index) => (
+              <li key={event.id} className="relative flex gap-3 pb-5">
+                {index < events.length - 1 ? (
+                  <span className="absolute left-[15px] top-8 h-full w-px bg-[#e1dfdd]" />
+                ) : null}
+                <span className="z-10 flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[#eff6fc] text-[#0078d4] ring-4 ring-white">
+                  <History className="h-3.5 w-3.5" />
+                </span>
+                <div className="min-w-0 pt-0.5">
+                  <p className="text-sm font-semibold text-[#323130]">
+                    {event.eventType.replace(/_/g, ' ')}
+                  </p>
+                  <p className="text-[11px] text-[#8a8886]">
+                    {new Date(event.createdAt).toLocaleString('en-GB')}
+                    {event.fromStatus || event.toStatus
+                      ? ` · ${event.fromStatus ?? '—'} → ${event.toStatus ?? '—'}`
+                      : ''}
+                  </p>
+                  {event.notes ? (
+                    <p className="mt-1 text-xs text-[#605e5c]">{event.notes}</p>
+                  ) : null}
+                  {event.condition ? (
+                    <p className="mt-1 text-[11px] font-medium text-[#605e5c]">
+                      Condition: {event.condition}
+                    </p>
+                  ) : null}
+                </div>
+              </li>
+            ))}
+          </ol>
+        )}
+        <div className="mt-2 flex justify-end">
+          <button type="button" className={btnSecondary} onClick={onClose}>
+            Close
+          </button>
+        </div>
+      </Modal>
+    );
+  }
+
+  const copy = ACTION_COPY[action];
+  const replacementOptions = assets.filter(
+    (candidate) =>
+      candidate.id !== asset.id && norm(candidate.status) !== 'disposed',
+  );
+
+  async function onSubmit(e: FormEvent) {
+    e.preventDefault();
+    setSubmitting(true);
+    setError(null);
+    try {
+      const cleanNotes = notes.trim();
+      if (action === 'dispose') {
+        if (cleanNotes.length < 3) throw new Error('Enter a disposal reason');
+        await disposeAsset(asset.id, { reason: cleanNotes });
+      } else if (action === 'maintenance') {
+        await startAssetMaintenance(asset.id, {
+          ...(cleanNotes ? { notes: cleanNotes } : {}),
+        });
+      } else if (action === 'complete-maintenance') {
+        await completeAssetMaintenance(asset.id, {
+          ...(cleanNotes ? { notes: cleanNotes } : {}),
+        });
+      } else if (action === 'damage') {
+        if (!cleanNotes) throw new Error('Enter damage details');
+        await recordAssetDamage(asset.id, { notes: cleanNotes, condition });
+      } else if (action === 'replace') {
+        if (!replacementAssetId) throw new Error('Select a replacement asset');
+        await recordAssetReplacement(asset.id, {
+          replacementAssetId,
+          ...(cleanNotes ? { notes: cleanNotes } : {}),
+        });
+      } else {
+        await walkInReturnAsset(asset.id, {
+          condition,
+          ...(cleanNotes ? { receiptNote: cleanNotes } : {}),
+        });
+      }
+      await onCompleted();
+    } catch (err) {
+      setError(formatApiError(err));
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  return (
+    <Modal
+      title={copy.title}
+      description={`${asset.assetTag} · ${asset.name}. ${copy.description}`}
+      onClose={onClose}
+      size="md"
+    >
+      <form onSubmit={onSubmit} className="space-y-3">
+        {action === 'replace' ? (
+          <label className="block text-sm font-medium text-[#323130]">
+            Replacement asset
+            <select
+              className={`${inputCls} mt-1`}
+              value={replacementAssetId}
+              onChange={(e) => setReplacementAssetId(e.target.value)}
+              required
+            >
+              <option value="">Select asset…</option>
+              {replacementOptions.map((candidate) => (
+                <option key={candidate.id} value={candidate.id}>
+                  {candidate.assetTag} · {candidate.name} ({candidate.status})
+                </option>
+              ))}
+            </select>
+          </label>
+        ) : null}
+
+        {action === 'damage' || action === 'return' ? (
+          <label className="block text-sm font-medium text-[#323130]">
+            Condition
+            <select
+              className={`${inputCls} mt-1`}
+              value={condition}
+              onChange={(e) => setCondition(e.target.value as ReturnCondition)}
+            >
+              <option value="GOOD">Good</option>
+              <option value="DAMAGED">Damaged</option>
+              <option value="LOST">Lost</option>
+            </select>
+          </label>
+        ) : null}
+
+        <label className="block text-sm font-medium text-[#323130]">
+          {action === 'dispose'
+            ? 'Disposal reason'
+            : action === 'damage'
+              ? 'Damage details'
+              : action === 'return'
+                ? 'Receipt note'
+                : 'Notes'}
+          <textarea
+            className={`${inputCls} mt-1 min-h-[88px]`}
+            value={notes}
+            onChange={(e) => setNotes(e.target.value)}
+            required={action === 'dispose' || action === 'damage'}
+            placeholder={
+              action === 'dispose'
+                ? 'Reason for disposal'
+                : action === 'damage'
+                  ? 'Describe the damage'
+                  : 'Optional notes'
+            }
+          />
+        </label>
+
+        {error ? (
+          <p className="rounded border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+            {error}
+          </p>
+        ) : null}
+        <div className="flex justify-end gap-2 pt-1">
+          <button type="button" className={btnSecondary} onClick={onClose}>
+            Cancel
+          </button>
+          <button type="submit" className={btnPrimary} disabled={submitting}>
+            {submitting ? 'Saving…' : copy.submit}
           </button>
         </div>
       </form>

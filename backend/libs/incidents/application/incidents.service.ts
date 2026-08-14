@@ -16,7 +16,12 @@ import {
 import { AuditService } from '@pssms/audit';
 import {
   CreateIncidentDto,
+  INCIDENT_CATEGORIES,
+  INCIDENT_CATEGORY_LABELS,
+  IncidentCategoryOptionDto,
+  IncidentOfficerOptionDto,
   IncidentResponseDto,
+  UpdateIncidentStatusDto,
 } from '../presentation/dto/incident.dto';
 
 /** Thin escalate path: forward-only (same status allowed as no-op). */
@@ -78,7 +83,18 @@ type IncidentRow = {
   description: string;
   reporterId: string;
   assignedTo: string | null;
+  locationDescription: string | null;
+  actionTaken: string | null;
+  resolution: string | null;
+  latitude: number | null;
+  longitude: number | null;
+  occurredAt: Date;
+  deviceReportedAt: Date | null;
   resolvedAt: Date | null;
+  resolvedBy: string | null;
+  closedBy: string | null;
+  closedAt: Date | null;
+  closureApprovalNote: string | null;
   createdAt: Date;
 };
 
@@ -88,6 +104,86 @@ export class IncidentsService {
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
   ) {}
+
+  categoryOptions(): IncidentCategoryOptionDto[] {
+    const integrationOnly = new Set([
+      'PATROL_ISSUE',
+      'CCTV_ALERT',
+      'ACCESS_BREACH',
+      'PROPERTY_DAMAGE',
+      'SUSPICIOUS_ACTIVITY',
+    ]);
+    return INCIDENT_CATEGORIES.filter((value) => !integrationOnly.has(value)).map(
+      (value) => ({
+        value,
+        label: INCIDENT_CATEGORY_LABELS[value],
+      }),
+    );
+  }
+
+  async officerOptions(user: AuthUser): Promise<IncidentOfficerOptionDto[]> {
+    if (
+      isGuardSelfScoped(user) ||
+      !!user.customerId ||
+      !!user.supplierId ||
+      !!user.b2bPartnerId
+    ) {
+      throw new ForbiddenException({
+        error: 'OFFICER_DIRECTORY_DENIED',
+        message: 'This account cannot browse the internal officer directory',
+      });
+    }
+    const users = await this.prisma.user.findMany({
+      where: {
+        organizationId: user.organizationId,
+        isActive: true,
+        customerId: null,
+        supplierId: null,
+        b2bPartnerId: null,
+      },
+      select: { id: true, fullName: true, email: true },
+      orderBy: { fullName: 'asc' },
+      take: 300,
+    });
+    return users;
+  }
+
+  private async assertResponsibleOfficer(
+    organizationId: string,
+    userId?: string | null,
+  ): Promise<void> {
+    if (!userId) return;
+    const officer = await this.prisma.user.findFirst({
+      where: {
+        id: userId,
+        organizationId,
+        isActive: true,
+        customerId: null,
+        supplierId: null,
+        b2bPartnerId: null,
+      },
+      select: { id: true },
+    });
+    if (!officer) {
+      throw new BadRequestException({
+        error: 'INVALID_RESPONSIBLE_OFFICER',
+        message: 'Responsible officer must be an active internal user',
+      });
+    }
+  }
+
+  private async userNames(
+    organizationId: string,
+    ids: Array<string | null | undefined>,
+  ): Promise<Map<string, string>> {
+    const unique = [...new Set(ids.filter((id): id is string => !!id))];
+    if (unique.length === 0) return new Map();
+    const users = await this.prisma.user.findMany({
+      where: { organizationId, id: { in: unique } },
+      select: { id: true, fullName: true },
+    });
+    return new Map(users.map((u) => [u.id, u.fullName]));
+  }
 
   async create(
     dto: CreateIncidentDto,
@@ -99,6 +195,7 @@ export class IncidentsService {
     });
     if (!site) throw new BadRequestException('Site not found in organization');
     assertSiteAccess(user, dto.siteId);
+    await this.assertResponsibleOfficer(user.organizationId, dto.assignedTo);
 
     if (dto.clientEventId) {
       const dup = await this.prisma.incident.findUnique({
@@ -114,7 +211,13 @@ export class IncidentsService {
           where: { id: dup.siteId, organizationId: user.organizationId },
           select: { code: true, name: true },
         });
-        return this.toDto(dup, dupSite ?? undefined, user);
+        const names = await this.userNames(user.organizationId, [
+          dup.reporterId,
+          dup.assignedTo,
+          dup.resolvedBy,
+          dup.closedBy,
+        ]);
+        return this.toDto(dup, dupSite ?? undefined, user, names);
       }
     }
 
@@ -135,8 +238,15 @@ export class IncidentsService {
           title: dto.title.trim(),
           description: dto.description.trim(),
           reporterId: user.id,
+          assignedTo: dto.assignedTo,
+          locationDescription: dto.locationDescription?.trim() || undefined,
           latitude: dto.latitude,
           longitude: dto.longitude,
+          occurredAt: dto.occurredAt
+            ? new Date(dto.occurredAt)
+            : dto.deviceReportedAt
+              ? new Date(dto.deviceReportedAt)
+              : new Date(),
           deviceReportedAt: dto.deviceReportedAt
             ? new Date(dto.deviceReportedAt)
             : undefined,
@@ -165,22 +275,33 @@ export class IncidentsService {
       after: incident,
     });
 
-    return this.toDto(incident, site, user);
+    const names = await this.userNames(user.organizationId, [
+      incident.reporterId,
+      incident.assignedTo,
+    ]);
+    return this.toDto(incident, site, user, names);
   }
 
   async updateStatus(
     id: string,
-    status: IncidentStatus,
-    assignedTo: string | undefined,
+    dto: UpdateIncidentStatusDto,
     user: AuthUser,
   ): Promise<IncidentResponseDto> {
     this.assertCanChangeStatus(user);
+    const { status } = dto;
 
     const existing = await this.prisma.incident.findFirst({
       where: { id, organizationId: user.organizationId },
     });
     if (!existing) throw new NotFoundException('Incident not found');
     assertSiteAccess(user, existing.siteId);
+    await this.assertResponsibleOfficer(user.organizationId, dto.assignedTo);
+    if (existing.status === IncidentStatus.CLOSED) {
+      throw new BadRequestException({
+        error: 'INCIDENT_CLOSED_IMMUTABLE',
+        message: 'Closed incident records cannot be changed',
+      });
+    }
 
     const allowed = ALLOWED_TRANSITIONS[existing.status] ?? [];
     if (!allowed.includes(status)) {
@@ -189,26 +310,61 @@ export class IncidentsService {
       );
     }
 
-    if (status !== existing.status) {
-      const gate = this.statusGate(user, existing, status);
-      if (!gate.ok) {
-        throw new ForbiddenException({
-          error: 'FORBIDDEN',
-          message: gate.reason,
-          requiredRoleHint: gate.requiredRoleHint,
-        });
-      }
+    const gate = this.statusGate(user, existing, status);
+    if (!gate.ok) {
+      throw new ForbiddenException({
+        error: 'FORBIDDEN',
+        message: gate.reason,
+        requiredRoleHint: gate.requiredRoleHint,
+      });
+    }
+
+    const resolution = dto.resolution?.trim() || existing.resolution;
+    if (
+      (status === IncidentStatus.RESOLVED ||
+        status === IncidentStatus.CLOSED) &&
+      !resolution
+    ) {
+      throw new BadRequestException({
+        error: 'RESOLUTION_REQUIRED',
+        message: 'Resolution is required before an incident can be resolved',
+      });
+    }
+    const closureApprovalNote = dto.closureApprovalNote?.trim();
+    if (status === IncidentStatus.CLOSED && !closureApprovalNote) {
+      throw new BadRequestException({
+        error: 'CLOSURE_APPROVAL_REQUIRED',
+        message: 'An authorized closure approval note is required',
+      });
     }
 
     const updated = await this.prisma.incident.update({
       where: { id },
       data: {
         status,
-        ...(assignedTo !== undefined ? { assignedTo } : {}),
+        ...(dto.assignedTo !== undefined ? { assignedTo: dto.assignedTo } : {}),
+        ...(dto.actionTaken !== undefined
+          ? { actionTaken: dto.actionTaken.trim() || null }
+          : {}),
+        ...(resolution &&
+        (status === IncidentStatus.RESOLVED ||
+          status === IncidentStatus.CLOSED)
+          ? { resolution }
+          : {}),
         resolvedAt:
           status === IncidentStatus.RESOLVED || status === IncidentStatus.CLOSED
             ? existing.resolvedAt ?? new Date()
             : undefined,
+        ...(status === IncidentStatus.RESOLVED
+          ? { resolvedBy: existing.resolvedBy ?? user.id }
+          : {}),
+        ...(status === IncidentStatus.CLOSED
+          ? {
+              closedBy: user.id,
+              closedAt: new Date(),
+              closureApprovalNote,
+            }
+          : {}),
       },
     });
 
@@ -222,6 +378,13 @@ export class IncidentsService {
       after: {
         status: updated.status,
         severity: updated.severity,
+        assignedTo: updated.assignedTo,
+        actionTaken: updated.actionTaken,
+        resolution: updated.resolution,
+        resolvedBy: updated.resolvedBy,
+        closedBy: updated.closedBy,
+        closedAt: updated.closedAt,
+        closureApprovalNote: updated.closureApprovalNote,
         actorRoles: user.roles,
       },
     });
@@ -231,7 +394,13 @@ export class IncidentsService {
       select: { code: true, name: true },
     });
 
-    return this.toDto(updated, site ?? undefined, user);
+    const names = await this.userNames(user.organizationId, [
+      updated.reporterId,
+      updated.assignedTo,
+      updated.resolvedBy,
+      updated.closedBy,
+    ]);
+    return this.toDto(updated, site ?? undefined, user, names);
   }
 
   async list(
@@ -259,8 +428,17 @@ export class IncidentsService {
             select: { id: true, code: true, name: true },
           });
     const siteMap = new Map(sites.map((s) => [s.id, s]));
+    const names = await this.userNames(
+      organizationId,
+      rows.flatMap((r) => [
+        r.reporterId,
+        r.assignedTo,
+        r.resolvedBy,
+        r.closedBy,
+      ]),
+    );
 
-    return rows.map((r) => this.toDto(r, siteMap.get(r.siteId), user));
+    return rows.map((r) => this.toDto(r, siteMap.get(r.siteId), user, names));
   }
 
   /** Guard-only JWT cannot escalate (still may create + list). */
@@ -328,6 +506,13 @@ export class IncidentsService {
     }
 
     if (to === IncidentStatus.CLOSED) {
+      if (incident.resolvedBy && incident.resolvedBy === user.id) {
+        return {
+          ok: false,
+          reason: 'Resolver cannot approve closure of the same incident',
+          requiredRoleHint: 'Another authorized closure officer',
+        };
+      }
       if (incident.severity === IncidentSeverity.CRITICAL) {
         const can = user.roles.some((r) =>
           INCIDENT_CRITICAL_CLOSE_ROLES.has(r),
@@ -394,6 +579,7 @@ export class IncidentsService {
     i: IncidentRow,
     site: { code: string; name: string } | null | undefined,
     user?: AuthUser,
+    names?: Map<string, string>,
   ): IncidentResponseDto {
     const next = user
       ? this.allowedNextForUser(user, i)
@@ -411,8 +597,27 @@ export class IncidentsService {
       title: i.title,
       description: i.description,
       reporterId: i.reporterId,
+      reporterName: names?.get(i.reporterId) ?? null,
       assignedTo: i.assignedTo,
+      assignedToName: i.assignedTo
+        ? names?.get(i.assignedTo) ?? null
+        : null,
+      locationDescription: i.locationDescription,
+      latitude: i.latitude,
+      longitude: i.longitude,
+      actionTaken: i.actionTaken,
+      resolution: i.resolution,
+      occurredAt: i.occurredAt,
+      deviceReportedAt: i.deviceReportedAt,
       resolvedAt: i.resolvedAt,
+      resolvedBy: i.resolvedBy,
+      resolvedByName: i.resolvedBy
+        ? names?.get(i.resolvedBy) ?? null
+        : null,
+      closedBy: i.closedBy,
+      closedByName: i.closedBy ? names?.get(i.closedBy) ?? null : null,
+      closedAt: i.closedAt,
+      closureApprovalNote: i.closureApprovalNote,
       createdAt: i.createdAt,
       allowedNextStatuses: next.allowedNextStatuses,
       blockedReason: next.blockedReason,

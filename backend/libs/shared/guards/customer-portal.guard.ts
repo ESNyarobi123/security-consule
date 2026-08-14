@@ -5,6 +5,7 @@ import {
   Injectable,
 } from '@nestjs/common';
 import { AuthUser } from '../types/auth-user';
+import { assertCustomerPortalHasCustomerId } from '../utils/customer-scope.util';
 import {
   assertCustomerEmployeeHasCustomerId,
   isCustomerEmployeeSelfScoped,
@@ -79,6 +80,8 @@ export class CustomerPortalGuard implements CanActivate {
     const user = req.user;
     if (!user) return true;
 
+    // A role without its party binding must never fall through to staff APIs.
+    assertCustomerPortalHasCustomerId(user);
     // Misconfigured CUSTOMER_EMPLOYEE without customerId must not fall through
     // to the staff (unguarded) API surface.
     assertCustomerEmployeeHasCustomerId(user);

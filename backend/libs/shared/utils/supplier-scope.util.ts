@@ -1,6 +1,16 @@
 import { ForbiddenException } from '@nestjs/common';
 import { AuthUser } from '../types/auth-user';
 
+/** Fail closed: SUPPLIER_PORTAL role must carry a supplier party binding. */
+export function assertSupplierPortalHasSupplierId(user: AuthUser): void {
+  if (user.roles.includes('SUPPLIER_PORTAL') && !user.supplierId) {
+    throw new ForbiddenException({
+      error: 'SUPPLIER_PORTAL_SCOPE_REQUIRED',
+      message: 'Supplier portal accounts must be linked to a supplier',
+    });
+  }
+}
+
 /**
  * Portal users (JWT supplierId set) are force-scoped to their supplier.
  * Staff may optionally filter by supplierId query param.

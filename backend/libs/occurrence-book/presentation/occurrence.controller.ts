@@ -26,6 +26,7 @@ import { OccurrenceService } from '../application/occurrence.service';
 import {
   CorrectOccurrenceDto,
   CreateOccurrenceDto,
+  EobCategoryOptionDto,
   OccurrenceHistoryVersionDto,
   OccurrenceResponseDto,
 } from './dto/occurrence.dto';
@@ -72,6 +73,16 @@ export class OccurrenceController {
   @ApiCreatedResponse({ type: OccurrenceResponseDto })
   approve(@Param('id') id: string, @CurrentUser() user: AuthUser) {
     return this.service.approve(id, user);
+  }
+
+  @Get('category-options')
+  @RequireAnyPermissions('operations.manage', 'attendance.manage')
+  @ApiOperation({
+    summary: 'EOB event category catalog (design §30 taxonomy)',
+  })
+  @ApiOkResponse({ type: [EobCategoryOptionDto] })
+  categoryOptions() {
+    return this.service.categoryOptions();
   }
 
   @Get()

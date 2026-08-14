@@ -5,6 +5,7 @@ import {
   DeviceEventType,
   DeviceStatus,
   DeviceType,
+  IncidentSeverity,
 } from '@prisma/client';
 import {
   IsArray,
@@ -240,6 +241,34 @@ export class DeviceResponseDto {
       'CCTV mosaic metadata (embedUrl/streamUrl/snapshotUrl/zone) — never video bytes',
   })
   config!: Record<string, unknown> | null;
+}
+
+/** Module 28-A — acknowledge an open CCTV AI alert (metadata only). */
+export class AcknowledgeCctvEventDto {
+  @ApiPropertyOptional({ description: 'Operator note kept in the audit trail' })
+  @IsOptional()
+  @IsString()
+  note?: string;
+}
+
+/** Module 28-A — record an incident from a CCTV AI alert. */
+export class CreateIncidentFromEventDto {
+  @ApiPropertyOptional({ enum: IncidentSeverity })
+  @IsOptional()
+  @IsEnum(IncidentSeverity)
+  severity?: IncidentSeverity;
+
+  @ApiPropertyOptional({ description: 'Override title (defaults from payload)' })
+  @IsOptional()
+  @IsString()
+  title?: string;
+
+  @ApiPropertyOptional({
+    description: 'Override description (defaults from camera + payload)',
+  })
+  @IsOptional()
+  @IsString()
+  description?: string;
 }
 
 export class EdgeGatewayResponseDto {
