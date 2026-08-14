@@ -172,6 +172,8 @@ services:
         npx prisma db execute --file prisma/migrations/0056_supplier_portal_register/migration.sql --schema prisma/schema.prisma &&
         npx prisma db execute --file prisma/migrations/0057_purchase_requests_inventory/migration.sql --schema prisma/schema.prisma &&
         npx prisma db execute --file prisma/migrations/0058_asset_lifecycle_events/migration.sql --schema prisma/schema.prisma &&
+        npx prisma db execute --file prisma/migrations/0059_incident_case_management/migration.sql --schema prisma/schema.prisma &&
+        npx prisma db execute --file prisma/migrations/0060_consent_records/migration.sql --schema prisma/schema.prisma &&
         if [ \"$$PSSMS_RUN_SEED\" = \"true\" ]; then npm run prisma:seed; else echo 'SKIP_SEED (set PSSMS_RUN_SEED=true to seed)'; fi
       "
     depends_on:

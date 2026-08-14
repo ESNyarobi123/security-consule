@@ -8,7 +8,7 @@ set -euo pipefail
 ROOT=/home/sky/security-consule
 C="docker compose -f infra/docker/docker-compose.prod.yml --env-file infra/docker/.env.prod"
 L=/home/sky/deploy-$(date +%Y-%m-%d-%H%M).log
-EXPECTED_MSG_FRAGMENT='0057'
+EXPECTED_MSG_FRAGMENT='0060'
 
 cd "$ROOT"
 exec >"$L" 2>&1
@@ -23,8 +23,8 @@ git fetch origin
 git checkout main
 git pull --ff-only origin main
 echo "HEAD $(git rev-parse --short HEAD) $(git log -1 --pretty=%s)"
-if ! git show HEAD:infra/docker/docker-compose.prod.yml | grep -q '0057_purchase_requests_inventory'; then
-  echo "FATAL: compose missing 0057 migration list"
+if ! git show HEAD:infra/docker/docker-compose.prod.yml | grep -q '0060_consent_records'; then
+  echo "FATAL: compose missing 0060 migration list"
   exit 1
 fi
 
