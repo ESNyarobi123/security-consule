@@ -14,6 +14,7 @@ export type FieldEventType =
   | 'ALERTNESS_CONFIRM'
   | 'PATROL_SCAN'
   | 'PATROL_ISSUE'
+  | 'INCIDENT'
   | 'CLOCK_OUT';
 
 export type OutboxRow = {
@@ -33,6 +34,7 @@ export type EnqueueClockInInput = {
   clientEventId: string;
   deviceTime: string;
   siteId: string;
+  shiftId?: string;
   latitude: number;
   longitude: number;
 };
@@ -63,6 +65,18 @@ export type EnqueuePatrolIssueInput = {
   siteId: string;
   routeId: string;
   checkpointId?: string;
+  title: string;
+  description: string;
+  severity: 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL';
+  latitude: number;
+  longitude: number;
+};
+
+export type EnqueueIncidentInput = {
+  clientEventId: string;
+  deviceTime: string;
+  siteId: string;
+  category: string;
   title: string;
   description: string;
   severity: 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL';

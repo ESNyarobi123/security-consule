@@ -7,7 +7,9 @@ import {
 } from '@nestjs/common';
 import {
   Prisma,
+  PurchaseOrderStatus,
   SupplierCategory,
+  SupplierMessageAuthor,
   SupplierPaymentStatus,
   SupplierStatus,
   SupplierSubmissionKind,
@@ -25,11 +27,13 @@ import {
 } from '@pssms/shared';
 import {
   CreateSupplierDto,
+  CreateSupplierMessageDto,
   CreateSupplierSubmissionDto,
   RegisterSupplierDto,
   RegisterSupplierResponseDto,
   RejectSupplierDto,
   RejectSupplierSubmissionDto,
+  SupplierMessageResponseDto,
   SupplierResponseDto,
   SupplierSubmissionResponseDto,
   UpdateSupplierProfileDto,
@@ -382,9 +386,21 @@ export class SuppliersService {
           organizationId: user.organizationId,
           supplierId,
         },
-        select: { id: true, poNumber: true },
+        select: { id: true, poNumber: true, status: true },
       });
       if (!po) {
+        throw new BadRequestException({
+          error: 'INVALID_PURCHASE_ORDER',
+          message: 'Purchase order not found for this supplier',
+        });
+      }
+      const issued = new Set([
+        PurchaseOrderStatus.ORDERED,
+        PurchaseOrderStatus.PARTIALLY_RECEIVED,
+        PurchaseOrderStatus.RECEIVED,
+        PurchaseOrderStatus.CANCELLED,
+      ]);
+      if (user.supplierId && !issued.has(po.status)) {
         throw new BadRequestException({
           error: 'INVALID_PURCHASE_ORDER',
           message: 'Purchase order not found for this supplier',
@@ -441,6 +457,136 @@ export class SuppliersService {
   ): Promise<SupplierSubmissionResponseDto[]> {
     const supplierId = requireSupplierScope(user);
     return this.listSubmissions(user.organizationId, supplierId);
+  }
+
+  async listMyMessages(user: AuthUser): Promise<SupplierMessageResponseDto[]> {
+    const supplierId = requireSupplierScope(user);
+    return this.listMessages(user.organizationId, supplierId);
+  }
+
+  async createMyMessage(
+    dto: CreateSupplierMessageDto,
+    user: AuthUser,
+  ): Promise<SupplierMessageResponseDto> {
+    const supplierId = requireSupplierScope(user);
+    return this.createMessage(
+      supplierId,
+      dto,
+      user,
+      SupplierMessageAuthor.SUPPLIER,
+    );
+  }
+
+  async listStaffMessages(
+    supplierId: string,
+    user: AuthUser,
+  ): Promise<SupplierMessageResponseDto[]> {
+    this.assertStaff(user);
+    await this.findOrThrow(supplierId, user.organizationId);
+    return this.listMessages(user.organizationId, supplierId);
+  }
+
+  async createStaffMessage(
+    supplierId: string,
+    dto: CreateSupplierMessageDto,
+    user: AuthUser,
+  ): Promise<SupplierMessageResponseDto> {
+    this.assertStaff(user);
+    return this.createMessage(
+      supplierId,
+      dto,
+      user,
+      SupplierMessageAuthor.PROCUREMENT,
+    );
+  }
+
+  private async createMessage(
+    supplierId: string,
+    dto: CreateSupplierMessageDto,
+    user: AuthUser,
+    authorType: SupplierMessageAuthor,
+  ): Promise<SupplierMessageResponseDto> {
+    const supplier = await this.findOrThrow(supplierId, user.organizationId);
+    if (authorType === SupplierMessageAuthor.SUPPLIER) {
+      if (
+        supplier.status === SupplierStatus.REJECTED ||
+        supplier.status === SupplierStatus.SUSPENDED
+      ) {
+        throw new ForbiddenException({
+          error: 'SUPPLIER_NOT_APPROVED',
+          message:
+            'Suspended or rejected suppliers cannot message procurement',
+        });
+      }
+    }
+    const body = dto.body.trim();
+    if (!body) {
+      throw new BadRequestException('Message body is required');
+    }
+
+    const row = await this.prisma.supplierMessage.create({
+      data: {
+        organizationId: user.organizationId,
+        supplierId,
+        authorType,
+        body,
+        createdBy: user.id,
+      },
+    });
+
+    await this.audit.record({
+      organizationId: user.organizationId,
+      actorId: user.id,
+      action: 'supplier.message.created',
+      resourceType: 'Supplier',
+      resourceId: supplierId,
+      after: { messageId: row.id, authorType },
+    });
+
+    const [dtoRow] = await this.enrichMessages([row]);
+    return dtoRow!;
+  }
+
+  private async listMessages(
+    organizationId: string,
+    supplierId: string,
+  ): Promise<SupplierMessageResponseDto[]> {
+    const rows = await this.prisma.supplierMessage.findMany({
+      where: { organizationId, supplierId },
+      orderBy: { createdAt: 'asc' },
+      take: 200,
+    });
+    return this.enrichMessages(rows);
+  }
+
+  private async enrichMessages(
+    rows: {
+      id: string;
+      organizationId: string;
+      supplierId: string;
+      authorType: SupplierMessageAuthor;
+      body: string;
+      createdBy: string;
+      createdAt: Date;
+    }[],
+  ): Promise<SupplierMessageResponseDto[]> {
+    if (rows.length === 0) return [];
+    const ids = [...new Set(rows.map((r) => r.createdBy))];
+    const users = await this.prisma.user.findMany({
+      where: { id: { in: ids }, organizationId: rows[0]!.organizationId },
+      select: { id: true, fullName: true },
+    });
+    const nameById = new Map(users.map((u) => [u.id, u.fullName]));
+    return rows.map((r) => ({
+      id: r.id,
+      organizationId: r.organizationId,
+      supplierId: r.supplierId,
+      authorType: r.authorType,
+      body: r.body,
+      createdBy: r.createdBy,
+      authorName: nameById.get(r.createdBy) ?? null,
+      createdAt: r.createdAt,
+    }));
   }
 
   async listSubmissions(

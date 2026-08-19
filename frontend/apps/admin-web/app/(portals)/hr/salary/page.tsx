@@ -69,7 +69,7 @@ export default function HrSalaryPage() {
   return (
     <HrShell
       title="Salary assignments"
-      description="Basic salary used by payroll cycles. Payslips and bank files live under Payroll."
+      description="Employment pay terms used by payroll. Contract scans live on the employee staff file. Payslips and bank files stay under Payroll."
       actions={
         <>
           <button

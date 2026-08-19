@@ -17,6 +17,7 @@ import {
   Shield,
   Users,
 } from 'lucide-react';
+import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { FormEvent, useEffect, useState } from 'react';
 
@@ -38,8 +39,8 @@ const HIGHLIGHTS = [
   },
   {
     Icon: Car,
-    title: 'Parking & incidents',
-    body: 'Vehicles, permits, and site events scoped to your customer.',
+    title: 'Payroll, parking & SLA',
+    body: 'Customer payroll, parking, incidents, and live SLA vs contract — your org only.',
   },
 ] as const;
 
@@ -47,7 +48,7 @@ const DEMO_ACCOUNTS = [
   {
     role: 'Admin · Portal 35.8',
     email: 'portal@demo-mfg.co.tz',
-    hint: 'Full customer overview',
+    hint: 'Admins, HR, security, finance, management',
   },
   {
     role: 'Staff · Portal 35.9',
@@ -63,11 +64,16 @@ export default function LoginPage() {
   const [showPassword, setShowPassword] = useState(false);
   const [remember, setRemember] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
-    const msg = new URLSearchParams(window.location.search).get('error');
+    const params = new URLSearchParams(window.location.search);
+    const msg = params.get('error');
     if (msg) setError(msg);
+    if (params.get('registered') === '1') {
+      setNotice('Access registered. Sign in with your email and password.');
+    }
     try {
       const saved = localStorage.getItem('pssms_customer_last_email');
       if (saved) setEmail(saved);
@@ -157,8 +163,10 @@ export default function LoginPage() {
             <span className="text-teal-300">one secure workspace</span>
           </h1>
           <p className="mt-4 max-w-md text-base leading-relaxed text-slate-300">
-            Customer admins manage contracts and site ops. Staff open My access
-            for their own entry profile — always scoped to your organisation.
+            Customer administrators, HR, security, finance, and management share
+            one organisation login. Each customer sees only its own contracts,
+            invoices, guards, attendance, visitors, parking, payroll, and SLA.
+            Staff with a My access invite open their own entry profile.
           </p>
 
           <ul className="mt-10 grid gap-3 sm:grid-cols-2">
@@ -218,7 +226,7 @@ export default function LoginPage() {
                 Sign in to portal
               </h2>
               <p className="mt-1 text-base text-slate-500 lg:mt-2">
-                Use the credentials issued by HIGHLINK for your organisation.
+                Customer administrators and employees — your organisation only.
               </p>
             </div>
 
@@ -292,6 +300,11 @@ export default function LoginPage() {
                 Remember email on this device
               </label>
 
+              {notice ? (
+                <div className="rounded-xl border border-teal-200 bg-teal-50 px-3.5 py-3 text-sm text-teal-900">
+                  {notice}
+                </div>
+              ) : null}
               {error ? (
                 <div className="flex gap-3 rounded-xl border border-rose-200 bg-rose-50 px-3.5 py-3 text-sm text-rose-800">
                   <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-rose-600" />
@@ -316,6 +329,12 @@ export default function LoginPage() {
                   </>
                 )}
               </button>
+              <p className="text-center text-sm text-slate-500">
+                Employee on the roster?{' '}
+                <Link href="/register" className="font-semibold text-[#0078d4]">
+                  Register access
+                </Link>
+              </p>
             </form>
 
             <div className="border-t border-slate-100 bg-slate-50/80 px-7 py-5">
@@ -355,7 +374,7 @@ export default function LoginPage() {
           </div>
 
           <p className="mt-6 text-center text-sm leading-relaxed text-slate-400">
-            Access issued by HIGHLINK · staff entry is separate from guards
+            Access issued by HIGHLINK · employee entry is separate from guards
           </p>
         </div>
       </main>

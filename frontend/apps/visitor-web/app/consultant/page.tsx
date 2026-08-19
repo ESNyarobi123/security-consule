@@ -11,9 +11,9 @@ import {
   getConsultantSessionUser,
   getConsultantToken,
 } from '@pssms/auth';
-import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useCallback, useEffect, useState } from 'react';
+import { BookVisitForm } from '../_components/BookVisitForm';
 
 function fmtDate(value?: string | null) {
   if (!value) return '—';
@@ -30,6 +30,7 @@ export default function ConsultantSelfViewPage() {
   const [entries, setEntries] = useState<VisitorEntry[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [bookedRef, setBookedRef] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
     if (!getConsultantToken()) {
@@ -103,10 +104,34 @@ export default function ConsultantSelfViewPage() {
         </p>
       ) : null}
 
+      {bookedRef ? (
+        <p className="mb-4 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-900">
+          Appointment {bookedRef} submitted. Keep the reference — the gate code
+          comes after host approval.
+        </p>
+      ) : null}
+
       {loading ? (
         <p className="text-sm text-slate-500">Loading…</p>
       ) : (
         <div className="space-y-8">
+          <section>
+            <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">
+              Request appointment
+            </h2>
+            <BookVisitForm
+              mode="self"
+              token={getConsultantToken() ?? undefined}
+              defaultVisitKind="CONSULTANT"
+              defaultName={me?.fullName ?? ''}
+              defaultEmail={me?.email ?? session?.email ?? ''}
+              defaultCompany="Audit Partners TZ"
+              onSuccess={(a) => {
+                setBookedRef(a.referenceNumber);
+                void refresh();
+              }}
+            />
+          </section>
           <section>
             <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">
               Appointments ({me?.appointmentCount ?? 0})
@@ -178,10 +203,8 @@ export default function ConsultantSelfViewPage() {
           </section>
 
           <p className="text-xs text-slate-400">
-            Read-only self-view. Host approve and gate verify stay with staff.{' '}
-            <Link href="/" className="text-indigo-700 hover:underline">
-              Book a new visit
-            </Link>
+            Host approve and gate verify stay with the customer host / gate
+            staff. Gate codes are never shown in this login.
           </p>
         </div>
       )}

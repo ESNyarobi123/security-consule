@@ -12,8 +12,13 @@ import { AuditService } from '@pssms/audit';
 import {
   CreateRoleDto,
   PermissionResponseDto,
+  PortalCatalogResponseDto,
   RoleResponseDto,
 } from '../presentation/dto/role.dto';
+import {
+  DESIGN_ACCOUNT_TYPES,
+  DESIGN_PORTALS,
+} from '../domain/portal-account-catalog';
 
 @Injectable()
 export class RolesService {
@@ -40,6 +45,114 @@ export class RolesService {
       name: p.name,
       module: p.module,
     }));
+  }
+
+  async portalCatalog(organizationId: string): Promise<PortalCatalogResponseDto> {
+    const roles = await this.prisma.role.findMany({
+      where: { organizationId },
+      include: {
+        _count: { select: { users: true } },
+        permissions: { include: { permission: { select: { code: true } } } },
+      },
+    });
+    const byCode = new Map(
+      roles.map((r) => [
+        r.code,
+        {
+          code: r.code,
+          present: true as const,
+          isSystem: r.isSystem,
+          userCount: r._count.users,
+          permissionSet: new Set(
+            r.permissions.map((p) => p.permission.code),
+          ),
+        },
+      ]),
+    );
+
+    const liveFor = (
+      roleCode: string,
+      gatePermissions: readonly string[],
+      publicAccess: boolean,
+    ) => {
+      const live = byCode.get(roleCode);
+      if (!live) {
+        return {
+          code: roleCode,
+          present: false,
+          isSystem: false,
+          userCount: 0,
+          canEnter: false,
+        };
+      }
+      const canEnter =
+        publicAccess && gatePermissions.length === 0
+          ? live.present
+          : gatePermissions.length === 0
+            ? live.present
+            : gatePermissions.some((g) => live.permissionSet.has(g));
+      return {
+        code: live.code,
+        present: true,
+        isSystem: live.isSystem,
+        userCount: live.userCount,
+        canEnter,
+      };
+    };
+
+    const portals = DESIGN_PORTALS.map((p) => {
+      const publicAccess =
+        'publicAccess' in p && p.publicAccess === true;
+      const liveRoles = p.roleCodes.map((code) =>
+        liveFor(code, p.gatePermissions, publicAccess),
+      );
+      return {
+        id: p.id,
+        name: p.name,
+        primaryUsers: p.primaryUsers,
+        job: p.job,
+        entry: p.entry,
+        gatePermissions: [...p.gatePermissions],
+        accountTypeCodes: [...p.accountTypeCodes],
+        roleCodes: [...p.roleCodes],
+        security: p.security,
+        publicAccess,
+        roles: liveRoles,
+        liveUserCount: liveRoles.reduce((n, r) => n + r.userCount, 0),
+      };
+    });
+
+    const accountTypes = DESIGN_ACCOUNT_TYPES.map((a) => {
+      const portalIds = DESIGN_PORTALS.filter((p) =>
+        (p.accountTypeCodes as readonly string[]).includes(a.code),
+      ).map((p) => p.id);
+      const liveUserCount = a.roleCodes.reduce(
+        (n, code) => n + (byCode.get(code)?.userCount ?? 0),
+        0,
+      );
+      return {
+        code: a.code,
+        name: a.name,
+        roleCodes: [...a.roleCodes],
+        portalIds,
+        liveUserCount,
+        publicOrUnbound: a.roleCodes.length === 0,
+      };
+    });
+
+    const mapped = new Set<string>();
+    for (const a of DESIGN_ACCOUNT_TYPES) {
+      for (const c of a.roleCodes) mapped.add(c);
+    }
+    for (const p of DESIGN_PORTALS) {
+      for (const c of p.roleCodes) mapped.add(c);
+    }
+    const unmappedRoleCodes = roles
+      .map((r) => r.code)
+      .filter((c) => !mapped.has(c))
+      .sort();
+
+    return { organizationId, portals, accountTypes, unmappedRoleCodes };
   }
 
   async createRole(

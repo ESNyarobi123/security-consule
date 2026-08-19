@@ -17,7 +17,7 @@ const body = Source_Sans_3({
 export const metadata: Metadata = {
   title: 'HIGHLINK · Visitor Appointment',
   description:
-    'Pre-register your visit. Reference now — gate code after host approval.',
+    'Guests, contractors, consultants, candidates, and suppliers request visits. Gate code after host approval.',
 };
 
 export default function RootLayout({

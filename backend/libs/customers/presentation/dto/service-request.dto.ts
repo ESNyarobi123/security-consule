@@ -53,6 +53,12 @@ export class CreateServiceRequestDto {
   callbackPhone?: string;
 }
 
+export class CreateStaffServiceRequestDto extends CreateServiceRequestDto {
+  @ApiProperty({ format: 'uuid' })
+  @IsUUID()
+  customerId!: string;
+}
+
 export class UpdateServiceRequestStatusDto {
   @ApiProperty({ enum: ServiceRequestStatus })
   @IsEnum(ServiceRequestStatus)
@@ -94,4 +100,6 @@ export class ServiceRequestResponseDto {
   @ApiProperty() updatedAt!: Date;
   @ApiPropertyOptional() customerCode?: string | null;
   @ApiPropertyOptional() customerName?: string | null;
+  @ApiPropertyOptional() incidentId?: string | null;
+  @ApiPropertyOptional() incidentNumber?: string | null;
 }

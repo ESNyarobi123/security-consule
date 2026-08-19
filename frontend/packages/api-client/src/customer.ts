@@ -152,6 +152,7 @@ export type AccessEmployee = {
   accessLevel?: 'STANDARD' | 'RESTRICTED' | 'ELEVATED';
   accessCardRef?: string | null;
   biometricRef?: string | null;
+  identityVerifiedAt?: string | null;
   isActive: boolean;
   createdAt: string;
 };
@@ -347,8 +348,26 @@ export const listCustomerAccessEmployees = (token?: string) =>
   customerFetch<AccessEmployee[]>('/api/v1/access/employees', { token });
 
 /** GET /access/entries (customer-scoped; employee self = own only) */
-export const listCustomerAccessEntries = (token?: string) =>
-  customerFetch<AccessEntry[]>('/api/v1/access/entries', { token });
+export const listCustomerAccessEntries = (
+  opts?: {
+    siteId?: string;
+    employeeId?: string;
+    from?: string;
+    to?: string;
+    token?: string;
+  },
+) => {
+  const qs = new URLSearchParams();
+  if (opts?.siteId) qs.set('siteId', opts.siteId);
+  if (opts?.employeeId) qs.set('employeeId', opts.employeeId);
+  if (opts?.from) qs.set('from', opts.from);
+  if (opts?.to) qs.set('to', opts.to);
+  const q = qs.toString();
+  return customerFetch<AccessEntry[]>(
+    `/api/v1/access/entries${q ? `?${q}` : ''}`,
+    { token: opts?.token },
+  );
+};
 
 /** GET /access/me — Portal 35.9 linked CustomerEmployee */
 export const getMyCustomerAccess = (token?: string) =>
@@ -381,6 +400,40 @@ export const recordMyAccessEntry = (
     method: 'POST',
     body: JSON.stringify(body),
     token,
+  });
+
+export type AccessMethodOption = {
+  id: string;
+  label: string;
+  requiresEnrollment: boolean;
+};
+
+export const listAccessMethodOptions = (token?: string) =>
+  customerFetch<AccessMethodOption[]>('/api/v1/access/method-options', {
+    token,
+  });
+
+export const verifyMyAccessIdentity = (token?: string) =>
+  customerFetch<AccessEmployee>('/api/v1/access/me/verify-identity', {
+    method: 'POST',
+    body: JSON.stringify({}),
+    token,
+  });
+
+export const registerCustomerEmployeeAccess = (body: {
+  customerCode: string;
+  employeeNumber: string;
+  email: string;
+  password: string;
+}) =>
+  customerFetch<{
+    email: string;
+    fullName: string;
+    employeeNumber: string;
+    customerCode: string;
+  }>('/api/v1/access/register', {
+    method: 'POST',
+    body: JSON.stringify(body),
   });
 
 /** GET /parking/vehicles */
@@ -461,6 +514,29 @@ export const getCustomerPortalIncidents = (token?: string) =>
   customerFetch<PortalIncident[]>('/api/v1/customers/me/incidents', {
     token,
   });
+
+export type PortalVisitorEntry = {
+  id: string;
+  siteId: string;
+  siteCode: string | null;
+  siteName: string | null;
+  gateId: string | null;
+  gateCode: string | null;
+  gateName: string | null;
+  visitorName: string;
+  result: string;
+  direction: string;
+  denyReason: string | null;
+  recordedAt: string;
+  appointmentId: string | null;
+  referenceNumber: string | null;
+};
+
+export const getCustomerPortalVisitorEntries = (token?: string) =>
+  customerFetch<PortalVisitorEntry[]>(
+    '/api/v1/customers/me/visitor-entries',
+    { token },
+  );
 
 export const getCustomerPortalAttendanceSummary = (token?: string) =>
   customerFetch<PortalAttendanceSummary[]>(
@@ -748,6 +824,20 @@ export type CustomerPortalReport = {
     latestCycleStatus?: string | null;
     latestPeriodStart?: string | null;
     latestPeriodEnd?: string | null;
+  };
+  slaPerformance?: {
+    activeContracts: number;
+    expiringContracts: number;
+    contractsWithSlaTerms: number;
+    slaLevels: string[];
+    committedGuards: number;
+    deployedGuards: number;
+    incidentsOpened: number;
+    incidentsStillOpen: number;
+    complaintsOpened: number;
+    complaintsStillOpen: number;
+    visitorGateEntries: number;
+    attendanceClockIns: number;
   };
   bySite: {
     siteId: string;

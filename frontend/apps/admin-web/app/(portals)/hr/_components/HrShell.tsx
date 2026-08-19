@@ -9,6 +9,7 @@ import { AzureGlyph } from '@pssms/ui';
 export const HR_TABS = [
   { href: '/hr', label: 'Overview', exact: true },
   { href: '/hr/employees', label: 'Employees' },
+  { href: '/hr/onboarding', label: 'Onboarding' },
   { href: '/hr/leave', label: 'Leave' },
   { href: '/hr/salary', label: 'Salary' },
   { href: '/hr/training', label: 'Training' },
@@ -57,7 +58,7 @@ export function HrShell({
           </span>
           <div className="min-w-0">
             <p className="text-[11px] font-medium uppercase tracking-[0.14em] text-[#605e5c]">
-              HR
+              Portal 35.4 · HR & Employee Management
             </p>
             <h1 className="text-lg font-semibold leading-tight text-[#1b1a19]">
               {title}

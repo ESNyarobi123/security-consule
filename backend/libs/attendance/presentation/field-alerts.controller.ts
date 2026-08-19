@@ -1,6 +1,7 @@
-import { Controller, Get, Param, Post, Query, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Param, Post, Query, UseGuards } from '@nestjs/common';
 import {
   ApiBearerAuth,
+  ApiCreatedResponse,
   ApiOkResponse,
   ApiOperation,
   ApiQuery,
@@ -13,7 +14,10 @@ import {
   RequireAnyPermissions,
 } from '@pssms/shared';
 import { FieldAlertsService } from '../application/field-alerts.service';
-import { FieldAlertResponseDto } from './dto/attendance.dto';
+import {
+  CreateGuardEmergencyDto,
+  FieldAlertResponseDto,
+} from './dto/attendance.dto';
 import { FIELD_ALERT_ESCALATION_STAGES } from '../domain/field-alert.constants';
 
 @ApiTags('Field Alerts')
@@ -64,6 +68,19 @@ export class FieldAlertsController {
       acked,
       stage,
     );
+  }
+
+  @Post()
+  @ApiOperation({
+    summary:
+      'Guard emergency FieldAlert (HIGH → SUPERVISOR). Creator cannot ack this row.',
+  })
+  @ApiCreatedResponse({ type: FieldAlertResponseDto })
+  raiseEmergency(
+    @Body() dto: CreateGuardEmergencyDto,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.service.raiseGuardEmergency(dto, user);
   }
 
   @Post(':id/escalate')

@@ -2,8 +2,10 @@
 
 import {
   applyEssLeave,
+  listEssLeaveBalances,
   listEssLeaveRequests,
   listEssLeaveTypes,
+  type EssLeaveBalance,
   type EssLeaveRequest,
   type EssLeaveType,
 } from '@pssms/api-client';
@@ -24,6 +26,7 @@ import { PanelEmpty, formatDate, isEssProfileMissing } from '../_components/shar
 export default function EssLeavePage() {
   const [types, setTypes] = useState<EssLeaveType[]>([]);
   const [requests, setRequests] = useState<EssLeaveRequest[]>([]);
+  const [balances, setBalances] = useState<EssLeaveBalance[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [missing, setMissing] = useState(false);
@@ -34,17 +37,20 @@ export default function EssLeavePage() {
     setError(null);
     setMissing(false);
     try {
-      const [leaveTypes, reqs] = await Promise.all([
+      const [leaveTypes, reqs, bal] = await Promise.all([
         listEssLeaveTypes(),
         listEssLeaveRequests(),
+        listEssLeaveBalances(),
       ]);
       setTypes(leaveTypes);
       setRequests(reqs);
+      setBalances(bal);
     } catch (err) {
       if (isEssProfileMissing(err)) {
         setMissing(true);
         setTypes([]);
         setRequests([]);
+        setBalances([]);
       } else {
         setError(err instanceof Error ? err.message : String(err));
       }
@@ -66,7 +72,7 @@ export default function EssLeavePage() {
   return (
     <EssShell
       title="Leave"
-      description="Apply for leave and track your requests. Approvals are handled by others."
+      description="Apply for leave and see your annual balance. Someone else must approve (creator ≠ approver)."
       actions={
         <>
           <button
@@ -108,7 +114,8 @@ export default function EssLeavePage() {
         <>
           <section className="mb-6">
             <h2 className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-[#605e5c]">
-              Leave types ({types.length})
+              Leave balance {balances[0] ? `(${balances[0].year})` : ''} ·{' '}
+              {types.length} types
             </h2>
             {types.length === 0 && !loading ? (
               <PanelEmpty
@@ -118,7 +125,9 @@ export default function EssLeavePage() {
               />
             ) : (
               <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
-                {types.map((t) => (
+                {types.map((t) => {
+                  const bal = balances.find((b) => b.leaveTypeId === t.id);
+                  return (
                   <div
                     key={t.id}
                     className="rounded-lg border border-[#e1dfdd] bg-white px-3 py-2.5 shadow-sm"
@@ -127,10 +136,20 @@ export default function EssLeavePage() {
                       {t.name}
                     </p>
                     <p className="font-mono text-[11px] text-[#605e5c]">
-                      {t.code} · {t.annualQuotaDays} days / year
+                      {t.code} · quota {t.annualQuotaDays} days
                     </p>
+                    {bal ? (
+                      <p className="mt-1 text-xs text-[#323130]">
+                        Remaining {bal.remainingDays} · used {bal.usedDays}
+                        {bal.pendingDays
+                          ? ` · pending ${bal.pendingDays}`
+                          : ''}{' '}
+                        ({bal.year})
+                      </p>
+                    ) : null}
                   </div>
-                ))}
+                  );
+                })}
               </div>
             )}
           </section>

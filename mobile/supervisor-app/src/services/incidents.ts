@@ -16,6 +16,8 @@ export type Incident = {
   title: string;
   description?: string;
   createdAt?: string;
+  allowedNextStatuses?: IncidentStatus[];
+  blockedReason?: string | null;
 };
 
 export async function listIncidents(siteId: string): Promise<Incident[]> {

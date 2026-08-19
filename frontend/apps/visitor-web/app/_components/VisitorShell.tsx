@@ -58,7 +58,7 @@ export function VisitorShell({
             <p className="font-display text-base font-bold tracking-tight text-slate-900">
               HIGHLINK
             </p>
-            <p className="text-[11px] font-medium text-slate-500">Visitor portal</p>
+          <p className="text-[11px] font-medium text-slate-500">Visitor appointment</p>
           </div>
         </div>
       </div>
@@ -99,7 +99,9 @@ export function VisitorShell({
 
       <div className="mt-auto border-t border-slate-200 pt-4">
         <p className="px-2 text-[11px] leading-relaxed text-slate-400">
-          Gate code is issued only after your host approves. It is never shown on this public form.
+          Gate code is issued only after your host approves. Guests, contractors,
+          consultants, candidates, and suppliers use this form — it is never
+          shown here.
         </p>
       </div>
     </>
@@ -139,7 +141,7 @@ export function VisitorShell({
           </button>
           <div>
             <p className="text-sm font-bold text-slate-900">HIGHLINK</p>
-            <p className="text-[11px] text-slate-500">Visitor portal</p>
+            <p className="text-[11px] text-slate-500">Visitor appointment</p>
           </div>
         </header>
 

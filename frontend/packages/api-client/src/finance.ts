@@ -167,3 +167,90 @@ export const reimbursePettyCashVoucher = (
       token,
     },
   );
+
+export type PaymentVoucher = {
+  id: string;
+  organizationId: string;
+  voucherNumber: string;
+  payeeName: string;
+  supplierId?: string | null;
+  purchaseOrderId?: string | null;
+  amount: number;
+  currency: string;
+  purpose: string;
+  status: string;
+  approvalInstanceId?: string | null;
+  approvedBy?: string | null;
+  paidAt?: string | null;
+  paymentReference?: string | null;
+  createdBy: string;
+  createdAt: string;
+};
+
+export const listPaymentVouchers = (token?: string) =>
+  coreFetch<PaymentVoucher[]>('/api/v1/finance/payment-vouchers', { token });
+
+export const createPaymentVoucher = (
+  body: {
+    payeeName: string;
+    amount: number;
+    purpose: string;
+    supplierId?: string;
+    purchaseOrderId?: string;
+    currency?: string;
+  },
+  token?: string,
+) =>
+  coreFetch<PaymentVoucher>('/api/v1/finance/payment-vouchers', {
+    method: 'POST',
+    body: JSON.stringify(body),
+    token,
+  });
+
+export const approvePaymentVoucher = (id: string, token?: string) =>
+  coreFetch<PaymentVoucher>(`/api/v1/finance/payment-vouchers/${id}/approve`, {
+    method: 'POST',
+    body: '{}',
+    token,
+  });
+
+export const payPaymentVoucher = (
+  id: string,
+  paymentReference: string,
+  token?: string,
+) =>
+  coreFetch<PaymentVoucher>(`/api/v1/finance/payment-vouchers/${id}/pay`, {
+    method: 'POST',
+    body: JSON.stringify({ paymentReference }),
+    token,
+  });
+
+export type FinanceMoneyCount = { count: number; amount: number };
+
+export type FinanceReport = {
+  from: string;
+  to: string;
+  invoicesIssued: FinanceMoneyCount;
+  customerReceipts: FinanceMoneyCount;
+  outstanding: FinanceMoneyCount;
+  parkingBilled: FinanceMoneyCount;
+  parkingReceipts: FinanceMoneyCount;
+  pettyCashIssued: FinanceMoneyCount;
+  pettyCashRetired: FinanceMoneyCount;
+  supplierPayments: FinanceMoneyCount;
+  paymentVouchersPaid: FinanceMoneyCount;
+  bankReconciliationImplemented: boolean;
+  notes: string[];
+};
+
+export const getFinanceReports = (
+  opts?: { from?: string; to?: string; token?: string },
+) => {
+  const params = new URLSearchParams();
+  if (opts?.from) params.set('from', opts.from);
+  if (opts?.to) params.set('to', opts.to);
+  const q = params.toString() ? `?${params}` : '';
+  return coreFetch<FinanceReport>(`/api/v1/finance/reports${q}`, {
+    token: opts?.token,
+  });
+};

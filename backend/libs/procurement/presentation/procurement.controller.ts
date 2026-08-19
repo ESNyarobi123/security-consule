@@ -34,8 +34,10 @@ import {
   CreatePurchaseRequestDto,
   CreatePurchaseRequestQuoteDto,
   CreateSupplierDto,
+  CreateSupplierMessageDto,
   CreateSupplierSubmissionDto,
   GoodsReceiptResponseDto,
+  ProcurementReportResponseDto,
   PurchaseOrderResponseDto,
   RegisterSupplierDto,
   RegisterSupplierResponseDto,
@@ -43,6 +45,7 @@ import {
   RejectSupplierDto,
   RejectSupplierSubmissionDto,
   SupplierResponseDto,
+  SupplierMessageResponseDto,
   SupplierSubmissionResponseDto,
   ThreeWayMatchResultDto,
   UpdateSupplierProfileDto,
@@ -130,6 +133,33 @@ export class SuppliersController {
   @ApiBearerAuth()
   @UseGuards(PermissionsGuard)
   @RequirePermissions('procurement.manage')
+  @Get('me/messages')
+  @ApiOperation({
+    summary: 'Supplier portal — own thread with HIGHLINK procurement',
+  })
+  @ApiOkResponse({ type: [SupplierMessageResponseDto] })
+  myMessages(@CurrentUser() user: AuthUser) {
+    return this.service.listMyMessages(user);
+  }
+
+  @ApiBearerAuth()
+  @UseGuards(PermissionsGuard)
+  @RequirePermissions('procurement.manage')
+  @Post('me/messages')
+  @ApiOperation({
+    summary: 'Supplier portal — post a message to procurement (own supplier)',
+  })
+  @ApiCreatedResponse({ type: SupplierMessageResponseDto })
+  createMyMessage(
+    @Body() dto: CreateSupplierMessageDto,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.service.createMyMessage(dto, user);
+  }
+
+  @ApiBearerAuth()
+  @UseGuards(PermissionsGuard)
+  @RequirePermissions('procurement.manage')
   @Get()
   @ApiOperation({ summary: 'List suppliers (portal users are force-scoped)' })
   @ApiOkResponse({ type: [SupplierResponseDto] })
@@ -183,6 +213,34 @@ export class SuppliersController {
   @ApiOperation({ summary: 'Suspend an approved supplier' })
   suspend(@Param('id') id: string, @CurrentUser() user: AuthUser) {
     return this.service.suspend(id, user);
+  }
+
+  @ApiBearerAuth()
+  @UseGuards(PermissionsGuard)
+  @RequirePermissions('procurement.manage')
+  @Get(':id/messages')
+  @ApiOperation({
+    summary: 'Staff — list messages for one supplier',
+  })
+  @ApiOkResponse({ type: [SupplierMessageResponseDto] })
+  staffMessages(@Param('id') id: string, @CurrentUser() user: AuthUser) {
+    return this.service.listStaffMessages(id, user);
+  }
+
+  @ApiBearerAuth()
+  @UseGuards(PermissionsGuard)
+  @RequirePermissions('procurement.manage')
+  @Post(':id/messages')
+  @ApiOperation({
+    summary: 'Staff — reply to a supplier (procurement officer)',
+  })
+  @ApiCreatedResponse({ type: SupplierMessageResponseDto })
+  staffCreateMessage(
+    @Param('id') id: string,
+    @Body() dto: CreateSupplierMessageDto,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.service.createStaffMessage(id, dto, user);
   }
 }
 
@@ -259,7 +317,9 @@ export class PurchaseOrdersController {
     @Query('supplierId') supplierId?: string,
   ) {
     const scoped = resolveSupplierScope(user, supplierId);
-    return this.service.list(user.organizationId, scoped);
+    return this.service.list(user.organizationId, scoped, {
+      issuedToSupplier: Boolean(user.supplierId),
+    });
   }
 
   @Post(':id/submit')
@@ -367,6 +427,25 @@ export class PurchaseRequestsController {
   @ApiOperation({ summary: 'Raise a DRAFT purchase order from the awarded quote' })
   convert(@Param('id') id: string, @CurrentUser() user: AuthUser) {
     return this.service.convertToPo(id, user);
+  }
+}
+
+@ApiTags('Procurement — Reports')
+@ApiBearerAuth()
+@UseGuards(PermissionsGuard)
+@RequirePermissions('procurement.manage')
+@Controller('procurement/reports')
+export class ProcurementReportsController {
+  constructor(private readonly service: PurchaseRequestsService) {}
+
+  @Get()
+  @ApiOperation({
+    summary:
+      'Live buying pack — suppliers, PRs, POs, GRNs, unpaid vendor submissions (no fake KPIs)',
+  })
+  @ApiOkResponse({ type: ProcurementReportResponseDto })
+  reports(@CurrentUser() user: AuthUser) {
+    return this.service.getReports(user);
   }
 }
 

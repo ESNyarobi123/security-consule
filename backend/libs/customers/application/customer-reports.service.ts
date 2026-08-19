@@ -16,6 +16,7 @@ import {
   PayrollTenantType,
   PermitStatus,
   Prisma,
+  ContractStatus,
 } from '@prisma/client';
 import { AuthUser, PrismaService, requireCustomerScope } from '@pssms/shared';
 import { CustomerReportResponseDto } from '../presentation/dto/customer-report.dto';
@@ -515,6 +516,31 @@ export class CustomerReportsService {
       0,
     );
 
+    const liveContracts = await this.prisma.contract.findMany({
+      where: {
+        organizationId,
+        customerId,
+        status: { in: [ContractStatus.ACTIVE, ContractStatus.EXPIRING] },
+      },
+      select: {
+        status: true,
+        slaTerms: true,
+        slaLevel: true,
+        guardCount: true,
+      },
+    });
+    const committedGuards = liveContracts.reduce(
+      (n, c) => n + (c.guardCount ?? 0),
+      0,
+    );
+    const slaLevels = [
+      ...new Set(
+        liveContracts
+          .map((c) => c.slaLevel)
+          .filter((v): v is string => Boolean(v && v.trim())),
+      ),
+    ];
+
     const bySite = sites.map((s) => ({
       siteId: s.id,
       siteCode: s.code,
@@ -581,6 +607,26 @@ export class CustomerReportsService {
         latestPeriodStart: latestPayrollCycle?.periodStart.toISOString() ?? null,
         latestPeriodEnd: latestPayrollCycle?.periodEnd.toISOString() ?? null,
       },
+      slaPerformance: {
+        activeContracts: liveContracts.filter(
+          (c) => c.status === ContractStatus.ACTIVE,
+        ).length,
+        expiringContracts: liveContracts.filter(
+          (c) => c.status === ContractStatus.EXPIRING,
+        ).length,
+        contractsWithSlaTerms: liveContracts.filter(
+          (c) => (c.slaTerms ?? '').trim().length > 0,
+        ).length,
+        slaLevels,
+        committedGuards,
+        deployedGuards: activeGuards,
+        incidentsOpened,
+        incidentsStillOpen,
+        complaintsOpened,
+        complaintsStillOpen,
+        visitorGateEntries,
+        attendanceClockIns,
+      },
       bySite,
       generatedAt: new Date().toISOString(),
       notes: [
@@ -590,7 +636,8 @@ export class CustomerReportsService {
         'customerEmployeeAttendance is derived from access-control entry logs for customer employees.',
         'parkingReport is scoped to this customer vehicles / permits where the current parking model allows.',
         'payrollReport reflects CUSTOMER_MANAGED_PAYROLL cycles linked to this customer only.',
-        'Charts, PDF export suite, and SLA analytics beyond contract terms are deferred.',
+        'slaPerformance compares live ops (deployed guards, open incidents/complaints) to ACTIVE/EXPIRING contract commitments — not percentile response-time SLA.',
+        'Charts, PDF export suite, and percentile SLA timers remain deferred.',
       ],
     };
   }

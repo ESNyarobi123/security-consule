@@ -12,15 +12,52 @@ type ApiEnvelope<T> = {
 };
 
 async function parseEnvelope<T>(res: Response): Promise<T> {
-  if (!res.ok) throw new Error(await res.text());
+  if (!res.ok) {
+    const text = await res.text();
+    try {
+      const json = JSON.parse(text) as {
+        error?: { code?: string; message?: string };
+        message?: string | string[];
+      };
+      const msg = Array.isArray(json.message)
+        ? json.message.join(', ')
+        : json.error?.message ?? json.message ?? text;
+      throw new Error(msg);
+    } catch (e) {
+      if (e instanceof Error && e.message !== text) throw e;
+      throw new Error(text || `Request failed ${res.status}`);
+    }
+  }
   const json = (await res.json()) as ApiEnvelope<T>;
   return json.data;
 }
+
+export type VisitorPublicHost = {
+  id: string;
+  fullName: string;
+  kind: 'PORTAL' | 'EMPLOYEE' | string;
+};
+
+export type VisitorPublicSite = {
+  id: string;
+  code: string;
+  name: string;
+};
+
+export type VisitorVisitKindOption = {
+  value: string;
+  label: string;
+};
 
 export type VisitorPublicConfig = {
   organizationId: string;
   customerId: string;
   siteId: string;
+  customerCode?: string;
+  siteCode?: string;
+  sites?: VisitorPublicSite[];
+  hosts?: VisitorPublicHost[];
+  visitKinds?: VisitorVisitKindOption[];
 };
 
 export type CreatePublicAppointmentInput = {
@@ -28,9 +65,14 @@ export type CreatePublicAppointmentInput = {
   customerId: string;
   siteId: string;
   visitorName: string;
+  visitorEmail?: string;
   visitorPhone?: string;
+  companyName?: string;
   purpose: string;
+  visitKind?: string;
+  hostUserId?: string;
   hostName?: string;
+  vehiclePlate?: string;
   /** Module 12-D — both or neither */
   idType?: 'NIDA' | 'PASSPORT' | 'DRIVERS_LICENSE' | 'OTHER';
   idNumber?: string;
@@ -81,6 +123,22 @@ export async function createPublicVisitorAppointment(
   const res = await fetch(`${coreUrl()}/api/v1/visitors/appointments`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  return parseEnvelope<VisitorAppointment>(res);
+}
+
+/** Authenticated E4/E5/E6 POST /visitors/me/appointments — binds userId; no gate code. */
+export async function createOwnVisitorAppointment(
+  body: CreatePublicAppointmentInput,
+  token: string,
+) {
+  const res = await fetch(`${coreUrl()}/api/v1/visitors/me/appointments`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${token}`,
+    },
     body: JSON.stringify(body),
   });
   return parseEnvelope<VisitorAppointment>(res);

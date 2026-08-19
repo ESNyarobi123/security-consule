@@ -12,6 +12,7 @@ import {
   Bell,
   Briefcase,
   Building2,
+  Car,
   CheckCircle2,
   ChevronRight,
   CreditCard,
@@ -109,17 +110,160 @@ export const CATEGORY_META: Record<string, CategoryTone> = {
   },
 };
 
-/** Codes shown as large spotlight tiles (order = §35.2 priority). */
-export const SPOTLIGHT_CODES = [
-  'BRANCHES_ACTIVE',
-  'CUSTOMERS_ACTIVE',
-  'CONTRACTS_ACTIVE',
-  'REVENUE_COLLECTED',
-  'DEPLOYMENTS_ACTIVE',
-  'INVOICE_OUTSTANDING',
-  'OPEN_INCIDENTS',
-  'COMPLIANCE_BREACHES_OPEN',
-] as const;
+/** Design §35.2 board topics — company-wide briefing for CMD / CEO / GM / Dept Heads. */
+export type BoardBriefingTopic = {
+  id: string;
+  label: string;
+  design: string;
+  code: string;
+  category: string;
+  href: string;
+  hrefLabel: string;
+  /** Period bar applies only to `period` tiles; others are current as-of. */
+  window: 'period' | 'asOf';
+  honestNote?: string;
+};
+
+export const BOARD_BRIEFING_TOPICS: BoardBriefingTopic[] = [
+  {
+    id: 'performance',
+    label: 'Company-wide performance',
+    design: 'guards on duty vs active headcount',
+    code: 'GUARD_ON_DUTY',
+    category: 'OPS',
+    href: adminWebUrl('/branch'),
+    hrefLabel: 'Branch Ops',
+    window: 'asOf',
+  },
+  {
+    id: 'revenue',
+    label: 'Revenue',
+    design: 'invoice payments collected in period',
+    code: 'REVENUE_COLLECTED',
+    category: 'FINANCE',
+    href: adminWebUrl('/finance'),
+    hrefLabel: 'Finance',
+    window: 'period',
+  },
+  {
+    id: 'contracts',
+    label: 'Contracts',
+    design: 'active service contracts',
+    code: 'CONTRACTS_ACTIVE',
+    category: 'COMMERCIAL',
+    href: adminWebUrl('/superadmin/contracts'),
+    hrefLabel: 'Contracts',
+    window: 'asOf',
+  },
+  {
+    id: 'branches',
+    label: 'Branches',
+    design: 'nationwide branch footprint',
+    code: 'BRANCHES_ACTIVE',
+    category: 'ENTERPRISE',
+    href: adminWebUrl('/branch'),
+    hrefLabel: 'Branch Ops',
+    window: 'asOf',
+  },
+  {
+    id: 'customers',
+    label: 'Customers',
+    design: 'active customer accounts',
+    code: 'CUSTOMERS_ACTIVE',
+    category: 'COMMERCIAL',
+    href: adminWebUrl('/superadmin/customers'),
+    hrefLabel: 'Customers',
+    window: 'asOf',
+  },
+  {
+    id: 'deployment',
+    label: 'Guard deployment',
+    design: 'active posts on billable contracts',
+    code: 'DEPLOYMENTS_ACTIVE',
+    category: 'OPS',
+    href: adminWebUrl('/branch/deployments'),
+    hrefLabel: 'Deployments',
+    window: 'asOf',
+  },
+  {
+    id: 'payroll',
+    label: 'Payroll status',
+    design: 'net from immutable payslip snapshots',
+    code: 'PAYROLL_NET_TOTAL',
+    category: 'PAYROLL',
+    href: adminWebUrl('/payroll'),
+    hrefLabel: 'Payroll',
+    window: 'period',
+  },
+  {
+    id: 'unpaid',
+    label: 'Unpaid invoices',
+    design: 'outstanding / partial balances',
+    code: 'INVOICE_OUTSTANDING',
+    category: 'FINANCE',
+    href: adminWebUrl('/finance'),
+    hrefLabel: 'Invoices',
+    window: 'asOf',
+  },
+  {
+    id: 'incidents',
+    label: 'Incidents',
+    design: 'open and investigating cases',
+    code: 'OPEN_INCIDENTS',
+    category: 'SAFETY',
+    href: adminWebUrl('/branch/incidents'),
+    hrefLabel: 'Incidents',
+    window: 'asOf',
+  },
+  {
+    id: 'risks',
+    label: 'Risks',
+    design: 'CRITICAL incidents still open',
+    code: 'CRITICAL_INCIDENTS_OPEN',
+    category: 'SAFETY',
+    href: adminWebUrl('/branch/incidents'),
+    hrefLabel: 'Critical',
+    window: 'asOf',
+    honestNote: 'No dedicated risk register yet — CRITICAL incidents are the live proxy.',
+  },
+  {
+    id: 'recruitment',
+    label: 'Recruitment',
+    design: 'open applications in pipeline',
+    code: 'RECRUITMENT_PIPELINE',
+    category: 'HR',
+    href: adminWebUrl('/hr/applications'),
+    hrefLabel: 'Applications',
+    window: 'asOf',
+  },
+  {
+    id: 'parking',
+    label: 'Parking performance',
+    design: 'active bay occupancy rate',
+    code: 'PARKING_OCCUPANCY_RATE',
+    category: 'ACCESS',
+    href: parkingWebUrl('/reports'),
+    hrefLabel: 'Parking reports',
+    window: 'asOf',
+  },
+  {
+    id: 'compliance',
+    label: 'Compliance reports',
+    design: 'open DPO breach cases',
+    code: 'COMPLIANCE_BREACHES_OPEN',
+    category: 'COMPLIANCE',
+    href: adminWebUrl('/compliance'),
+    hrefLabel: 'Compliance',
+    window: 'asOf',
+  },
+];
+
+export const BOARD_BRIEFING_CODES = new Set(
+  BOARD_BRIEFING_TOPICS.map((t) => t.code),
+);
+
+/** Legacy spotlight order — same codes as the §35.2 board minus performance extras. */
+export const SPOTLIGHT_CODES = BOARD_BRIEFING_TOPICS.map((t) => t.code);
 
 export function formatKpiValue(kpi: KpiItem): string {
   if (kpi.unit === 'TZS') {
@@ -146,6 +290,8 @@ export function roleViewLabel(roles: string[]): string {
   if (roles.includes('CMD')) return 'CMD executive view';
   if (roles.includes('CEO')) return 'CEO executive view';
   if (roles.includes('GENERAL_MANAGER')) return 'GM executive view';
+  if (roles.includes('DEPARTMENT_HEAD')) return 'Department Head executive view';
+  if (roles.includes('LEGAL')) return 'Legal executive view';
   if (roles.length) return `${roles[0]} view`;
   return 'Executive view';
 }
@@ -197,7 +343,7 @@ export function ExecChrome({
               <p className="truncate text-base text-slate-500">
                 {userName
                   ? `${roleLabel ?? 'Executive'} · ${userName}`
-                  : 'Company-wide KPIs'}
+                  : 'CMD · CEO · GM · Department Heads · senior management'}
                 <span className="mx-1.5 text-slate-300">·</span>
                 <span className="text-slate-400">{health}</span>
               </p>
@@ -313,6 +459,14 @@ const KPI_CARD_TONE: Record<
     iconWrap: 'bg-teal-100 text-teal-700',
     Icon: MapPin,
   },
+  PAYROLL_NET_TOTAL: {
+    iconWrap: 'bg-slate-100 text-slate-700',
+    Icon: CreditCard,
+  },
+  PARKING_OCCUPANCY_RATE: {
+    iconWrap: 'bg-teal-100 text-teal-800',
+    Icon: Car,
+  },
 };
 
 /** Preline-style light KPI / stats card. */
@@ -361,6 +515,143 @@ export function SpotlightTile({
         Open analysis →
       </p>
     </button>
+  );
+}
+
+function boardCaption(topic: BoardBriefingTopic, kpis: KpiItem[]): string | null {
+  if (topic.id === 'performance') {
+    const onDuty = findKpi(kpis, 'GUARD_ON_DUTY')?.value ?? 0;
+    const headcount = findKpi(kpis, 'GUARD_HEADCOUNT_ACTIVE')?.value ?? 0;
+    const approval = findKpi(kpis, 'ATTENDANCE_APPROVAL_RATE')?.value;
+    const parts: string[] = [];
+    if (headcount > 0) {
+      parts.push(
+        `${Math.round((onDuty / headcount) * 100)}% duty coverage (${onDuty}/${headcount})`,
+      );
+    }
+    if (typeof approval === 'number') {
+      parts.push(`attendance approval ${approval}%`);
+    }
+    return parts.length ? parts.join(' · ') : null;
+  }
+  if (topic.id === 'payroll') {
+    const cycles = findKpi(kpis, 'PAYROLL_CYCLES_PAID');
+    return cycles ? `${formatKpiValue(cycles)} paid cycles in period` : null;
+  }
+  if (topic.id === 'compliance') {
+    const policies = findKpi(kpis, 'COMPLIANCE_POLICIES_PUBLISHED');
+    return policies
+      ? `${formatKpiValue(policies)} published policies`
+      : null;
+  }
+  return null;
+}
+
+/** §35.2 company-wide briefing — the 13 design topics with live KPIs. */
+export function CompanyPerformanceBoard({
+  kpis,
+  onOpenCategory,
+}: {
+  kpis: KpiItem[];
+  onOpenCategory: (category: string) => void;
+}) {
+  return (
+    <section id="exec-briefing" className="space-y-3">
+      <div>
+        <h2 className="text-lg font-semibold text-slate-900">
+          Company-wide performance
+        </h2>
+        <p className="text-base text-slate-500">
+          Portal 35.2 briefing for CMD, CEO, GM, Department Heads, and senior
+          management — live reporting-service KPIs, not estimates. Analyze
+          stays on this dashboard; owning-portal links need that portal&apos;s
+          session and permission (CEO/CMD often have Analyze only).
+        </p>
+      </div>
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5">
+        {BOARD_BRIEFING_TOPICS.map((topic) => {
+          const kpi = findKpi(kpis, topic.code);
+          const tone = kpi
+            ? (KPI_CARD_TONE[kpi.code] ?? {
+                iconWrap: 'bg-slate-100 text-slate-700',
+                Icon: LayoutDashboard,
+              })
+            : { iconWrap: 'bg-slate-100 text-slate-700', Icon: LayoutDashboard };
+          const Icon = tone.Icon;
+          const caption = boardCaption(topic, kpis);
+          return (
+            <article
+              key={topic.id}
+              className="flex flex-col rounded-xl border border-slate-200 bg-white p-4 shadow-sm"
+            >
+              <div className="flex items-start justify-between gap-2">
+                <span
+                  className={`flex h-10 w-10 items-center justify-center rounded-lg ${tone.iconWrap}`}
+                >
+                  <Icon className="h-5 w-5" />
+                </span>
+                <div className="flex flex-wrap justify-end gap-1">
+                  <span
+                    className={`rounded-full px-2 py-0.5 text-xs font-semibold uppercase tracking-wide ${
+                      topic.window === 'period'
+                        ? 'bg-amber-50 text-amber-800 ring-1 ring-amber-100'
+                        : 'bg-slate-50 text-slate-600 ring-1 ring-slate-200'
+                    }`}
+                  >
+                    {topic.window === 'period' ? 'In period' : 'As of now'}
+                  </span>
+                  {kpi ? (
+                    <span
+                      className={`rounded-full px-2 py-0.5 text-xs font-semibold uppercase tracking-wide ${
+                        kpi.source === 'snapshot'
+                          ? 'bg-emerald-50 text-emerald-700 ring-1 ring-emerald-100'
+                          : 'bg-sky-50 text-sky-700 ring-1 ring-sky-100'
+                      }`}
+                    >
+                      {kpi.source}
+                    </span>
+                  ) : null}
+                </div>
+              </div>
+              <p className="mt-3 text-sm font-semibold text-slate-900">
+                {topic.label}
+              </p>
+              <p className="text-sm text-slate-400">{topic.design}</p>
+              <p className="mt-2 text-3xl font-semibold tabular-nums tracking-tight text-slate-900">
+                {kpi ? formatKpiValue(kpi) : '—'}
+              </p>
+              {caption ? (
+                <p className="mt-1 text-sm text-slate-500">{caption}</p>
+              ) : null}
+              {topic.honestNote ? (
+                <p className="mt-1 text-xs leading-relaxed text-amber-800">
+                  {topic.honestNote}
+                </p>
+              ) : null}
+              <div className="mt-auto flex flex-wrap gap-1.5 pt-3">
+                <button
+                  type="button"
+                  onClick={() => onOpenCategory(topic.category)}
+                  className="rounded-lg bg-sky-50 px-2.5 py-1 text-sm font-semibold text-sky-800 ring-1 ring-sky-100 transition hover:bg-sky-100"
+                >
+                  Analyze
+                </button>
+                <a
+                  href={topic.href}
+                  target="_blank"
+                  rel="noreferrer"
+                  title="Opens the owning portal. Requires that portal's login and permission — Analyze on this dashboard is the in-place drill-down."
+                  className="inline-flex items-center gap-1 rounded-lg border border-slate-200 bg-white px-2.5 py-1 text-sm font-medium text-slate-600 transition hover:bg-slate-50"
+                >
+                  {topic.hrefLabel}
+                  <ExternalLink className="h-3 w-3" />
+                </a>
+              </div>
+            </article>
+          );
+        })}
+      </div>
+    </section>
   );
 }
 
@@ -449,6 +740,18 @@ const METRIC_META: Record<
   CRITICAL_INCIDENTS_OPEN: {
     hint: '§35.2 risk proxy — CRITICAL incidents still OPEN/INVESTIGATING.',
     Icon: AlertTriangle,
+    adminHref: adminWebUrl('/branch/incidents'),
+    adminLabel: 'Incidents',
+  },
+  OPEN_INCIDENTS: {
+    hint: 'Incidents in OPEN or INVESTIGATING status.',
+    Icon: AlertTriangle,
+    adminHref: adminWebUrl('/branch/incidents'),
+    adminLabel: 'Incidents',
+  },
+  INCIDENTS_RESOLVED: {
+    hint: 'Incidents moved to RESOLVED or CLOSED in the period.',
+    Icon: CheckCircle2,
     adminHref: adminWebUrl('/branch/incidents'),
     adminLabel: 'Incidents',
   },
@@ -561,7 +864,13 @@ const METRIC_META: Record<
     adminLabel: 'Payment vouchers',
   },
   PAYROLL_NET_TOTAL: {
-    hint: 'Net payroll from immutable payslip snapshots.',
+    hint: 'Net payroll from immutable payslip snapshots (company cycles only).',
+    Icon: CreditCard,
+    adminHref: adminWebUrl('/payroll'),
+    adminLabel: 'Payroll',
+  },
+  PAYROLL_GROSS_TOTAL: {
+    hint: 'Gross payroll from immutable payslip snapshots (company cycles only).',
     Icon: CreditCard,
     adminHref: adminWebUrl('/payroll'),
     adminLabel: 'Payroll',
@@ -589,6 +898,12 @@ const METRIC_META: Record<
     Icon: Wallet,
     adminHref: adminWebUrl('/loans'),
     adminLabel: 'Employee loans',
+  },
+  EMPLOYEES_ACTIVE: {
+    hint: 'Company employees with ACTIVE status (HR register).',
+    Icon: Users,
+    adminHref: adminWebUrl('/hr/employees'),
+    adminLabel: 'Employees',
   },
   B2B_RECRUITMENT_REQUESTS_OPEN: {
     hint: 'Other security company guard requests awaiting completion.',
@@ -662,6 +977,11 @@ const CATEGORY_ACTIONS: Record<
       label: 'Parking portal',
       href: parkingWebUrl(),
       hint: 'Entries · violations',
+    },
+    {
+      label: 'Parking reports',
+      href: parkingWebUrl('/reports'),
+      hint: 'Occupancy · revenue',
     },
   ],
   COMMERCIAL: [
@@ -1558,18 +1878,21 @@ export function DomainCoveragePanel({
     },
   ];
 
+  const shown = rows.filter((row) => !BOARD_BRIEFING_CODES.has(row.code));
+
   return (
     <section id="exec-coverage" className="space-y-3">
       <div>
         <h2 className="text-lg font-semibold text-slate-900">
-          Design §35.2 coverage
+          Further live reports
         </h2>
         <p className="text-base text-slate-500">
-          Live KPIs from reporting-service · open portal for detail
+          Additional operational KPIs beyond the §35.2 board · Analyze or open
+          the owning portal
         </p>
       </div>
       <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-6">
-        {rows.map((row) => {
+        {shown.map((row) => {
           const kpi = findKpi(kpis, row.code);
           return (
             <div

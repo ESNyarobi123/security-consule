@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { AuditModule } from '@pssms/audit';
 import { FinanceModule } from '@pssms/finance';
+import { NotificationsModule } from '@pssms/notifications';
 import { WorkforceModule } from '@pssms/workforce';
 import { RecruitmentService } from './application/recruitment.service';
 import { RecruitmentB2bService } from './application/recruitment-b2b.service';
@@ -8,7 +9,7 @@ import { RecruitmentController } from './presentation/recruitment.controller';
 import { RecruitmentB2bController } from './presentation/recruitment-b2b.controller';
 
 @Module({
-  imports: [AuditModule, FinanceModule, WorkforceModule],
+  imports: [AuditModule, FinanceModule, WorkforceModule, NotificationsModule],
   controllers: [RecruitmentController, RecruitmentB2bController],
   providers: [RecruitmentService, RecruitmentB2bService],
   exports: [RecruitmentService, RecruitmentB2bService],

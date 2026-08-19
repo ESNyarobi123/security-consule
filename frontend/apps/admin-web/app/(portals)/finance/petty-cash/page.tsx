@@ -17,7 +17,6 @@ import {
 import { getSessionUser } from '@pssms/auth';
 import {
   Modal,
-  PageHeader,
   StatCard,
   btnPrimary,
   btnSecondary,
@@ -224,16 +223,18 @@ export default function FinancePettyCashPage() {
 
   return (
     <>
-      <PageHeader
-        title="Petty cash"
-        description="Request → approve → issue cash (debits imprest) → retire with receipt. No petty cash is issued without approval. Creator cannot approve, issue, or retire their own voucher."
-        actions={
-          <div className="flex flex-wrap gap-2">
+      <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h2 className="text-lg font-semibold text-[#1b1a19]">Petty cash</h2>
+          <p className="mt-0.5 max-w-2xl text-xs text-[#605e5c]">
+            Request → approve → issue cash (debits imprest) → retire with receipt.
+            No petty cash is issued without approval. Creator cannot approve, issue,
+            or retire their own voucher.
+          </p>
+        </div>
+        <div className="flex flex-wrap gap-2">
             <Link href="/ess/petty-cash" className={btnSecondary}>
               ESS apply
-            </Link>
-            <Link href="/finance" className={btnSecondary}>
-              Invoices
             </Link>
             <button
               type="button"
@@ -246,9 +247,8 @@ export default function FinancePettyCashPage() {
               />
               Refresh
             </button>
-          </div>
-        }
-      />
+        </div>
+      </div>
 
       <div className="mb-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
         <StatCard

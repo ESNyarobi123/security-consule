@@ -71,6 +71,8 @@ export class DocumentsController {
             'Supplier',
             'SupplierSubmission',
             'Incident',
+            'Employee',
+            'JobApplication',
           ],
         },
         resourceId: { type: 'string', format: 'uuid' },

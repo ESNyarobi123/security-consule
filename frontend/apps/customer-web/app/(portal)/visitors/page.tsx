@@ -3,10 +3,12 @@
 import {
   approveCustomerVisitor,
   getCustomerAttachedDocumentUrl,
+  getCustomerPortalVisitorEntries,
   listCustomerVisitorAppointmentDocuments,
   listCustomerVisitors,
   rejectCustomerVisitor,
   type GateCodeDelivery,
+  type PortalVisitorEntry,
   type VisitorAppointment,
 } from '@pssms/api-client';
 import { Check, FileImage, RefreshCw, Users, X } from 'lucide-react';
@@ -44,6 +46,8 @@ type VisitorDoc = {
 
 export default function VisitorsPage() {
   const [rows, setRows] = useState<VisitorAppointment[]>([]);
+  const [entries, setEntries] = useState<PortalVisitorEntry[]>([]);
+  const [tab, setTab] = useState<'appointments' | 'logs'>('appointments');
   const [loading, setLoading] = useState(true);
   const [actingId, setActingId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -65,7 +69,12 @@ export default function VisitorsPage() {
     setLoading(true);
     setError(null);
     try {
-      setRows(await listCustomerVisitors());
+      const [appointments, gateLogs] = await Promise.all([
+        listCustomerVisitors(),
+        getCustomerPortalVisitorEntries(),
+      ]);
+      setRows(appointments);
+      setEntries(gateLogs);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load visitors');
     } finally {
@@ -123,6 +132,21 @@ export default function VisitorsPage() {
       );
     });
   }, [rows, search, statusFilter]);
+
+  const filteredEntries = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    if (!q) return entries;
+    return entries.filter(
+      (e) =>
+        e.visitorName.toLowerCase().includes(q) ||
+        (e.siteCode ?? '').toLowerCase().includes(q) ||
+        (e.siteName ?? '').toLowerCase().includes(q) ||
+        (e.gateCode ?? '').toLowerCase().includes(q) ||
+        (e.referenceNumber ?? '').toLowerCase().includes(q) ||
+        e.result.toLowerCase().includes(q) ||
+        e.direction.toLowerCase().includes(q),
+    );
+  }, [entries, search]);
 
   async function approve(v: VisitorAppointment) {
     setActingId(v.id);
@@ -217,7 +241,7 @@ export default function VisitorsPage() {
       <PortalHero
         eyebrow="Site ops · Portal 35.8"
         title="Visitors"
-        subtitle="Host-approve appointments and issue gate verification codes for your sites."
+        subtitle="Host-approve appointments and review gate entry/exit logs for your sites only."
         actions={
           <button
             type="button"
@@ -232,12 +256,44 @@ export default function VisitorsPage() {
 
       {error ? <PortalError message={error} /> : null}
 
-      <div className="mb-4 grid gap-4 sm:grid-cols-3">
+      <div className="mb-4 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <PortalStat label="Appointments" value={loading ? '—' : rows.length} tone="sky" />
         <PortalStat label="Pending" value={loading ? '—' : pending} tone="amber" />
         <PortalStat label="Approved / active" value={loading ? '—' : approved} tone="teal" />
+        <PortalStat
+          label="Gate logs"
+          value={loading ? '—' : entries.length}
+          hint="Latest 100 at your sites"
+        />
       </div>
 
+      <div className="mb-4 flex flex-wrap gap-2">
+        <button
+          type="button"
+          onClick={() => setTab('appointments')}
+          className={`rounded-lg px-3 py-1.5 text-sm font-semibold ${
+            tab === 'appointments'
+              ? 'bg-[#0078d4] text-white'
+              : 'border border-[#e1dfdd] bg-white text-[#323130] hover:bg-[#f3f2f1]'
+          }`}
+        >
+          Appointments
+        </button>
+        <button
+          type="button"
+          onClick={() => setTab('logs')}
+          className={`rounded-lg px-3 py-1.5 text-sm font-semibold ${
+            tab === 'logs'
+              ? 'bg-[#0078d4] text-white'
+              : 'border border-[#e1dfdd] bg-white text-[#323130] hover:bg-[#f3f2f1]'
+          }`}
+        >
+          Gate logs
+        </button>
+      </div>
+
+      {tab === 'appointments' ? (
+        <>
       <PortalToolbar
         search={search}
         onSearchChange={setSearch}
@@ -293,11 +349,17 @@ export default function VisitorsPage() {
                       {v.idType.replace(/_/g, ' ')} · {v.idNumber}
                     </p>
                   ) : null}
+                  {v.visitKind ? (
+                    <p className="mt-1.5 text-[11px] font-medium uppercase tracking-wide text-[#0078d4]">
+                      {v.visitKind.replace(/_/g, ' ')}
+                    </p>
+                  ) : null}
                   <p className="mt-2 text-xs text-[#323130]">
                     Host: {v.hostName ?? '—'}
                     {v.siteCode || v.siteName
                       ? ` · ${[v.siteCode, v.siteName].filter(Boolean).join(' ')}`
                       : ''}
+                    {v.vehiclePlate ? ` · Vehicle ${v.vehiclePlate}` : ''}
                   </p>
                   <p className="mt-1 text-[11px] text-[#8a8886]">
                     {formatDate(v.validFrom, true)} → {formatDate(v.validUntil, true)}
@@ -347,8 +409,73 @@ export default function VisitorsPage() {
           </ul>
         </div>
       )}
+        </>
+      ) : (
+        <>
+          <PortalToolbar
+            search={search}
+            onSearchChange={setSearch}
+            searchPlaceholder="Search visitor, site, gate, result…"
+          />
+          {loading && entries.length === 0 ? (
+            <p className="text-sm text-[#605e5c]">Loading gate logs…</p>
+          ) : filteredEntries.length === 0 ? (
+            <PortalEmpty
+              title="No gate logs"
+              description="Entry and exit punches at your sites appear here. Appointments remain on the other tab."
+              icon={<Users className="h-4 w-4" />}
+            />
+          ) : (
+            <div className="overflow-x-auto rounded-2xl border border-[#e1dfdd] bg-white shadow-sm">
+              <table className="min-w-full text-left text-sm">
+                <thead className="text-[11px] uppercase tracking-wide text-[#605e5c]">
+                  <tr>
+                    <th className="px-3 py-2">When</th>
+                    <th className="px-3 py-2">Visitor</th>
+                    <th className="px-3 py-2">Site / gate</th>
+                    <th className="px-3 py-2">Dir</th>
+                    <th className="px-3 py-2">Result</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filteredEntries.map((e) => (
+                    <tr key={e.id} className="border-t border-[#edebe9]">
+                      <td className="whitespace-nowrap px-3 py-2 text-xs text-[#605e5c]">
+                        {formatDate(e.recordedAt, true)}
+                      </td>
+                      <td className="px-3 py-2">
+                        <p className="font-medium text-[#323130]">{e.visitorName}</p>
+                        {e.referenceNumber ? (
+                          <p className="font-mono text-[11px] text-[#8a8886]">
+                            {e.referenceNumber}
+                          </p>
+                        ) : null}
+                      </td>
+                      <td className="px-3 py-2 text-xs text-[#605e5c]">
+                        {e.siteCode ?? e.siteName ?? '—'}
+                        {e.gateCode ? ` · ${e.gateCode}` : ''}
+                      </td>
+                      <td className="px-3 py-2">
+                        <StatusPill status={e.direction} />
+                      </td>
+                      <td className="px-3 py-2">
+                        <StatusPill status={e.result} />
+                        {e.denyReason ? (
+                          <p className="mt-1 text-[11px] text-[#d13438]">
+                            {e.denyReason}
+                          </p>
+                        ) : null}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </>
+      )}
 
-      <PortalDeferral note="Gate scan and deny-on-bad-code stay with HIGHLINK gate officers. Host approve issues the one-time code and queues Email / SMS / WhatsApp when contact details are on file. ID scan files are view-only here — Call Centre / gate staff upload via MinIO (no public book-time upload)." />
+      <PortalDeferral note="Gate scan and deny-on-bad-code stay with HIGHLINK gate officers. This log is scoped to your sites only — not the company-wide visitor register. Host approve issues the one-time code and queues Email / SMS / WhatsApp when contact details are on file. ID scan files are view-only here." />
 
       {docsTarget ? (
         <VisitorIdScansModal

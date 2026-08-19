@@ -1,9 +1,14 @@
-import { ConflictException, Injectable } from '@nestjs/common';
+import {
+  ConflictException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { PrismaService, AuthUser } from '@pssms/shared';
 import { AuditService } from '@pssms/audit';
 import {
   CreateDepartmentDto,
   DepartmentResponseDto,
+  UpdateDepartmentDto,
 } from '../presentation/dto/enterprise.dto';
 
 @Injectable()
@@ -55,13 +60,57 @@ export class DepartmentsService {
       where: { organizationId },
       orderBy: { name: 'asc' },
     });
-    return rows.map((d) => ({
+    return rows.map((d) => this.toDto(d));
+  }
+
+  async update(
+    id: string,
+    dto: UpdateDepartmentDto,
+    user: AuthUser,
+  ): Promise<DepartmentResponseDto> {
+    const existing = await this.prisma.department.findFirst({
+      where: { id, organizationId: user.organizationId },
+    });
+    if (!existing) {
+      throw new NotFoundException({
+        error: 'NOT_FOUND',
+        message: 'Department not found',
+      });
+    }
+    const dept = await this.prisma.department.update({
+      where: { id },
+      data: {
+        ...(dto.name !== undefined ? { name: dto.name } : {}),
+        ...(dto.isActive !== undefined ? { isActive: dto.isActive } : {}),
+      },
+    });
+    await this.audit.record({
+      organizationId: user.organizationId,
+      actorId: user.id,
+      action: 'department.updated',
+      resourceType: 'Department',
+      resourceId: dept.id,
+      before: existing,
+      after: dept,
+    });
+    return this.toDto(dept);
+  }
+
+  private toDto(d: {
+    id: string;
+    organizationId: string;
+    branchId: string | null;
+    code: string;
+    name: string;
+    isActive: boolean;
+  }): DepartmentResponseDto {
+    return {
       id: d.id,
       organizationId: d.organizationId,
       branchId: d.branchId,
       code: d.code,
       name: d.name,
       isActive: d.isActive,
-    }));
+    };
   }
 }

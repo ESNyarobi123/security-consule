@@ -40,11 +40,20 @@ async function parseEnvelope<T>(res: Response): Promise<T> {
   return json.data;
 }
 
+export type ApplicantTrack = 'GUARD' | 'OFFICE' | 'GENERAL';
+
+export const APPLICANT_TRACK_LABELS: Record<ApplicantTrack, string> = {
+  GUARD: 'Guard applicant',
+  OFFICE: 'Office staff',
+  GENERAL: 'General role',
+};
+
 /** Public careers config — optional until backend ships. */
 export type RecruitmentPublicConfig = {
   organizationId: string;
   /** Demo / seed OPEN posting id */
   seedPostingId?: string;
+  applicantTracks?: Array<{ value: string; label: string; hint: string }>;
 };
 
 /** Public OPEN posting whitelist (no createdBy / applicant counts). */
@@ -55,6 +64,7 @@ export type OpenJobPosting = {
   location?: string | null;
   description: string;
   requirements?: string | null;
+  applicantTrack?: ApplicantTrack | string;
   publishedAt?: string | null;
   closesAt?: string | null;
 };
@@ -93,6 +103,8 @@ export type ApplicationStatusLookup = {
   location?: string | null;
   submittedAt: string;
   stages: ApplicationStatusStage[];
+  applicantTrack?: string;
+  onboardingSteps?: Array<{ code: string; label: string; done: boolean }>;
 };
 
 /**
@@ -110,8 +122,10 @@ export async function getRecruitmentPublicConfig(): Promise<RecruitmentPublicCon
 }
 
 /** Public GET /recruitment/postings/open */
-export async function listOpenJobPostings() {
-  const res = await fetch(`${coreUrl()}/api/v1/recruitment/postings/open`);
+export async function listOpenJobPostings(track?: string) {
+  const url = new URL(`${coreUrl()}/api/v1/recruitment/postings/open`);
+  if (track && track !== 'ALL') url.searchParams.set('track', track);
+  const res = await fetch(url.toString());
   return parseEnvelope<OpenJobPosting[]>(res);
 }
 
@@ -174,6 +188,14 @@ export type StaffJobApplication = {
   postingTitle?: string | null;
   allowedNextStatuses?: ApplicationStatusValue[];
   canHire?: boolean;
+  applicantTrack?: string | null;
+  onboardingSteps?: Array<{
+    code: string;
+    label: string;
+    done: boolean;
+    completedAt?: string | null;
+  }>;
+  interviewNotification?: { email: boolean } | null;
 };
 
 export type StaffJobPosting = {
@@ -184,6 +206,7 @@ export type StaffJobPosting = {
   location?: string | null;
   description: string;
   requirements?: string | null;
+  applicantTrack?: string;
   status: string;
   publishedAt?: string | null;
   closesAt?: string | null;
@@ -276,6 +299,22 @@ export function listStaffJobPostings(status?: string, token?: string) {
   return recruitmentStaffFetch<StaffJobPosting[]>(
     `/api/v1/recruitment/postings${q}`,
     { token },
+  );
+}
+
+/** PATCH /recruitment/applications/:id/onboarding */
+export function updateJobApplicationOnboarding(
+  id: string,
+  body: { stepCode: string; done: boolean },
+  token?: string,
+) {
+  return recruitmentStaffFetch<StaffJobApplication>(
+    `/api/v1/recruitment/applications/${id}/onboarding`,
+    {
+      method: 'PATCH',
+      body: JSON.stringify(body),
+      token,
+    },
   );
 }
 

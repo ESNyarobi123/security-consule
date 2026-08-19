@@ -63,13 +63,7 @@ export async function apiRequest<T>(
   }
 
   if (!res.ok) {
-    const msg =
-      typeof json === 'object' &&
-      json &&
-      'message' in json &&
-      typeof (json as { message: unknown }).message === 'string'
-        ? (json as { message: string }).message
-        : `HTTP ${res.status}`;
+    const msg = extractErrorMessage(json, res.status);
     throw new ApiError(msg, res.status, json);
   }
 
@@ -82,4 +76,26 @@ export async function apiRequest<T>(
     return (json as ApiEnvelope<T>).data;
   }
   return json as T;
+}
+
+function extractErrorMessage(json: unknown, status: number): string {
+  if (json && typeof json === 'object') {
+    const obj = json as {
+      message?: unknown;
+      error?: { code?: unknown; message?: unknown } | string;
+    };
+    if (
+      obj.error &&
+      typeof obj.error === 'object' &&
+      typeof obj.error.message === 'string'
+    ) {
+      const code =
+        typeof obj.error.code === 'string' ? obj.error.code : undefined;
+      return code && code !== 'FORBIDDEN' && code !== 'BAD_REQUEST'
+        ? `${code}: ${obj.error.message}`
+        : obj.error.message;
+    }
+    if (typeof obj.message === 'string') return obj.message;
+  }
+  return `HTTP ${status}`;
 }

@@ -3,6 +3,7 @@ import {
   IsDateString,
   IsEmail,
   IsEnum,
+  IsIn,
   IsOptional,
   IsString,
   IsUUID,
@@ -169,6 +170,9 @@ export class CustomerEmployeeResponseDto {
   biometricRef?: string | null;
 
   @ApiPropertyOptional()
+  identityVerifiedAt?: Date | null;
+
+  @ApiPropertyOptional()
   bankAccountRef?: string | null;
 
   @ApiPropertyOptional()
@@ -245,11 +249,11 @@ export class CreateSelfAccessEntryDto {
   entryType?: AccessEntryType;
 
   @ApiPropertyOptional({
-    enum: AccessMethod,
-    description: 'Default QR for self-service thin slice',
+    enum: ['QR', 'CARD', 'BIOMETRIC', 'PIN'],
+    description: 'QR / PIN always; CARD and BIOMETRIC require enrollment refs. MANUAL is staff-only.',
   })
   @IsOptional()
-  @IsEnum(AccessMethod)
+  @IsIn(['QR', 'CARD', 'BIOMETRIC', 'PIN'])
   accessMethod?: AccessMethod;
 
   @ApiPropertyOptional()
@@ -356,4 +360,51 @@ export class AccessEntryResponseDto {
 
   @ApiPropertyOptional()
   gateName?: string | null;
+}
+
+/** Portal 35.9 — bind an existing roster employee to a CUSTOMER_EMPLOYEE login. */
+export class RegisterCustomerEmployeeAccessDto {
+  @ApiProperty({ example: 'CUST-DEMO' })
+  @IsString()
+  @MinLength(2)
+  customerCode!: string;
+
+  @ApiProperty({ example: 'EMP-1003' })
+  @IsString()
+  @MinLength(2)
+  employeeNumber!: string;
+
+  @ApiProperty({ example: 'aisha.hassan@demo-mfg.co.tz' })
+  @IsEmail()
+  email!: string;
+
+  @ApiProperty()
+  @IsString()
+  @MinLength(8)
+  password!: string;
+}
+
+export class RegisterCustomerEmployeeAccessResponseDto {
+  @ApiProperty()
+  email!: string;
+
+  @ApiProperty()
+  fullName!: string;
+
+  @ApiProperty()
+  employeeNumber!: string;
+
+  @ApiProperty()
+  customerCode!: string;
+}
+
+export class AccessMethodOptionDto {
+  @ApiProperty()
+  id!: string;
+
+  @ApiProperty()
+  label!: string;
+
+  @ApiProperty()
+  requiresEnrollment!: boolean;
 }

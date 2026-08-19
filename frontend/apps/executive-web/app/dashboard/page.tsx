@@ -15,16 +15,16 @@ import {
   TOKEN_KEY,
   USER_KEY,
   clearExecutiveSession,
+  hasReportingRead,
+  isForbiddenError,
   isUnauthorizedError,
 } from '@/lib/auth';
 import {
   CategoryWorkbench,
+  CompanyPerformanceBoard,
   DomainCoveragePanel,
   ExecChrome,
   FootprintPanel,
-  SPOTLIGHT_CODES,
-  SpotlightTile,
-  findKpi,
   roleViewLabel,
 } from '../_components/exec-ui';
 
@@ -60,24 +60,6 @@ const CATEGORY_ORDER = [
   'HR',
   'COMPLIANCE',
 ];
-
-const CODE_TO_CATEGORY: Record<string, string> = {
-  BRANCHES_ACTIVE: 'ENTERPRISE',
-  CUSTOMERS_ACTIVE: 'COMMERCIAL',
-  CONTRACTS_ACTIVE: 'COMMERCIAL',
-  REVENUE_COLLECTED: 'FINANCE',
-  DEPLOYMENTS_ACTIVE: 'OPS',
-  GUARD_HEADCOUNT_ACTIVE: 'OPS',
-  GUARD_ON_DUTY: 'OPS',
-  OPEN_INCIDENTS: 'SAFETY',
-  CRITICAL_INCIDENTS_OPEN: 'SAFETY',
-  CONTRACTS_MRR: 'COMMERCIAL',
-  INVOICE_OUTSTANDING: 'FINANCE',
-  COMPLIANCE_BREACHES_OPEN: 'COMPLIANCE',
-  COMPLIANCE_POLICIES_PUBLISHED: 'COMPLIANCE',
-  RECRUITMENT_PIPELINE: 'HR',
-  PARKING_ENTRIES: 'ACCESS',
-};
 
 export default function DashboardPage() {
   const router = useRouter();
@@ -135,6 +117,10 @@ export default function DashboardPage() {
           forceLogin('session_expired');
           return;
         }
+        if (isForbiddenError(err)) {
+          forceLogin('forbidden');
+          return;
+        }
         setError(
           err instanceof Error ? err.message : 'Failed to load dashboard',
         );
@@ -158,7 +144,12 @@ export default function DashboardPage() {
         const user = JSON.parse(userRaw) as {
           fullName: string;
           roles?: string[];
+          permissions?: string[];
         };
+        if (!hasReportingRead(user)) {
+          forceLogin('forbidden');
+          return;
+        }
         setUserName(user.fullName);
         setRoleLabel(roleViewLabel(user.roles ?? []));
       } catch {
@@ -166,7 +157,7 @@ export default function DashboardPage() {
       }
     }
     void load(stored);
-  }, [router, load]);
+  }, [router, load, forceLogin]);
 
   function logout() {
     clearExecutiveSession();
@@ -196,6 +187,10 @@ export default function DashboardPage() {
     } catch (err) {
       if (isUnauthorizedError(err)) {
         forceLogin('session_expired');
+        return;
+      }
+      if (isForbiddenError(err)) {
+        forceLogin('forbidden');
         return;
       }
       setError(err instanceof Error ? err.message : 'Refresh failed');
@@ -234,12 +229,6 @@ export default function DashboardPage() {
       if (!CATEGORY_ORDER.includes(c)) ordered.push([c, items]);
     }
     return ordered;
-  }, [kpis]);
-
-  const spotlight = useMemo(() => {
-    return SPOTLIGHT_CODES.map((code) => findKpi(kpis, code)).filter(
-      (k): k is KpiItem => !!k,
-    );
   }, [kpis]);
 
   useEffect(() => {
@@ -292,6 +281,10 @@ export default function DashboardPage() {
             </p>
             <p className="text-base font-medium text-slate-800">
               {roleLabel} · company-wide
+            </p>
+            <p className="text-xs text-slate-400">
+              Period filter applies to In period tiles (revenue, payroll) and
+              the analysis workbench. As of now tiles are current counts.
             </p>
           </div>
           <div className="flex flex-wrap gap-1">
@@ -346,31 +339,10 @@ export default function DashboardPage() {
         </div>
       ) : (
         <>
-          <section className="space-y-3">
-            <div className="flex flex-wrap items-end justify-between gap-2">
-              <div>
-                <h2 className="text-lg font-semibold text-slate-900">
-                  At a glance
-                </h2>
-                <p className="text-base text-slate-500">
-                  Priority signals · click a card to open analysis
-                </p>
-              </div>
-            </div>
-            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-4 2xl:grid-cols-8">
-              {spotlight.map((kpi) => (
-                <SpotlightTile
-                  key={kpi.code}
-                  kpi={kpi}
-                  onClick={() =>
-                    jumpToCategory(
-                      CODE_TO_CATEGORY[kpi.code] ?? kpi.category,
-                    )
-                  }
-                />
-              ))}
-            </div>
-          </section>
+          <CompanyPerformanceBoard
+            kpis={kpis}
+            onOpenCategory={jumpToCategory}
+          />
 
           <FootprintPanel kpis={kpis} />
 
@@ -389,7 +361,8 @@ export default function DashboardPage() {
           />
 
           <p className="text-center text-sm text-slate-400">
-            HIGHLINK · Portal 35.2 · live KPIs across domains · portal deep-links
+            HIGHLINK · Portal 35.2 · CMD / CEO / GM / Department Heads · live
+            KPIs · payroll from snapshots only · risks = CRITICAL incidents
           </p>
         </>
       )}

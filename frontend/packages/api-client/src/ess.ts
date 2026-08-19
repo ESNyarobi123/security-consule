@@ -180,8 +180,9 @@ export type EssEquipment = {
   assignedAt: string;
   notes?: string | null;
   /** ASSIGNED | RETURN_REQUESTED (awaiting storekeeper confirm). */
-  status?: 'ASSIGNED' | 'RETURN_REQUESTED' | string;
+  status?: 'ASSIGNED' | 'RETURN_REQUESTED' | 'CONFIRMED' | string;
   returnRequestedAt?: string | null;
+  confirmedAt?: string | null;
 };
 
 export const getEssMe = (token?: string) =>
@@ -247,6 +248,12 @@ export const acknowledgeEssLoan = (id: string, token?: string) =>
 export const listEssEquipment = (token?: string) =>
   coreFetch<EssEquipment[]>('/api/v1/ess/equipment', { token });
 
+export const confirmEssEquipment = (assignmentId: string, token?: string) =>
+  coreFetch<EssEquipment>(
+    `/api/v1/ess/equipment/${assignmentId}/confirm`,
+    { method: 'POST', body: '{}', token },
+  );
+
 export const returnEssEquipment = (assignmentId: string, token?: string) =>
   coreFetch<EssEquipment>(
     `/api/v1/ess/equipment/${assignmentId}/return`,
@@ -311,3 +318,86 @@ export type EssRequestItem = {
 
 export const listEssRequests = (token?: string) =>
   coreFetch<EssRequestItem[]>('/api/v1/ess/requests', { token });
+
+export type EssLeaveBalance = {
+  leaveTypeId: string;
+  code: string;
+  name: string;
+  annualQuotaDays: number;
+  usedDays: number;
+  pendingDays: number;
+  remainingDays: number;
+  year: number;
+};
+
+export type EssLoanBalance = {
+  outstandingBalance: number;
+  activeLoanCount: number;
+  pendingLoanCount: number;
+};
+
+export type EssAttendanceRow = {
+  id: string;
+  siteId: string;
+  siteCode?: string | null;
+  siteName?: string | null;
+  clockInAt: string;
+  clockOutAt?: string | null;
+  clockInMethod: string;
+  supervisorApproved: boolean;
+};
+
+export type EssAttendancePack = {
+  source: 'GUARD' | 'NONE' | string;
+  note: string;
+  rows: EssAttendanceRow[];
+};
+
+export type EssTrainingRow = {
+  id: string;
+  title: string;
+  provider?: string | null;
+  startDate?: string | null;
+  endDate?: string | null;
+  status: string;
+  notes?: string | null;
+};
+
+export type EssNotice = {
+  id: string;
+  templateCode: string;
+  channel: string;
+  subject?: string | null;
+  body: string;
+  status: string;
+  createdAt: string;
+};
+
+export type EssApprovalItem = {
+  id: string;
+  resourceType: string;
+  resourceId: string;
+  status: string;
+  mine: boolean;
+  currentStepName?: string | null;
+  requiredRole?: string | null;
+  createdAt: string;
+};
+
+export const listEssLeaveBalances = (token?: string) =>
+  coreFetch<EssLeaveBalance[]>('/api/v1/ess/leave/balance', { token });
+
+export const getEssLoanBalance = (token?: string) =>
+  coreFetch<EssLoanBalance>('/api/v1/ess/loans/balance', { token });
+
+export const listEssAttendance = (token?: string) =>
+  coreFetch<EssAttendancePack>('/api/v1/ess/attendance', { token });
+
+export const listEssTraining = (token?: string) =>
+  coreFetch<EssTrainingRow[]>('/api/v1/ess/training', { token });
+
+export const listEssNotices = (token?: string) =>
+  coreFetch<EssNotice[]>('/api/v1/ess/notices', { token });
+
+export const listEssApprovals = (token?: string) =>
+  coreFetch<EssApprovalItem[]>('/api/v1/ess/approvals', { token });

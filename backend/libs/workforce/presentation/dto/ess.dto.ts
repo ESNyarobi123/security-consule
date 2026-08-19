@@ -173,9 +173,10 @@ export class EssEquipmentResponseDto {
   @ApiProperty() assignedAt!: Date;
   @ApiPropertyOptional() notes?: string | null;
   /** ASSIGNED | RETURN_REQUESTED (queue awaiting storekeeper confirm). */
-  @ApiProperty({ enum: ['ASSIGNED', 'RETURN_REQUESTED'] })
-  status!: 'ASSIGNED' | 'RETURN_REQUESTED';
+  @ApiProperty({ enum: ['ASSIGNED', 'RETURN_REQUESTED', 'CONFIRMED'] })
+  status!: 'ASSIGNED' | 'RETURN_REQUESTED' | 'CONFIRMED';
   @ApiPropertyOptional() returnRequestedAt?: Date | null;
+  @ApiPropertyOptional() confirmedAt?: Date | null;
 }
 
 export class EssRequestItemDto {
@@ -188,4 +189,71 @@ export class EssRequestItemDto {
   @ApiProperty() createdAt!: Date;
   @ApiPropertyOptional() detail?: string | null;
   @ApiPropertyOptional() href?: string | null;
+}
+
+export class EssLeaveBalanceDto {
+  @ApiProperty() leaveTypeId!: string;
+  @ApiProperty() code!: string;
+  @ApiProperty() name!: string;
+  @ApiProperty() annualQuotaDays!: number;
+  @ApiProperty() usedDays!: number;
+  @ApiProperty() pendingDays!: number;
+  @ApiProperty() remainingDays!: number;
+  @ApiProperty() year!: number;
+}
+
+export class EssLoanBalanceDto {
+  @ApiProperty() outstandingBalance!: number;
+  @ApiProperty() activeLoanCount!: number;
+  @ApiProperty() pendingLoanCount!: number;
+}
+
+export class EssAttendanceRowDto {
+  @ApiProperty() id!: string;
+  @ApiProperty() siteId!: string;
+  @ApiPropertyOptional() siteCode?: string | null;
+  @ApiPropertyOptional() siteName?: string | null;
+  @ApiProperty() clockInAt!: Date;
+  @ApiPropertyOptional() clockOutAt?: Date | null;
+  @ApiProperty() clockInMethod!: string;
+  @ApiProperty() supervisorApproved!: boolean;
+}
+
+export class EssAttendancePackDto {
+  @ApiProperty({ enum: ['GUARD', 'NONE'] })
+  source!: 'GUARD' | 'NONE';
+  @ApiProperty() note!: string;
+  @ApiProperty({ type: [EssAttendanceRowDto] })
+  rows!: EssAttendanceRowDto[];
+}
+
+export class EssTrainingRowDto {
+  @ApiProperty() id!: string;
+  @ApiProperty() title!: string;
+  @ApiPropertyOptional() provider?: string | null;
+  @ApiPropertyOptional() startDate?: Date | null;
+  @ApiPropertyOptional() endDate?: Date | null;
+  @ApiProperty() status!: string;
+  @ApiPropertyOptional() notes?: string | null;
+}
+
+export class EssNoticeDto {
+  @ApiProperty() id!: string;
+  @ApiProperty() templateCode!: string;
+  @ApiProperty() channel!: string;
+  @ApiPropertyOptional() subject?: string | null;
+  @ApiProperty() body!: string;
+  @ApiProperty() status!: string;
+  @ApiProperty() createdAt!: Date;
+}
+
+export class EssApprovalItemDto {
+  @ApiProperty() id!: string;
+  @ApiProperty() resourceType!: string;
+  @ApiProperty() resourceId!: string;
+  @ApiProperty() status!: string;
+  @ApiProperty() mine!: boolean;
+  @ApiPropertyOptional() currentStepName?: string | null;
+  @ApiPropertyOptional() requiredRole?: string | null;
+  @ApiProperty() createdAt!: Date;
 }

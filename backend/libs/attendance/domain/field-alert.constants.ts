@@ -12,6 +12,9 @@ export type FieldAlertEscalationStage =
 export const FIELD_ALERT_ESCALATION_INITIAL: FieldAlertEscalationStage =
   'SUPERVISOR';
 
+/** Guard Mobile panic — supervisor board already lists FieldAlert. */
+export const GUARD_EMERGENCY_ALERT_TYPE = 'GUARD_EMERGENCY';
+
 export function nextFieldAlertEscalationStage(
   current: string,
 ): FieldAlertEscalationStage | null {

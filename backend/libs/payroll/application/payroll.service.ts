@@ -7,6 +7,7 @@ import {
 import {
   EmployeeStatus,
   PayrollCycleStatus,
+  PayrollDueAlertStatus,
   PayrollTenantType,
   Prisma,
 } from '@prisma/client';
@@ -30,6 +31,8 @@ import {
   CreatePayrollCycleDto,
   MarkPayrollPaidDto,
   PayrollCycleResponseDto,
+  PayrollPortalReportDto,
+  PayrollTenantPackDto,
   PayslipSnapshotResponseDto,
 } from '../presentation/dto/payroll.dto';
 
@@ -477,6 +480,15 @@ export class PayrollService {
       take: 24,
     });
     return rows.map((c) => this.toCycleDto(c));
+  }
+
+  async listCustomerOptions(organizationId: string) {
+    return this.prisma.customer.findMany({
+      where: { organizationId, isActive: true },
+      select: { id: true, code: true, name: true },
+      orderBy: { name: 'asc' },
+      take: 200,
+    });
   }
 
   async listCyclesForCustomerPortal(user: AuthUser) {
@@ -1261,6 +1273,179 @@ export class PayrollService {
     });
     if (!cycle) throw new NotFoundException('Payroll cycle not found');
     return cycle;
+  }
+
+  async getPortalReport(
+    user: AuthUser,
+    from?: string,
+    to?: string,
+  ): Promise<PayrollPortalReportDto> {
+    const period = this.resolveReportPeriod(from, to);
+    const organizationId = user.organizationId;
+    const money = (count: number, amount: number) => ({ count, amount });
+
+    const cycles = await this.prisma.payrollCycle.findMany({
+      where: {
+        organizationId,
+        periodEnd: { gte: period.from, lte: period.to },
+      },
+      select: { id: true, tenantType: true, status: true },
+    });
+    const cycleById = new Map(cycles.map((c) => [c.id, c]));
+    const cycleIds = cycles.map((c) => c.id);
+    const slips =
+      cycleIds.length === 0
+        ? []
+        : await this.prisma.payslipSnapshot.findMany({
+            where: { organizationId, cycleId: { in: cycleIds } },
+            select: {
+              cycleId: true,
+              grossPay: true,
+              netPay: true,
+              inputsSnapshot: true,
+              allowancesSnapshot: true,
+              calculationResult: true,
+            },
+          });
+
+    const emptyPack = (): PayrollTenantPackDto => ({
+      cycles: 0,
+      payslipSnapshots: 0,
+      grossPay: 0,
+      netPay: 0,
+      overtime: money(0, 0),
+      allowances: money(0, 0),
+      loanDeductions: money(0, 0),
+      statutoryNssf: 0,
+      statutoryPaye: 0,
+      alertnessBonus: 0,
+      alertnessPenalty: 0,
+      alertnessMissed: 0,
+    });
+    const company = emptyPack();
+    const customer = emptyPack();
+    company.cycles = cycles.filter(
+      (c) => c.tenantType === PayrollTenantType.INTERNAL_COMPANY,
+    ).length;
+    customer.cycles = cycles.filter(
+      (c) => c.tenantType === PayrollTenantType.CUSTOMER_MANAGED_PAYROLL,
+    ).length;
+
+    let approvedNetPay = 0;
+    let unapprovedSnapshots = 0;
+
+    for (const p of slips) {
+      const cycle = cycleById.get(p.cycleId);
+      const pack =
+        cycle?.tenantType === PayrollTenantType.CUSTOMER_MANAGED_PAYROLL
+          ? customer
+          : company;
+      pack.payslipSnapshots += 1;
+      pack.grossPay += Number(p.grossPay);
+      pack.netPay += Number(p.netPay);
+      const approved =
+        cycle?.status === PayrollCycleStatus.APPROVED ||
+        cycle?.status === PayrollCycleStatus.PAID;
+      if (approved) approvedNetPay += Number(p.netPay);
+      else unapprovedSnapshots += 1;
+
+      const lines =
+        (p.calculationResult as { lines?: PayslipLineItem[] } | null)?.lines ??
+        [];
+      for (const line of lines) {
+        if (line.code === 'OT' && line.type === 'EARNING') {
+          pack.overtime.count += 1;
+          pack.overtime.amount += line.amount;
+        }
+        if (line.code === 'NSSF') pack.statutoryNssf += line.amount;
+        if (line.code === 'PAYE') pack.statutoryPaye += line.amount;
+        if (line.type === 'DEDUCTION' && line.code.startsWith('LOAN-')) {
+          pack.loanDeductions.count += 1;
+          pack.loanDeductions.amount += line.amount;
+        }
+      }
+      const allowances = Array.isArray(p.allowancesSnapshot)
+        ? (p.allowancesSnapshot as PayslipLineItem[])
+        : [];
+      for (const a of allowances) {
+        pack.allowances.count += 1;
+        pack.allowances.amount += Number(a.amount ?? 0);
+      }
+      const inputs = (p.inputsSnapshot ?? {}) as {
+        alertnessBonus?: number;
+        alertnessPenalty?: number;
+        alertnessMissed?: number;
+      };
+      pack.alertnessBonus += Number(inputs.alertnessBonus ?? 0);
+      pack.alertnessPenalty += Number(inputs.alertnessPenalty ?? 0);
+      pack.alertnessMissed += Number(inputs.alertnessMissed ?? 0);
+    }
+
+    const dueAlertsOpen = await this.prisma.payrollDueAlert.count({
+      where: {
+        organizationId,
+        status: PayrollDueAlertStatus.DUE,
+      },
+    });
+
+    const report: PayrollPortalReportDto = {
+      from: period.from.toISOString(),
+      to: period.to.toISOString(),
+      company,
+      customer,
+      approvedNetPay,
+      unapprovedSnapshots,
+      dueAlertsOpen,
+      notes: [
+        'All money figures are from immutable PayslipSnapshot — never recomputed from live attendance.',
+        'Company vs customer packs are separate (guards vs customer-employee access days).',
+        'approvedNetPay is APPROVED/PAID only; unapprovedSnapshots still appear in tenant packs.',
+        'dueAlertsOpen is live (status DUE), not limited to the period window.',
+        'E-payroll due alerts fire on the 1st after the period only if the related payroll-service invoice is fully PAID.',
+        'Statutory NSSF/PAYE are simplified flat rates — full TRA/SDL/WCF deferred.',
+        'Customer payroll officers use customer-web /payroll (own data). No extra customer-payroll IAM role.',
+        'Happy path: payroll1 creates the cycle; hr1 is first approver (creator ≠ approver).',
+      ],
+    };
+
+    await this.audit.record({
+      organizationId,
+      actorId: user.id,
+      action: 'payroll.reports.generated',
+      resourceType: PAYROLL_RESOURCE,
+      resourceId: organizationId,
+      after: {
+        from: report.from,
+        to: report.to,
+        companySlips: company.payslipSnapshots,
+        customerSlips: customer.payslipSnapshots,
+      },
+    });
+
+    return report;
+  }
+
+  private resolveReportPeriod(from?: string, to?: string): { from: Date; to: Date } {
+    const end = to ? new Date(to) : new Date();
+    const start = from
+      ? new Date(from)
+      : new Date(end.getTime() - 90 * 24 * 60 * 60 * 1000);
+    if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) {
+      throw new BadRequestException({
+        error: 'INVALID_PERIOD',
+        message: 'from/to must be valid dates',
+      });
+    }
+    if (to && /^\d{4}-\d{2}-\d{2}$/.test(to.trim())) {
+      end.setUTCHours(23, 59, 59, 999);
+    }
+    if (start > end) {
+      throw new BadRequestException({
+        error: 'INVALID_PERIOD',
+        message: 'from must be before to',
+      });
+    }
+    return { from: start, to: end };
   }
 
   private toCycleDto(c: {

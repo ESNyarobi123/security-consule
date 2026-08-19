@@ -1,8 +1,10 @@
 'use client';
 
 import {
+  getCustomerPortalReport,
   listCustomerContracts,
   type CustomerContractView,
+  type CustomerPortalReport,
 } from '@pssms/api-client';
 import { Gauge, RefreshCw, ShieldCheck } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useState } from 'react';
@@ -19,6 +21,7 @@ import {
 
 export default function SlaPage() {
   const [rows, setRows] = useState<CustomerContractView[]>([]);
+  const [report, setReport] = useState<CustomerPortalReport | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -26,7 +29,12 @@ export default function SlaPage() {
     setLoading(true);
     setError(null);
     try {
-      setRows((await listCustomerContracts()) as CustomerContractView[]);
+      const [contracts, pack] = await Promise.all([
+        listCustomerContracts(),
+        getCustomerPortalReport(),
+      ]);
+      setRows(contracts as CustomerContractView[]);
+      setReport(pack);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load SLA');
     } finally {
@@ -70,7 +78,7 @@ export default function SlaPage() {
       <PortalHero
         eyebrow="Performance"
         title="SLA performance"
-        subtitle="Service-level commitments taken from your live contracts — not synthetic scores."
+        subtitle="Contractual SLA terms plus live coverage, incidents, and complaints for your organisation — not a synthetic percentile score."
         actions={
           <button
             type="button"
@@ -85,24 +93,38 @@ export default function SlaPage() {
 
       {error ? <PortalError message={error} /> : null}
 
-      <div className="mb-6 grid gap-4 sm:grid-cols-3">
+      <div className="mb-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <PortalStat
           label="Active services"
-          value={loading ? '—' : active.length}
-          hint="Contracts in ACTIVE status"
+          value={loading ? '—' : (report?.slaPerformance?.activeContracts ?? active.length)}
+          hint="ACTIVE contracts"
           tone="teal"
         />
         <PortalStat
           label="Expiring soon"
-          value={loading ? '—' : expiring.length}
-          hint="Renewal attention"
+          value={loading ? '—' : (report?.slaPerformance?.expiringContracts ?? expiring.length)}
+          hint="EXPIRING status"
           tone="amber"
         />
         <PortalStat
-          label="With SLA terms"
-          value={loading ? '—' : withSla.length}
-          hint={`${rows.length} contracts total`}
+          label="Guards deployed"
+          value={loading ? '—' : (report?.slaPerformance?.deployedGuards ?? '—')}
+          hint={
+            report?.slaPerformance
+              ? `${report.slaPerformance.committedGuards} committed on live contracts`
+              : `${withSla.length} contracts with SLA terms`
+          }
           tone="sky"
+        />
+        <PortalStat
+          label="Open incidents"
+          value={loading ? '—' : (report?.slaPerformance?.incidentsStillOpen ?? '—')}
+          hint={
+            report?.slaPerformance
+              ? `${report.slaPerformance.complaintsStillOpen} open complaints · ${report.slaPerformance.attendanceClockIns} clock-ins in period`
+              : `${rows.length} contracts total`
+          }
+          tone="rose"
         />
       </div>
 
@@ -176,7 +198,7 @@ export default function SlaPage() {
         </div>
       )}
 
-      <PortalDeferral note="Percentile SLA dashboards (missed patrol %, response time) will appear after ops analytics are customer-scoped — this page shows contractual commitments only." />
+      <PortalDeferral note="Percentile response-time and missed-patrol SLA remain deferred. This page shows written contract terms plus live operational counts for your organisation only." />
     </div>
   );
 }

@@ -19,6 +19,7 @@ import {
   AttendanceResponseDto,
   ClockInDto,
   ClockOutDto,
+  GuardDutyResponseDto,
   SupervisorClockInDto,
 } from './dto/attendance.dto';
 
@@ -45,6 +46,17 @@ export class AttendanceController {
   @ApiOkResponse({ type: AttendanceResponseDto })
   clockOut(@Body() dto: ClockOutDto, @CurrentUser() user: AuthUser) {
     return this.service.clockOut(dto, user);
+  }
+
+  @Get('me/duty')
+  @RequireAnyPermissions('attendance.manage', 'operations.manage')
+  @ApiOperation({
+    summary:
+      'My assigned site + current/next shift (Guard Mobile — no staff roster)',
+  })
+  @ApiOkResponse({ type: GuardDutyResponseDto })
+  myDuty(@CurrentUser() user: AuthUser) {
+    return this.service.getMyDuty(user);
   }
 
   @Post('supervisor-clock-in')

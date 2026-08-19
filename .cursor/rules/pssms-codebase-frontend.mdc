@@ -13,10 +13,10 @@ Monorepo: `frontend/` — Next.js 15 + React 19 + Tailwind 3. Design: Azure/Offi
 |---|---|---|---|
 | `admin-web` | 3000 | Internal multi-portal | Cookie auth + optional OIDC; middleware |
 | `executive-web` | 3001† | Executive KPIs | sessionStorage auth; no middleware |
-| `customer-web` | 3002 | Customer portal | Cookie auth |
-| `supplier-web` | 3003 | Supplier portal | Cookie auth |
-| `recruitment-web` | 3004 | Public jobs/apply | No login |
-| `visitor-web` | 3005 | Public appointments | No login |
+| `customer-web` | 3002 | Customer portal (35.8 + 35.9) | Cookie auth; own-data only |
+| `supplier-web` | 3003 | Supplier portal (35.17) | Cookie auth; own supplier; messages + issued POs |
+| `recruitment-web` | 3004 | Public jobs/apply + applicant status (35.13); B2B partner is 35.14 | No login on careers |
+| `visitor-web` | 3005 | Visitor appointment (35.10) | Public book + E4/E5/E6 logins |
 | `parking-web` | 3006 | Parking ops | Cookie auth |
 
 \*Canonical listen ports. †Docker host may remap (e.g. executive **3011**).  
@@ -24,7 +24,7 @@ Monorepo: `frontend/` — Next.js 15 + React 19 + Tailwind 3. Design: Azure/Offi
 
 ## admin-web portals (`app/(portals)/` + `@pssms/permissions` `ADMIN_PORTALS`)
 
-`/superadmin` (+ customers/contracts) · `/hr` · `/ess` · `/loans` · `/payroll` · `/finance` · `/procurement` · `/operations` (+ guards) · `/cctv` · `/devices` · `/branch` · `/compliance` · `/approvals` · `/callcentre` · `/marketing` · `/developer`  
+`/superadmin` (+ customers/contracts) · `/administration` · `/hr` (+ onboarding) · `/ess` (+ attendance/training/notices/approvals) · `/loans` · `/payroll` (+ cycles/alerts/reports) · `/finance` (+ invoices/vouchers/reports) · `/procurement` (+ buying/inventory) · `/operations` (+ guards) · `/cctv` (+ alerts/parking/access/patrols/alarms/incidents) · `/devices` · `/branch` (+ staff/inspections/parking/petty-cash + reports) · `/compliance` (+ policies/consents/breaches/risks/access/incidents/legal) · `/approvals` · `/callcentre` (+ visitors/complaints/tickets) · `/marketing` (+ pipeline/campaigns/commissions) · `/developer` (+ apis/systems/export)  
 
 Gated by permissions; `SUPER_ADMIN` sees all. Internal design portals live as **routes here**, not separate Nest services.
 
@@ -39,9 +39,9 @@ Gated by permissions; `SUPER_ADMIN` sees all. Internal design portals live as **
 
 | App | Phase note | Job |
 |---|---|---|
-| `guard-app` | Phase 12 v1 | Clock, alertness, patrol, SQLite outbox |
+| `guard-app` | Phase 12 / Portal 35.6 | Duty site/shift, clock, alertness, patrol, parking patrol, incident, emergency, kit confirm, notices, SQLite outbox |
 | `gate-verification-app` | Phase 13 v1 | Visitor OTP verify (online) |
-| `supervisor-app` | Phase 13b | Live board, attendance approve, alerts, incidents, EOB |
+| `supervisor-app` | Phase 13b / Portal 35.7 | Live board + site picker; attendance approve/clock-in; shifts confirm/replace; EOB inspect + shift-report approve; alertness; incidents resolve/close; patrols; deployments; field-alert escalate (SUPERVISOR / FIELD / BOM / Ops Mgr) |
 
 Mobile uses `EXPO_PUBLIC_API_BASE` → core-api (not the TS api-client package).
 

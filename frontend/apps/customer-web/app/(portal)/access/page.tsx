@@ -30,14 +30,21 @@ export default function AccessPage() {
   const [search, setSearch] = useState('');
   const [deptFilter, setDeptFilter] = useState('ALL');
   const [view, setView] = useState<'cards' | 'list'>('cards');
+  const [tab, setTab] = useState<'roster' | 'attendance'>('roster');
+  const [employeeFilter, setEmployeeFilter] = useState('ALL');
 
   const load = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
+      const to = new Date();
+      const from = new Date(to.getTime() - 30 * 24 * 60 * 60 * 1000);
       const [emps, ents] = await Promise.all([
         listCustomerAccessEmployees(),
-        listCustomerAccessEntries().catch(() => [] as AccessEntry[]),
+        listCustomerAccessEntries({
+          from: from.toISOString(),
+          to: to.toISOString(),
+        }).catch(() => [] as AccessEntry[]),
       ]);
       setRows(emps);
       setEntries(ents);
@@ -107,13 +114,21 @@ export default function AccessPage() {
   }, [rows, search, deptFilter]);
 
   const recentEntries = entries.slice(0, 8);
+  const attendanceRows = useMemo(() => {
+    return entries.filter((e) => {
+      if (employeeFilter !== 'ALL' && e.employeeId !== employeeFilter) {
+        return false;
+      }
+      return true;
+    });
+  }, [entries, employeeFilter]);
 
   return (
     <div className="w-full">
       <PortalHero
-        eyebrow="Site ops · Portal 35.8"
-        title="Staff access"
-        subtitle="Your employees registered for site access control — your organisation only (not HIGHLINK guards)."
+        eyebrow="Site ops · Portal 35.9"
+        title="Employee access & attendance"
+        subtitle="Your organisation’s employee access roster and gate/office attendance — own customer only. Not HIGHLINK guards."
         actions={
           <button
             type="button"
@@ -144,7 +159,33 @@ export default function AccessPage() {
         />
       </div>
 
-      <div className="grid gap-4 lg:grid-cols-3">
+      <div className="mb-4 flex flex-wrap gap-2">
+        <button
+          type="button"
+          onClick={() => setTab('roster')}
+          className={`rounded-lg px-3 py-1.5 text-sm font-semibold ${
+            tab === 'roster'
+              ? 'bg-[#0078d4] text-white'
+              : 'border border-[#e1dfdd] bg-white text-[#323130] hover:bg-[#f3f2f1]'
+          }`}
+        >
+          Roster
+        </button>
+        <button
+          type="button"
+          onClick={() => setTab('attendance')}
+          className={`rounded-lg px-3 py-1.5 text-sm font-semibold ${
+            tab === 'attendance'
+              ? 'bg-[#0078d4] text-white'
+              : 'border border-[#e1dfdd] bg-white text-[#323130] hover:bg-[#f3f2f1]'
+          }`}
+        >
+          Attendance log
+        </button>
+      </div>
+
+      {tab === 'roster' ? (
+        <div className="grid gap-4 lg:grid-cols-3">
         <div className="lg:col-span-2">
           <PortalToolbar
             search={search}
@@ -281,8 +322,82 @@ export default function AccessPage() {
           )}
         </PortalPanel>
       </div>
+      ) : (
+        <PortalPanel title="Employee attendance (last 30 days)">
+          <div className="mb-3">
+            <label className="text-sm">
+              <span className="text-[11px] font-semibold uppercase tracking-wide text-[#8a8886]">
+                Employee
+              </span>
+              <select
+                value={employeeFilter}
+                onChange={(e) => setEmployeeFilter(e.target.value)}
+                className="mt-1 block max-w-md rounded-lg border border-[#edebe9] bg-white px-3 py-2 text-sm"
+              >
+                <option value="ALL">All employees</option>
+                {rows.map((r) => (
+                  <option key={r.id} value={r.id}>
+                    {r.fullName} · {r.employeeNumber ?? r.id.slice(0, 8)}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
+          {loading && attendanceRows.length === 0 ? (
+            <p className="text-sm text-[#605e5c]">Loading attendance…</p>
+          ) : attendanceRows.length === 0 ? (
+            <PortalEmpty
+              title="No access punches"
+              description="Check-in and check-out for your employees appear here. Guard attendance stays in HIGHLINK operations."
+            />
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="min-w-full text-left text-sm">
+                <thead className="text-[11px] uppercase tracking-wide text-[#605e5c]">
+                  <tr>
+                    <th className="px-2 py-2">When</th>
+                    <th className="px-2 py-2">Employee</th>
+                    <th className="px-2 py-2">Site</th>
+                    <th className="px-2 py-2">Method</th>
+                    <th className="px-2 py-2">Type</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {attendanceRows.map((e) => (
+                    <tr key={e.id} className="border-t border-[#edebe9]">
+                      <td className="whitespace-nowrap px-2 py-2 text-xs text-[#605e5c]">
+                        {formatDate(e.recordedAt, true)}
+                      </td>
+                      <td className="px-2 py-2">
+                        {e.employeeName ??
+                          nameById.get(e.employeeId) ??
+                          'Staff'}
+                        {e.employeeNumber ? (
+                          <span className="block font-mono text-[11px] text-[#8a8886]">
+                            {e.employeeNumber}
+                          </span>
+                        ) : null}
+                      </td>
+                      <td className="px-2 py-2 text-xs text-[#605e5c]">
+                        {e.siteCode ?? e.siteName ?? '—'}
+                        {e.gateCode ? ` · ${e.gateCode}` : ''}
+                      </td>
+                      <td className="px-2 py-2">
+                        <StatusPill status={e.accessMethod} />
+                      </td>
+                      <td className="px-2 py-2">
+                        <StatusPill status={e.entryType} />
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </PortalPanel>
+      )}
 
-      <PortalDeferral note="Customer employee access is separate from HIGHLINK guard attendance (§33). Other customers’ staff never appear here." />
+      <PortalDeferral note="Customer employee access is separate from HIGHLINK guard attendance (§33). Other customers’ staff never appear here. Device camera/NFC/PIN-pad hardware remains deferred." />
     </div>
   );
 }

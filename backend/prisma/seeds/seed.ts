@@ -20,6 +20,11 @@ async function main() {
     { code: 'users.manage', name: 'Manage users', module: 'identity' },
     { code: 'enterprise.manage', name: 'Manage enterprise data', module: 'enterprise' },
     { code: 'customers.manage', name: 'Manage customers', module: 'customers' },
+    {
+      code: 'marketing.manage',
+      name: 'Manage marketing / BD pipeline',
+      module: 'customers',
+    },
     { code: 'contracts.manage', name: 'Manage contracts', module: 'contracts' },
     { code: 'approvals.act', name: 'Act on approvals', module: 'approvals' },
     { code: 'audit.read', name: 'Read audit logs', module: 'audit' },
@@ -375,9 +380,10 @@ async function main() {
     'documents.manage',
   ]);
 
-  /** §4 Phase 6 — IT Support: user helpdesk (not full integrator). */
+  /** §4 Phase 6 — IT Support: user helpdesk + org master data (not full integrator). */
   const itSupportPermCodes = new Set([
     'users.manage',
+    'enterprise.manage',
     'notifications.manage',
     'audit.read',
     'documents.manage',
@@ -413,6 +419,7 @@ async function main() {
     'contracts.manage',
     'customers.manage',
     'documents.manage',
+    'marketing.manage',
   ]);
 
   /** §4 Phase 2 — HR harden (was allPerms). + E2 B2B triage. */
@@ -423,6 +430,7 @@ async function main() {
     'documents.manage',
     'loans.manage',
     'recruitment.manage',
+    'payroll.manage',
   ]);
 
   /** §4 Phase 2 — Accounts: invoices / petty cash / vouchers + customer/contract pickers. */
@@ -432,6 +440,7 @@ async function main() {
     'contracts.manage',
     'documents.manage',
     'approvals.act',
+    'payroll.manage',
   ]);
 
   /** §4 Phase 2 — Payroll cycles / snapshots only (not HR admin / finance). */
@@ -1139,6 +1148,148 @@ async function main() {
       },
     });
   }
+  const marketingOfficer = await prisma.user.findUnique({
+    where: { email: 'marketing1@highlink.co.tz' },
+  });
+  const campaignGuard = await prisma.marketingCampaign.upsert({
+    where: {
+      organizationId_code: { organizationId: org.id, code: 'CMPG-GUARD-2026' },
+    },
+    update: { name: 'Guard services Q3', isActive: true },
+    create: {
+      organizationId: org.id,
+      code: 'CMPG-GUARD-2026',
+      name: 'Guard services Q3',
+      channel: 'EVENT',
+      notes: 'Demo campaign for Portal 35.19',
+      createdBy: marketingOfficer?.id ?? admin.id,
+    },
+  });
+  await prisma.marketingLead.upsert({
+    where: {
+      organizationId_code: { organizationId: org.id, code: 'LD-DEMO-001' },
+    },
+    update: {},
+    create: {
+      organizationId: org.id,
+      code: 'LD-DEMO-001',
+      companyName: 'Kilimanjaro Logistics Ltd',
+      contactName: 'Amina Juma',
+      contactEmail: 'amina@kili-logistics.tz',
+      contactPhone: '+255755000301',
+      source: 'WALK_IN',
+      stage: 'QUALIFIED',
+      ownerUserId: marketingOfficer?.id ?? admin.id,
+      estimatedValue: 3200000,
+      notes: 'Warehouse coverage enquiry',
+      createdBy: marketingOfficer?.id ?? admin.id,
+    },
+  });
+  const leadSurvey = await prisma.marketingLead.upsert({
+    where: {
+      organizationId_code: { organizationId: org.id, code: 'LD-DEMO-002' },
+    },
+    update: {},
+    create: {
+      organizationId: org.id,
+      code: 'LD-DEMO-002',
+      companyName: 'Mikocheni Clinic Group',
+      contactName: 'Dr. Hassan',
+      contactPhone: '+255755000302',
+      source: 'CAMPAIGN',
+      stage: 'SURVEY_DONE',
+      campaignId: campaignGuard.id,
+      ownerUserId: marketingOfficer?.id ?? admin.id,
+      estimatedValue: 1800000,
+      createdBy: marketingOfficer?.id ?? admin.id,
+    },
+  });
+  if (
+    !(await prisma.marketingSiteSurvey.findFirst({
+      where: { organizationId: org.id, leadId: leadSurvey.id },
+    }))
+  ) {
+    await prisma.marketingSiteSurvey.create({
+      data: {
+        organizationId: org.id,
+        leadId: leadSurvey.id,
+        siteAddress: 'Mikocheni Light Industrial, DSM',
+        scheduledAt: new Date('2026-08-10T08:00:00Z'),
+        completedAt: new Date('2026-08-10T10:30:00Z'),
+        status: 'COMPLETED',
+        outcome: 'Viable — 4 posts + CCTV recommended',
+        officerName: 'Mark Marketing',
+        createdBy: marketingOfficer?.id ?? admin.id,
+      },
+    });
+  }
+  const leadWon = await prisma.marketingLead.upsert({
+    where: {
+      organizationId_code: { organizationId: org.id, code: 'LD-DEMO-003' },
+    },
+    update: {
+      customerId: customer.id,
+      customerCode: 'CUST-DEMO',
+      stage: 'WON',
+    },
+    create: {
+      organizationId: org.id,
+      code: 'LD-DEMO-003',
+      companyName: 'Demo Manufacturing Co',
+      contactName: 'Jane Doe',
+      contactEmail: 'jane.doe@demo-mfg.co.tz',
+      source: 'REFERRAL',
+      stage: 'WON',
+      referrerName: 'Referral — Asha Mwinyi',
+      referrerType: 'CUSTOMER',
+      ownerUserId: marketingOfficer?.id ?? admin.id,
+      estimatedValue: 4500000,
+      customerId: customer.id,
+      customerCode: 'CUST-DEMO',
+      wonAt: new Date('2026-07-01T10:00:00Z'),
+      notes: 'Converted to CUST-DEMO (seed showcase)',
+      createdBy: marketingOfficer?.id ?? admin.id,
+    },
+  });
+  if (
+    !(await prisma.marketingQuote.findFirst({
+      where: { organizationId: org.id, quoteNumber: 'QT-DEMO-001' },
+    }))
+  ) {
+    await prisma.marketingQuote.create({
+      data: {
+        organizationId: org.id,
+        leadId: leadWon.id,
+        quoteNumber: 'QT-DEMO-001',
+        kind: 'PROPOSAL',
+        status: 'ACCEPTED',
+        amount: 4500000,
+        serviceTypes: ['SECURITY_GUARD'],
+        sentAt: new Date('2026-06-20T09:00:00Z'),
+        decidedAt: new Date('2026-06-28T09:00:00Z'),
+        createdBy: marketingOfficer?.id ?? admin.id,
+      },
+    });
+  }
+  if (
+    !(await prisma.marketingCommission.findFirst({
+      where: { organizationId: org.id, leadId: leadWon.id },
+    }))
+  ) {
+    await prisma.marketingCommission.create({
+      data: {
+        organizationId: org.id,
+        leadId: leadWon.id,
+        beneficiary: 'Asha Mwinyi',
+        referrerType: 'CUSTOMER',
+        amount: 225000,
+        status: 'PENDING',
+        notes: 'Referral commission on CUST-DEMO win — accrue in portal; pay via Finance',
+        createdBy: marketingOfficer?.id ?? admin.id,
+      },
+    });
+  }
+
   const demoBillingContact = await prisma.customerContact.findFirst({
     where: {
       organizationId: org.id,
@@ -1299,6 +1450,63 @@ async function main() {
         createdBy: portalUser.id,
       },
     });
+  }
+
+  const supportSeeds: Array<{
+    referenceNumber: string;
+    category: 'PARKING' | 'SUPPLIER' | 'PAYROLL' | 'INCIDENT' | 'VISITOR';
+    title: string;
+    description: string;
+  }> = [
+    {
+      referenceNumber: 'SR-PARK-001',
+      category: 'PARKING',
+      title: 'Caller: visitor bay blocked at warehouse',
+      description:
+        'Inbound call — customer employee cannot park in visitor bays. Log only; parking ledger stays Portal 35.12.',
+    },
+    {
+      referenceNumber: 'SR-SUP-001',
+      category: 'SUPPLIER',
+      title: 'Caller: uniform PO delivery status',
+      description:
+        'Inbound supplier inquiry about PO timing. Vendor portal stays 35.17; this is the helpdesk log.',
+    },
+    {
+      referenceNumber: 'SR-PAY-001',
+      category: 'PAYROLL',
+      title: 'Caller: e-payroll due date for last cycle',
+      description:
+        'Customer payroll officer asked when payslips release. Calculation stays Portal 35.16.',
+    },
+    {
+      referenceNumber: 'SR-INC-001',
+      category: 'INCIDENT',
+      title: 'Caller: suspected tailgating at GATE-MAIN',
+      description:
+        'Call Centre log for Branch Ops incident escalation. Escalate from /callcentre/tickets.',
+    },
+  ];
+  for (const s of supportSeeds) {
+    const exists = await prisma.customerServiceRequest.findFirst({
+      where: { organizationId: org.id, referenceNumber: s.referenceNumber },
+    });
+    if (!exists) {
+      await prisma.customerServiceRequest.create({
+        data: {
+          organizationId: org.id,
+          customerId: customer.id,
+          referenceNumber: s.referenceNumber,
+          category: s.category,
+          urgency: 'THIS_WEEK',
+          status: 'OPEN',
+          title: s.title,
+          description: s.description,
+          siteId: site.id,
+          createdBy: portalUser.id,
+        },
+      });
+    }
   }
 
   // Module 6-B — demo customer complaint (distinct from SR tickets).
@@ -2540,6 +2748,15 @@ async function main() {
         : bindProvider
           ? 'TechCare Systems Ltd'
           : 'Demo Manufacturing visitor';
+    const visitKind = bindContractor
+      ? 'CONTRACTOR'
+      : bindConsultant
+        ? 'CONSULTANT'
+        : bindProvider
+          ? 'SUPPLIER_VISIT'
+          : 'VISITOR';
+    const hostUserId =
+      v.hostName === 'Jane Doe' ? janeEmployeeUser.id : undefined;
     await prisma.visitorAppointment.upsert({
       where: {
         organizationId_referenceNumber: {
@@ -2552,7 +2769,9 @@ async function main() {
         visitorEmail: v.visitorEmail,
         visitorPhone: v.visitorPhone,
         purpose: v.purpose,
+        visitKind,
         hostName: v.hostName,
+        ...(hostUserId ? { hostUserId } : {}),
         status: v.status,
         validFrom,
         validUntil,
@@ -2581,9 +2800,11 @@ async function main() {
         visitorPhone: v.visitorPhone,
         companyName,
         purpose: v.purpose,
+        visitKind,
         idType: v.idType ?? null,
         idNumber: v.idNumber ?? null,
         hostName: v.hostName,
+        ...(hostUserId ? { hostUserId } : {}),
         vehiclePlate: v.plate,
         validFrom,
         validUntil,
@@ -3732,7 +3953,7 @@ async function main() {
 
   await prisma.jobPosting.upsert({
     where: { id: '00000000-0000-4000-8000-000000000101' },
-    update: { status: 'OPEN', publishedAt: new Date() },
+    update: { status: 'OPEN', publishedAt: new Date(), applicantTrack: 'GUARD' },
     create: {
       id: '00000000-0000-4000-8000-000000000101',
       organizationId: org.id,
@@ -3741,6 +3962,7 @@ async function main() {
       location: 'Dar es Salaam',
       description: 'Experienced security guard for warehouse and industrial client sites.',
       requirements: 'Valid guard license, physical fitness, basic English',
+      applicantTrack: 'GUARD',
       status: 'OPEN',
       publishedAt: new Date(),
       createdBy: admin.id,
@@ -3749,7 +3971,7 @@ async function main() {
 
   await prisma.jobPosting.upsert({
     where: { id: '00000000-0000-4000-8000-000000000102' },
-    update: { status: 'OPEN' },
+    update: { status: 'OPEN', applicantTrack: 'GUARD' },
     create: {
       id: '00000000-0000-4000-8000-000000000102',
       organizationId: org.id,
@@ -3758,6 +3980,26 @@ async function main() {
       location: 'Dar es Salaam',
       description: 'Lead night-shift guards at industrial sites; report to branch ops.',
       requirements: '2+ years supervisory experience, driver license preferred',
+      applicantTrack: 'GUARD',
+      status: 'OPEN',
+      publishedAt: new Date(),
+      createdBy: admin.id,
+    },
+  });
+
+  await prisma.jobPosting.upsert({
+    where: { id: '00000000-0000-4000-8000-000000000103' },
+    update: { status: 'OPEN', applicantTrack: 'OFFICE' },
+    create: {
+      id: '00000000-0000-4000-8000-000000000103',
+      organizationId: org.id,
+      title: 'Payroll Clerk — Head Office',
+      department: 'Payroll',
+      location: 'Dar es Salaam HQ',
+      description:
+        'Office staff role supporting payroll cycles, payslip distribution, and attendance inputs under the Payroll Officer.',
+      requirements: 'Basic accounting, Excel literacy, confidentiality',
+      applicantTrack: 'OFFICE',
       status: 'OPEN',
       publishedAt: new Date(),
       createdBy: admin.id,
@@ -4117,15 +4359,21 @@ async function main() {
   }
 
   const shiftStart = new Date();
-  shiftStart.setHours(shiftStart.getHours() + 1);
-  const shiftEnd = new Date(shiftStart);
-  shiftEnd.setHours(shiftEnd.getHours() + 8);
+  shiftStart.setHours(6, 0, 0, 0);
+  const shiftEnd = new Date();
+  shiftEnd.setHours(18, 0, 0, 0);
+  if (shiftEnd <= new Date()) {
+    shiftStart.setHours(18, 0, 0, 0);
+    shiftEnd.setDate(shiftEnd.getDate() + 1);
+    shiftEnd.setHours(6, 0, 0, 0);
+  }
 
   const existingShift = await prisma.shift.findFirst({
     where: { organizationId: org.id, siteId: site.id, name: 'Day Shift Demo' },
   });
-  if (!existingShift) {
-    await prisma.shift.create({
+  const shift =
+    existingShift ??
+    (await prisma.shift.create({
       data: {
         organizationId: org.id,
         siteId: site.id,
@@ -4133,9 +4381,27 @@ async function main() {
         startAt: shiftStart,
         endAt: shiftEnd,
         createdBy: admin.id,
-        assignments: {
-          create: [{ guardId: guardProfile.id }],
-        },
+      },
+    }));
+  await prisma.shift.update({
+    where: { id: shift.id },
+    data: { startAt: shiftStart, endAt: shiftEnd, status: 'SCHEDULED' },
+  });
+  const existingAssignment = await prisma.shiftAssignment.findFirst({
+    where: { shiftId: shift.id, guardId: guardProfile.id },
+  });
+  if (existingAssignment) {
+    await prisma.shiftAssignment.update({
+      where: { id: existingAssignment.id },
+      data: { supervisorId: supervisorUser.id, status: 'ASSIGNED' },
+    });
+  } else {
+    await prisma.shiftAssignment.create({
+      data: {
+        shiftId: shift.id,
+        guardId: guardProfile.id,
+        supervisorId: supervisorUser.id,
+        status: 'ASSIGNED',
       },
     });
   }
@@ -4668,6 +4934,30 @@ async function main() {
     });
   }
 
+  const existingRisk = await prisma.riskRegisterItem.findFirst({
+    where: {
+      organizationId: org.id,
+      referenceCode: 'RISK-00001',
+    },
+  });
+  if (!existingRisk) {
+    await prisma.riskRegisterItem.create({
+      data: {
+        organizationId: org.id,
+        referenceCode: 'RISK-00001',
+        title: 'Demo — biometric templates without recorded lawful basis',
+        description:
+          'Gate biometric enrolment may proceed before a ConsentRecord exists for ACCESS_CONTROL. Residual: complete 32-A register for all enrolled staff.',
+        category: 'DATA_PROTECTION',
+        severity: 'HIGH',
+        status: 'OPEN',
+        regulatoryRef: 'PDPA_TANZANIA',
+        mitigation: 'DPO review of enrolment vs consent register (CNS-00001).',
+        createdBy: dpoUser.id,
+      },
+    });
+  }
+
   const supplier = await prisma.supplier.upsert({
     where: {
       organizationId_code: { organizationId: org.id, code: 'SUP-UNIFORM' },
@@ -4726,12 +5016,12 @@ async function main() {
     where: {
       organizationId_sku: { organizationId: org.id, sku: 'BOOTS-42' },
     },
-    update: { reorderLevel: 8, category: 'BOOTS' },
+    update: { reorderLevel: 8, category: 'SECURITY_BOOTS' },
     create: {
       organizationId: org.id,
       sku: 'BOOTS-42',
       name: 'Security boots — size 42',
-      category: 'BOOTS',
+      category: 'SECURITY_BOOTS',
       unit: 'EA',
       reorderLevel: 8,
       createdBy: admin.id,
@@ -4786,6 +5076,55 @@ async function main() {
         movementType: 'ADJUST',
         quantity: 20,
         notes: 'SEED-RADIO-OPENING',
+        createdBy: admin.id,
+      },
+    });
+  }
+
+  const extraStock: {
+    sku: string;
+    name: string;
+    category: string;
+    reorderLevel: number;
+  }[] = [
+    {
+      sku: 'PHONE-S',
+      name: 'Duty smartphone',
+      category: 'SMARTPHONES',
+      reorderLevel: 4,
+    },
+    {
+      sku: 'CCTV-DOME',
+      name: 'Dome CCTV camera (store pack)',
+      category: 'CCTV',
+      reorderLevel: 2,
+    },
+    {
+      sku: 'PARK-TAG',
+      name: 'Parking RFID tag (blank)',
+      category: 'PARKING',
+      reorderLevel: 20,
+    },
+    {
+      sku: 'OFFICE-A4',
+      name: 'A4 copy paper ream',
+      category: 'OFFICE',
+      reorderLevel: 8,
+    },
+  ];
+  for (const row of extraStock) {
+    await prisma.stockItem.upsert({
+      where: {
+        organizationId_sku: { organizationId: org.id, sku: row.sku },
+      },
+      update: { category: row.category, reorderLevel: row.reorderLevel },
+      create: {
+        organizationId: org.id,
+        sku: row.sku,
+        name: row.name,
+        category: row.category,
+        unit: 'EA',
+        reorderLevel: row.reorderLevel,
         createdBy: admin.id,
       },
     });
@@ -4873,6 +5212,33 @@ async function main() {
       createdBy: supplierPortalUser.id,
     },
   });
+
+  const existingThread = await prisma.supplierMessage.findFirst({
+    where: { organizationId: org.id, supplierId: supplier.id },
+  });
+  if (!existingThread) {
+    const procurementOfficerForMsg = await prisma.user.findUnique({
+      where: { email: 'procurement1@highlink.co.tz' },
+    });
+    await prisma.supplierMessage.create({
+      data: {
+        organizationId: org.id,
+        supplierId: supplier.id,
+        authorType: 'PROCUREMENT',
+        body: 'Welcome — please invoice PO-DEMO-UNIFORM-001 when uniforms ship.',
+        createdBy: procurementOfficerForMsg?.id ?? admin.id,
+      },
+    });
+    await prisma.supplierMessage.create({
+      data: {
+        organizationId: org.id,
+        supplierId: supplier.id,
+        authorType: 'SUPPLIER',
+        body: 'Acknowledged. Invoice INV-DEMO-UNIFORM-001 is on the portal.',
+        createdBy: supplierPortalUser.id,
+      },
+    });
+  }
 
   const procurementOfficer = await prisma.user.findUnique({
     where: { email: 'procurement1@highlink.co.tz' },
@@ -5407,6 +5773,17 @@ async function main() {
   void stockItem;
 
   await prisma.notificationTemplate.upsert({
+    where: { code: 'RECRUITMENT_INTERVIEW' },
+    update: {},
+    create: {
+      code: 'RECRUITMENT_INTERVIEW',
+      channel: 'EMAIL',
+      subjectTemplate: 'HIGHLINK interview — {{postingTitle}}',
+      bodyTemplate:
+        'You have been shortlisted for interview for {{postingTitle}}. HIGHLINK Recruitment will contact you with the time and location.',
+    },
+  });
+  await prisma.notificationTemplate.upsert({
     where: { code: 'VISITOR_GATE_CODE' },
     update: {},
     create: {
@@ -5643,7 +6020,7 @@ async function main() {
   console.log('  Role COMPLIANCE_OFFICER: compliance.manage + audit.read + approvals.act (policies; breach GET)');
   console.log('  Role DPO: dpo.manage + audit.read + documents.manage (breach mutates; not policy publish)');
   console.log('  Roles LEGAL/CEO/CMD: contracts.manage + approvals.act + audit.read + customers.manage');
-  console.log('  Role MARKETING: contracts.manage + customers.manage + documents.manage');
+  console.log('  Role MARKETING: contracts.manage + customers.manage + documents.manage + marketing.manage');
   console.log('  §4 Phase 1: FIELD_OFFICER / BRANCH_MANAGER / OPERATIONS_MANAGER (ops perms; AL1 stage-gated)');
   console.log('  §4 Phase 2: HR_OFFICER harden + ACCOUNTS_OFFICER + PAYROLL_OFFICER (least privilege)');
   console.log('  §4 Phase 3: PROCUREMENT_OFFICER + STOREKEEPER (procurement/inventory/assets gated)');
@@ -5652,7 +6029,7 @@ async function main() {
   console.log('  §4 Harden A6: CISO/IT users.manage cannot assign SUPER_ADMIN/GM/CEO/CMD/CISO');
   console.log('  §4 Harden A5: leave-approval Supervisor→HR→DeptHead→GM (supervisor1 has approvals.act)');
   console.log('  §4 Phase 6: CALL_CENTRE + IT_SUPPORT + DEVELOPER refine (visitors staff gated)');
-  console.log('  Compliance demo: policy POL-DPP-001 (PUBLISHED), breach BRCH-00001 (REPORTED), consent CNS-00001 (ACTIVE)');
+  console.log('  Compliance demo: policy POL-DPP-001 (PUBLISHED), breach BRCH-00001 (REPORTED), consent CNS-00001 (ACTIVE), risk RISK-00001 (OPEN)');
   console.log('  Workflow policy-change-approval: CO submits → GENERAL_MANAGER publishes');
   console.log('  Workflow iam-role-change-approval: IT/CISO submits → GENERAL_MANAGER applies');
   console.log('  Workflow contract-approval (B3): Legal → GM → CEO → CMD@10M monthlyFee');

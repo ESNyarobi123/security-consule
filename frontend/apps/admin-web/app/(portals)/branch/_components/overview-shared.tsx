@@ -5,7 +5,9 @@ import {
   Bell,
   BookOpen,
   CalendarClock,
+  Car,
   ChevronRight,
+  ClipboardCheck,
   DoorOpen,
   FileBarChart,
   MapPin,
@@ -15,6 +17,7 @@ import {
   ShieldAlert,
   Timer,
   Users,
+  Wallet,
 } from 'lucide-react';
 import Link from 'next/link';
 import type { ReactNode } from 'react';
@@ -86,6 +89,10 @@ export const HERO_CHIPS: { label: string; href?: string }[] = [
   { label: 'EOB', href: '/branch/eob' },
   { label: 'Patrols', href: '/branch/patrols' },
   { label: 'Incidents', href: '/branch/incidents' },
+  { label: 'Staff', href: '/branch/staff' },
+  { label: 'Inspections', href: '/branch/inspections' },
+  { label: 'Parking', href: '/branch/parking' },
+  { label: 'Petty cash', href: '/branch/petty-cash' },
   { label: 'Reports', href: '/branch/reports' },
 ];
 
@@ -160,6 +167,34 @@ export const QUICK_LINKS: QuickLink[] = [
     hint: 'Create, list, escalate status',
     Icon: ShieldAlert,
     tone: 'rose',
+  },
+  {
+    href: '/branch/staff',
+    label: 'Staff',
+    hint: 'Guards on post (not HR hire)',
+    Icon: Users,
+    tone: 'emerald',
+  },
+  {
+    href: '/branch/inspections',
+    label: 'Inspections',
+    hint: 'Supervisor comments / handover',
+    Icon: ClipboardCheck,
+    tone: 'amber',
+  },
+  {
+    href: '/branch/parking',
+    label: 'Parking',
+    hint: 'Site entry/violations monitor',
+    Icon: Car,
+    tone: 'teal',
+  },
+  {
+    href: '/branch/petty-cash',
+    label: 'Petty cash',
+    hint: 'Request only — Finance issues',
+    Icon: Wallet,
+    tone: 'sky',
   },
   {
     href: '/branch/reports',

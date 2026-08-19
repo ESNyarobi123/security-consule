@@ -1,176 +1,150 @@
 'use client';
 
-import { listCustomers, type Customer } from '@pssms/api-client';
 import {
-  DataTable,
-  PageHeader,
-  SectionTitle,
-  StatCard,
-  StatusBadge,
-  inputCls,
-} from '@pssms/ui';
-import { Mail, Search, UserCheck, Users, UserX } from 'lucide-react';
-import { useEffect, useMemo, useState } from 'react';
+  getMarketingReports,
+  type MarketingReport,
+} from '@pssms/api-client';
+import { GlassCard, StatCard, btnSecondary } from '@pssms/ui';
+import {
+  ClipboardList,
+  Megaphone,
+  RefreshCw,
+  Target,
+  Trophy,
+  Wallet,
+} from 'lucide-react';
+import Link from 'next/link';
+import { useCallback, useEffect, useState } from 'react';
 
-export default function MarketingPage() {
-  const [customers, setCustomers] = useState<Customer[]>([]);
+const TOPICS: { title: string; href: string; description: string }[] = [
+  {
+    title: 'Sales pipeline',
+    href: '/marketing/pipeline',
+    description: 'Leads, site surveys, quotations, win/lose, convert to customer + DRAFT contract',
+  },
+  {
+    title: 'Campaigns',
+    href: '/marketing/campaigns',
+    description: 'Named sources for inbound leads (not a bulk-email engine)',
+  },
+  {
+    title: 'Referral commissions',
+    href: '/marketing/commissions',
+    description: 'PENDING → ACCRUED register — payment stays on Finance 35.15',
+  },
+  {
+    title: 'Contract approval',
+    href: '/approvals',
+    description: 'Legal → GM → CEO → CMD — marketing cannot approve own convert',
+  },
+];
+
+const fmtTZS = (n: number) =>
+  new Intl.NumberFormat('en-TZ', {
+    style: 'currency',
+    currency: 'TZS',
+    maximumFractionDigits: 0,
+  }).format(n);
+
+export default function MarketingOverviewPage() {
+  const [pack, setPack] = useState<MarketingReport | null>(null);
   const [loading, setLoading] = useState(true);
-  const [query, setQuery] = useState('');
+  const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    let active = true;
-    void listCustomers()
-      .then((rows) => {
-        if (active) setCustomers(rows);
-      })
-      .finally(() => {
-        if (active) setLoading(false);
-      });
-    return () => {
-      active = false;
-    };
+  const load = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      setPack(await getMarketingReports());
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to load marketing overview');
+    } finally {
+      setLoading(false);
+    }
   }, []);
 
-  const stats = useMemo(() => {
-    const total = customers.length;
-    const activeCount = customers.filter((c) => c.isActive).length;
-    const withEmail = customers.filter((c) => Boolean(c.email)).length;
-    return {
-      total,
-      active: activeCount,
-      inactive: total - activeCount,
-      withEmail,
-    };
-  }, [customers]);
-
-  const filtered = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    if (!q) return customers;
-    return customers.filter((c) =>
-      [c.code, c.name, c.email ?? '', c.phone ?? '']
-        .join(' ')
-        .toLowerCase()
-        .includes(q),
-    );
-  }, [customers, query]);
+  useEffect(() => {
+    void load();
+  }, [load]);
 
   return (
-    <>
-      <PageHeader
-        title="Marketing"
-        description="Customer relationship overview — accounts, reach, and engagement status."
-      />
+    <div className="mx-auto max-w-[1400px] space-y-6">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[#0078d4]">
+            Portal 35.19 · Marketing &amp; Business Development
+          </p>
+          <h1 className="mt-0.5 text-[26px] font-semibold tracking-tight text-[#1b1a19] md:text-[30px]">
+            Leads to signed work
+          </h1>
+          <p className="mt-1 max-w-3xl text-[13px] text-[#605e5c]">
+            Used by Marketing / BD / sales officers on the seeded{' '}
+            <code className="text-[11px]">MARKETING</code> role (
+            <code className="text-[11px]">marketing1@</code>). No extra manager
+            or sales-agent accounts. Referral partners are named on the lead.
+            Branch Managers stay Field Ops.
+          </p>
+        </div>
+        <button type="button" className={btnSecondary} onClick={() => void load()}>
+          <RefreshCw className="h-4 w-4" />
+          Refresh
+        </button>
+      </div>
+
+      {error ? (
+        <p className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">
+          {error}
+        </p>
+      ) : null}
 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <StatCard
-          label="Total customers"
-          value={stats.total}
-          hint="All accounts on record"
-          icon={<Users className="h-5 w-5" />}
+          label="Open pipeline"
+          value={loading ? '…' : (pack?.openPipeline ?? 0)}
+          hint="Lead through proposal"
+          icon={<ClipboardList className="h-5 w-5" />}
           accent="blue"
         />
         <StatCard
-          label="Active"
-          value={stats.active}
-          hint={
-            stats.total
-              ? `${Math.round((stats.active / stats.total) * 100)}% of base`
-              : 'No customers yet'
-          }
-          icon={<UserCheck className="h-5 w-5" />}
+          label="Won"
+          value={loading ? '…' : (pack?.won ?? 0)}
+          hint={`${pack?.lost ?? 0} lost`}
+          icon={<Trophy className="h-5 w-5" />}
           accent="emerald"
         />
         <StatCard
-          label="Inactive"
-          value={stats.inactive}
-          hint="Dormant or suspended"
-          icon={<UserX className="h-5 w-5" />}
-          accent="slate"
+          label="Active campaigns"
+          value={loading ? '…' : (pack?.activeCampaigns ?? 0)}
+          hint={`${pack?.surveysScheduled ?? 0} surveys scheduled`}
+          icon={<Megaphone className="h-5 w-5" />}
+          accent="violet"
         />
         <StatCard
-          label="With email"
-          value={stats.withEmail}
-          hint={
-            stats.total
-              ? `${Math.round((stats.withEmail / stats.total) * 100)}% reachable`
-              : 'No contacts captured'
-          }
-          icon={<Mail className="h-5 w-5" />}
-          accent="sky"
+          label="Pending commissions"
+          value={loading ? '…' : fmtTZS(pack?.pendingCommissionAmount ?? 0)}
+          hint={`${pack?.pendingCommissions ?? 0} rows — accrue here, pay in Finance`}
+          icon={<Wallet className="h-5 w-5" />}
+          accent="amber"
         />
       </div>
 
-      <div className="mt-8">
-        <SectionTitle>Customer directory</SectionTitle>
-        <div className="mb-3 relative max-w-sm">
-          <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[#8a8886]" />
-          <input
-            type="search"
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            placeholder="Search by code, name, email, or phone"
-            className={`${inputCls} pl-9`}
-          />
-        </div>
-        <DataTable<Customer>
-          keyField="id"
-          rows={filtered}
-          loading={loading}
-          emptyMessage={
-            query ? 'No customers match your search' : 'No customers found'
-          }
-          columns={[
-            {
-              key: 'code',
-              label: 'Code',
-              render: (row) => (
-                <span className="font-mono text-xs text-[#605e5c]">
-                  {row.code}
-                </span>
-              ),
-            },
-            {
-              key: 'name',
-              label: 'Name',
-              render: (row) => (
-                <span className="font-medium text-[#1b1a19]">{row.name}</span>
-              ),
-            },
-            {
-              key: 'email',
-              label: 'Email',
-              render: (row) =>
-                row.email ? (
-                  <a
-                    href={`mailto:${row.email}`}
-                    className="text-[#0067b8] hover:underline"
-                  >
-                    {row.email}
-                  </a>
-                ) : (
-                  <span className="text-[#8a8886]">—</span>
-                ),
-            },
-            {
-              key: 'phone',
-              label: 'Phone',
-              render: (row) =>
-                row.phone ? (
-                  <span className="text-[#323130]">{row.phone}</span>
-                ) : (
-                  <span className="text-[#8a8886]">—</span>
-                ),
-            },
-            {
-              key: 'isActive',
-              label: 'Status',
-              render: (row) => (
-                <StatusBadge status={row.isActive ? 'ACTIVE' : 'INACTIVE'} />
-              ),
-            },
-          ]}
-        />
+      <div className="grid gap-3 md:grid-cols-2">
+        {TOPICS.map((t) => (
+          <Link key={t.href} href={t.href}>
+            <GlassCard className="h-full p-4 transition hover:ring-1 hover:ring-[#0078d4]/30">
+              <p className="text-sm font-semibold text-[#1b1a19]">{t.title}</p>
+              <p className="mt-1 text-xs text-[#605e5c]">{t.description}</p>
+            </GlassCard>
+          </Link>
+        ))}
       </div>
-    </>
+
+      {pack?.notes?.length ? (
+        <p className="flex items-start gap-2 text-xs text-[#605e5c]">
+          <Target className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+          {pack.notes.join(' ')}
+        </p>
+      ) : null}
+    </div>
   );
 }

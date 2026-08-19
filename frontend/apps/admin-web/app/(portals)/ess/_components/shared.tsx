@@ -33,7 +33,11 @@ type QuickGlyph =
   | 'calendar'
   | 'box'
   | 'user-check'
-  | 'clipboard';
+  | 'clipboard'
+  | 'megaphone'
+  | 'book'
+  | 'check-circle'
+  | 'bell';
 
 export function QuickLink({
   href,

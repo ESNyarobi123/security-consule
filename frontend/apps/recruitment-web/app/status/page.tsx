@@ -256,6 +256,31 @@ export default function StatusLookupPage() {
                 </ol>
               ) : null}
 
+              {result.onboardingSteps?.length ? (
+                <div className="mt-5 px-6">
+                  <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[#0078d4]">
+                    Onboarding steps
+                  </p>
+                  <ul className="mt-2 space-y-2">
+                    {result.onboardingSteps.map((step) => (
+                      <li
+                        key={step.code}
+                        className="flex items-center justify-between rounded-xl bg-slate-50 px-3 py-2 text-sm"
+                      >
+                        <span className="text-slate-800">{step.label}</span>
+                        <span
+                          className={`text-xs font-semibold ${
+                            step.done ? 'text-emerald-700' : 'text-slate-500'
+                          }`}
+                        >
+                          {step.done ? 'Done' : 'Pending'}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              ) : null}
+
               <div className="grid gap-4 px-6 py-6 md:grid-cols-3">
                 <div className="rounded-xl bg-slate-50 p-4">
                   <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">

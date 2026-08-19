@@ -3,11 +3,13 @@
 import {
   acknowledgeEssLoan,
   applyEssLoan,
+  getEssLoanBalance,
   getEssLoanStatement,
   isItemLoanType,
   listEssLoans,
   LOAN_TYPE_OPTIONS,
   type EssLoan,
+  type EssLoanBalance,
   type EssLoanStatement,
   type LoanType,
 } from '@pssms/api-client';
@@ -32,6 +34,7 @@ import {
 
 export default function EssLoansPage() {
   const [rows, setRows] = useState<EssLoan[]>([]);
+  const [balance, setBalance] = useState<EssLoanBalance | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [missing, setMissing] = useState(false);
@@ -44,11 +47,17 @@ export default function EssLoansPage() {
     setError(null);
     setMissing(false);
     try {
-      setRows(await listEssLoans());
+      const [list, bal] = await Promise.all([
+        listEssLoans(),
+        getEssLoanBalance(),
+      ]);
+      setRows(list);
+      setBalance(bal);
     } catch (err) {
       if (isEssProfileMissing(err)) {
         setMissing(true);
         setRows([]);
+        setBalance(null);
       } else {
         setError(err instanceof Error ? err.message : String(err));
       }
@@ -64,7 +73,7 @@ export default function EssLoansPage() {
   return (
     <EssShell
       title="Loans"
-      description="Apply for employee loans and track approval status."
+      description="Apply for boots, smartphone, cash, uniform, salary advance, or other approved support loans. Track outstanding balance. HR/GM approve — you cannot approve your own loan."
       actions={
         <>
           <button
@@ -103,13 +112,21 @@ export default function EssLoansPage() {
           description="No employee profile is linked to this login. Contact HR before applying for a loan."
         />
       ) : (
+        <>
+          {balance ? (
+            <p className="mb-3 rounded border border-[#cfe4f7] bg-[#f3f9fd] px-3 py-2 text-xs text-[#323130]">
+              Outstanding {formatMoney(balance.outstandingBalance)} ·{' '}
+              {balance.activeLoanCount} active · {balance.pendingLoanCount}{' '}
+              awaiting approval
+            </p>
+          ) : null}
         <GlassCard className="!p-0 overflow-hidden">
           {rows.length === 0 && !loading ? (
             <div className="p-4">
               <PanelEmpty
                 icon={<Coins className="h-4 w-4" />}
                 title="No loans"
-                description="Apply for boots, uniform, cash, or other employee loans."
+                description="Apply for boots, smartphone, cash, uniform, salary advance, or other approved support."
               />
             </div>
           ) : (
@@ -222,6 +239,7 @@ export default function EssLoansPage() {
             />
           )}
         </GlassCard>
+        </>
       )}
 
       {applyOpen ? (
@@ -283,7 +301,7 @@ function ApplyLoanModal({
   return (
     <Modal
       title="Apply for loan"
-      description="Starts the loan-approval workflow for you only."
+      description="Starts approval for boots, smartphone, cash, uniform, salary advance, or other approved support. You cannot approve this yourself."
       onClose={onClose}
     >
       <form onSubmit={onSubmit} className="space-y-3">

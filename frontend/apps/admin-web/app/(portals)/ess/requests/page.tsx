@@ -43,7 +43,7 @@ export default function EssRequestsPage() {
   return (
     <EssShell
       title="Requests"
-      description="Your leave, loan, and movement status only — approvals stay with HR."
+      description="Your leave, loan, movement, and petty cash status. Approvals are decided by someone else."
       actions={
         <button
           type="button"

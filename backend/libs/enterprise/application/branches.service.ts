@@ -1,9 +1,14 @@
-import { ConflictException, Injectable } from '@nestjs/common';
+import {
+  ConflictException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { PrismaService, AuthUser } from '@pssms/shared';
 import { AuditService } from '@pssms/audit';
 import {
   BranchResponseDto,
   CreateBranchDto,
+  UpdateBranchDto,
 } from '../presentation/dto/enterprise.dto';
 
 @Injectable()
@@ -47,6 +52,40 @@ export class BranchesService {
       orderBy: { name: 'asc' },
     });
     return rows.map((b) => this.toDto(b));
+  }
+
+  async update(
+    id: string,
+    dto: UpdateBranchDto,
+    user: AuthUser,
+  ): Promise<BranchResponseDto> {
+    const existing = await this.prisma.branch.findFirst({
+      where: { id, organizationId: user.organizationId },
+    });
+    if (!existing) {
+      throw new NotFoundException({
+        error: 'NOT_FOUND',
+        message: 'Branch not found',
+      });
+    }
+    const branch = await this.prisma.branch.update({
+      where: { id },
+      data: {
+        ...(dto.name !== undefined ? { name: dto.name } : {}),
+        ...(dto.region !== undefined ? { region: dto.region } : {}),
+        ...(dto.isActive !== undefined ? { isActive: dto.isActive } : {}),
+      },
+    });
+    await this.audit.record({
+      organizationId: user.organizationId,
+      actorId: user.id,
+      action: 'branch.updated',
+      resourceType: 'Branch',
+      resourceId: branch.id,
+      before: existing,
+      after: branch,
+    });
+    return this.toDto(branch);
   }
 
   private toDto(b: {

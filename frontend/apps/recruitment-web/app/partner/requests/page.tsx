@@ -3,6 +3,7 @@
 import {
   createPartnerGuardSupplyRequest,
   getB2bPartnerMe,
+  getB2bRequestOptions,
   listPartnerGuardSupplyRequests,
   type B2bPartnerProfile,
   type GuardSupplyRequest,
@@ -68,6 +69,7 @@ export default function PartnerRequestsPage() {
   const [urgency, setUrgency] = useState<'STANDARD' | 'HIGH' | 'CRITICAL'>(
     'STANDARD',
   );
+  const [urgencyOptions, setUrgencyOptions] = useState(URGENCY);
   const [serviceTerms, setServiceTerms] = useState('');
   const [criteriaNotes, setCriteriaNotes] = useState('');
   const [experienceYearsMin, setExperienceYearsMin] = useState('');
@@ -91,12 +93,22 @@ export default function PartnerRequestsPage() {
     setLoading(true);
     setError(null);
     try {
-      const [me, list] = await Promise.all([
+      const [me, list, options] = await Promise.all([
         getB2bPartnerMe(),
         listPartnerGuardSupplyRequests(),
+        getB2bRequestOptions().catch(() => null),
       ]);
       setPartner(me);
       setRows(list);
+      if (options?.urgencies?.length) {
+        setUrgencyOptions(
+          options.urgencies.map((u) => ({
+            value: u.value as 'STANDARD' | 'HIGH' | 'CRITICAL',
+            label: u.label,
+            hint: u.hint,
+          })),
+        );
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -118,10 +130,10 @@ export default function PartnerRequestsPage() {
         siteLocation: siteLocation.trim(),
         startDate: startDate || undefined,
         endDate: endDate || undefined,
-        qualifications: qualifications.trim() || undefined,
-        trainingNeeds: trainingNeeds.trim() || undefined,
+        qualifications: qualifications.trim(),
+        trainingNeeds: trainingNeeds.trim(),
         urgency,
-        serviceTerms: serviceTerms.trim() || undefined,
+        serviceTerms: serviceTerms.trim(),
         criteriaNotes: criteriaNotes.trim() || undefined,
         experienceYearsMin: experienceYearsMin
           ? Number(experienceYearsMin)
@@ -174,7 +186,7 @@ export default function PartnerRequestsPage() {
         title={partner ? partner.name : 'Guard supply requests'}
         subtitle={
           partner
-            ? `${partner.code} · ${partner.status} — request HIGHLINK recruitment by count, location, experience, age, training, language, health and urgency.`
+            ? `${partner.code} · ${partner.status} — registered security companies request HIGHLINK guard recruitment (count, qualifications, location, training, urgency, service terms).`
             : (session?.email ?? 'Partner portal')
         }
         actions={
@@ -226,8 +238,9 @@ export default function PartnerRequestsPage() {
               Request security guards
             </h2>
             <p className="mt-1 text-sm text-slate-500">
-              Specify how many guards you need, where, with which qualifications,
-              training, urgency and service terms.
+              Specify required number of guards, qualifications, location,
+              training needs, urgency, and service terms. HIGHLINK HR triages
+              own-company requests only.
             </p>
           </div>
 
@@ -294,6 +307,8 @@ export default function PartnerRequestsPage() {
                 rows={2}
                 className={inputClass}
                 placeholder="e.g. Valid guard licence, night shift"
+                required
+                minLength={2}
               />
             </Field>
             <div className="mt-3 grid gap-3 sm:grid-cols-3">
@@ -418,6 +433,8 @@ export default function PartnerRequestsPage() {
                 rows={3}
                 className={inputClass}
                 placeholder="e.g. Site induction, customer SOP, first aid"
+                required
+                minLength={2}
               />
             </Field>
           </section>
@@ -428,7 +445,7 @@ export default function PartnerRequestsPage() {
               Urgency
             </p>
             <div className="mt-3 grid gap-2 sm:grid-cols-3">
-              {URGENCY.map((opt) => {
+              {urgencyOptions.map((opt) => {
                 const on = urgency === opt.value;
                 return (
                   <button
@@ -463,6 +480,8 @@ export default function PartnerRequestsPage() {
                 rows={3}
                 className={inputClass}
                 placeholder="e.g. 12-week cover, billed monthly, HIGHLINK uniforms on site"
+                required
+                minLength={2}
               />
             </Field>
             <div className="mt-3">

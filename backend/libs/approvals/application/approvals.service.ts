@@ -7,8 +7,13 @@ import {
 import {
   ApprovalStatus,
   ContractStatus,
+  DeploymentStatus,
+  EmployeeStatus,
+  GuardStatus,
   IamChangeRequestStatus,
   LeaveRequestStatus,
+  MovementStatus,
+  MovementType,
   PayrollCycleStatus,
   PurchaseRequestStatus,
 } from '@prisma/client';
@@ -18,6 +23,7 @@ import {
   ApprovalActionDto,
   ApprovalInstanceResponseDto,
   StartApprovalDto,
+  WorkflowCatalogDto,
 } from '../presentation/dto/approval.dto';
 
 /** Resource types whose domain status is synced when the instance reaches a terminal state via raw Approvals API. */
@@ -26,6 +32,7 @@ const LEAVE_RESOURCE = 'LeaveRequest';
 const IAM_CHANGE_RESOURCE = 'IamChangeRequest';
 const PAYROLL_RESOURCE = 'PayrollCycle';
 const PURCHASE_REQUEST_RESOURCE = 'PurchaseRequest';
+const MOVEMENT_RESOURCE = 'EmployeeMovement';
 
 type StepLike = {
   stepOrder: number;
@@ -239,6 +246,14 @@ export class ApprovalsService {
           instance.resourceId,
           status,
           user.id,
+        );
+      } else if (instance.resourceType === MOVEMENT_RESOURCE) {
+        await this.syncEmployeeMovementOnTerminal(
+          instance.organizationId,
+          instance.resourceId,
+          status,
+          user.id,
+          dto.remarks,
         );
       }
     }
@@ -657,6 +672,119 @@ export class ApprovalsService {
     }
   }
 
+  /**
+   * Keep EmployeeMovement + employment/guard side-effects in sync when the
+   * instance finishes via generic POST /approvals/instances/:id/actions
+   * (same outcome as POST /hr/movements/:id/approve|reject).
+   */
+  private async syncEmployeeMovementOnTerminal(
+    organizationId: string,
+    movementId: string,
+    approvalStatus: ApprovalStatus,
+    actorId: string,
+    remarks?: string,
+  ): Promise<void> {
+    const movement = await this.prisma.employeeMovement.findFirst({
+      where: {
+        id: movementId,
+        organizationId,
+        status: MovementStatus.PENDING,
+      },
+    });
+    if (!movement) return;
+
+    if (approvalStatus === ApprovalStatus.REJECTED) {
+      await this.prisma.employeeMovement.update({
+        where: { id: movement.id },
+        data: {
+          status: MovementStatus.REJECTED,
+          rejectedReason: remarks?.trim() || 'Rejected via approvals queue',
+        },
+      });
+      await this.audit.record({
+        organizationId,
+        actorId,
+        action: 'movement.rejected',
+        resourceType: MOVEMENT_RESOURCE,
+        resourceId: movement.id,
+        after: { status: MovementStatus.REJECTED, via: 'approvals.act' },
+      });
+      return;
+    }
+
+    if (approvalStatus !== ApprovalStatus.APPROVED) return;
+
+    await this.prisma.$transaction(async (tx) => {
+      await tx.employeeMovement.update({
+        where: { id: movement.id },
+        data: {
+          status: MovementStatus.APPROVED,
+          approvedBy: actorId,
+          approvedAt: new Date(),
+        },
+      });
+
+      if (
+        movement.type === MovementType.EXIT ||
+        movement.type === MovementType.REDUNDANCY
+      ) {
+        const employee = await tx.employee.update({
+          where: { id: movement.employeeId },
+          data: { status: EmployeeStatus.TERMINATED },
+        });
+        if (employee.guardProfileId) {
+          await tx.guardProfile.update({
+            where: { id: employee.guardProfileId },
+            data: {
+              status: GuardStatus.TERMINATED,
+              deploymentEligible: false,
+            },
+          });
+          const active = await tx.guardDeployment.findMany({
+            where: {
+              organizationId,
+              guardId: employee.guardProfileId,
+              status: DeploymentStatus.ACTIVE,
+            },
+          });
+          const today = new Date();
+          today.setUTCHours(0, 0, 0, 0);
+          for (const row of active) {
+            await tx.guardDeployment.update({
+              where: { id: row.id },
+              data: {
+                status: DeploymentStatus.ENDED,
+                endDate: row.endDate ?? today,
+              },
+            });
+          }
+        }
+      } else if (
+        (movement.type === MovementType.TRANSFER ||
+          movement.type === MovementType.PROMOTION) &&
+        movement.toDepartment
+      ) {
+        await tx.employee.update({
+          where: { id: movement.employeeId },
+          data: { department: movement.toDepartment },
+        });
+      }
+    });
+
+    await this.audit.record({
+      organizationId,
+      actorId,
+      action: 'movement.approved',
+      resourceType: MOVEMENT_RESOURCE,
+      resourceId: movement.id,
+      after: {
+        status: MovementStatus.APPROVED,
+        type: movement.type,
+        via: 'approvals.act',
+      },
+    });
+  }
+
   /** Sync PayrollCycle when approval completes via /approvals queue. */
   private async syncPayrollOnTerminal(
     organizationId: string,
@@ -825,6 +953,38 @@ export class ApprovalsService {
         });
       }
     }
+  }
+
+  async listWorkflows(organizationId: string): Promise<WorkflowCatalogDto[]> {
+    const rows = await this.prisma.workflowDefinition.findMany({
+      where: { organizationId },
+      include: {
+        versions: {
+          where: { isCurrent: true },
+          include: { steps: { orderBy: { stepOrder: 'asc' } } },
+        },
+      },
+      orderBy: { code: 'asc' },
+    });
+    return rows.map((def) => {
+      const version = def.versions[0];
+      return {
+        id: def.id,
+        code: def.code,
+        name: def.name,
+        description: def.description,
+        isActive: def.isActive,
+        version: version?.version ?? 0,
+        steps: (version?.steps ?? []).map((s) => ({
+          stepOrder: s.stepOrder,
+          name: s.name,
+          requiredRole: s.requiredRole,
+          minApprovers: s.minApprovers,
+          amountThreshold:
+            s.amountThreshold == null ? null : Number(s.amountThreshold),
+        })),
+      };
+    });
   }
 
   async list(organizationId: string): Promise<ApprovalInstanceResponseDto[]> {

@@ -33,6 +33,10 @@ export default function AppLayout() {
         name="parking-patrol"
         options={{ title: 'Parking patrol' }}
       />
+      <Stack.Screen name="incident" options={{ title: 'Incident' }} />
+      <Stack.Screen name="emergency" options={{ title: 'Emergency' }} />
+      <Stack.Screen name="equipment" options={{ title: 'Equipment' }} />
+      <Stack.Screen name="notices" options={{ title: 'Messages' }} />
       <Stack.Screen name="outbox" options={{ title: 'Sync outbox' }} />
     </Stack>
   );

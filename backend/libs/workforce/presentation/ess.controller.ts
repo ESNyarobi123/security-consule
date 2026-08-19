@@ -21,11 +21,17 @@ import {
   EssApplyLeaveDto,
   EssApplyLoanDto,
   EssApplyPettyCashDto,
+  EssApprovalItemDto,
+  EssAttendancePackDto,
   EssEquipmentResponseDto,
+  EssLeaveBalanceDto,
+  EssLoanBalanceDto,
+  EssNoticeDto,
   EssPayslipResponseDto,
   EssPettyCashVoucherResponseDto,
   EssProfileResponseDto,
   EssRequestItemDto,
+  EssTrainingRowDto,
 } from './dto/ess.dto';
 
 /**
@@ -68,6 +74,15 @@ export class EssController {
     return this.service.applyLeave(dto, user);
   }
 
+  @Get('leave/balance')
+  @ApiOperation({
+    summary: 'My leave balance this calendar year (quota − approved − pending)',
+  })
+  @ApiOkResponse({ type: [EssLeaveBalanceDto] })
+  leaveBalance(@CurrentUser() user: AuthUser) {
+    return this.service.listLeaveBalances(user);
+  }
+
   @Get('payslips')
   @ApiOperation({ summary: 'My payslip snapshots only (immutable)' })
   @ApiOkResponse({ type: [EssPayslipResponseDto] })
@@ -86,6 +101,13 @@ export class EssController {
   @ApiOperation({ summary: 'My loans only' })
   listLoans(@CurrentUser() user: AuthUser) {
     return this.service.listMyLoans(user);
+  }
+
+  @Get('loans/balance')
+  @ApiOperation({ summary: 'My outstanding loan balance' })
+  @ApiOkResponse({ type: EssLoanBalanceDto })
+  loanBalance(@CurrentUser() user: AuthUser) {
+    return this.service.getLoanBalance(user);
   }
 
   @Post('loans')
@@ -111,6 +133,18 @@ export class EssController {
   @ApiOkResponse({ type: [EssEquipmentResponseDto] })
   equipment(@CurrentUser() user: AuthUser) {
     return this.service.listMyEquipment(user);
+  }
+
+  @Post('equipment/:assignmentId/confirm')
+  @ApiOperation({
+    summary: 'Confirm I am holding this assigned equipment (duty kit check)',
+  })
+  @ApiOkResponse({ type: EssEquipmentResponseDto })
+  confirmEquipment(
+    @Param('assignmentId') assignmentId: string,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.service.confirmMyEquipment(assignmentId, user);
   }
 
   @Post('equipment/:assignmentId/return')
@@ -154,5 +188,42 @@ export class EssController {
   @ApiOkResponse({ type: [EssRequestItemDto] })
   requests(@CurrentUser() user: AuthUser) {
     return this.service.listMyRequests(user);
+  }
+
+  @Get('attendance')
+  @ApiOperation({
+    summary:
+      'My attendance — guard clock if linked; office punch is not on this portal',
+  })
+  @ApiOkResponse({ type: EssAttendancePackDto })
+  attendance(@CurrentUser() user: AuthUser) {
+    return this.service.listMyAttendance(user);
+  }
+
+  @Get('training')
+  @ApiOperation({ summary: 'My training records (read-only)' })
+  @ApiOkResponse({ type: [EssTrainingRowDto] })
+  training(@CurrentUser() user: AuthUser) {
+    return this.service.listMyTraining(user);
+  }
+
+  @Get('notices')
+  @ApiOperation({
+    summary:
+      'Messages queued to my email/phone (company bulletin board deferred)',
+  })
+  @ApiOkResponse({ type: [EssNoticeDto] })
+  notices(@CurrentUser() user: AuthUser) {
+    return this.service.listMyNotices(user);
+  }
+
+  @Get('approvals')
+  @ApiOperation({
+    summary:
+      'My submitted approval instances; pending-for-me if approvals.act (act on /approvals)',
+  })
+  @ApiOkResponse({ type: [EssApprovalItemDto] })
+  approvals(@CurrentUser() user: AuthUser) {
+    return this.service.listMyApprovals(user);
   }
 }

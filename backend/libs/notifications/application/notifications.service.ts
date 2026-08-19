@@ -67,6 +67,59 @@ export class NotificationsService {
   }
 
   /**
+   * Portal 35.13 — EMAIL interview notice when HR shortlists (console adapter OK).
+   */
+  async enqueueRecruitmentInterview(params: {
+    organizationId: string;
+    applicationId: string;
+    applicantEmail?: string | null;
+    applicantName: string;
+    postingTitle: string;
+    actorId: string;
+  }): Promise<{ email: boolean }> {
+    const email = params.applicantEmail?.trim();
+    if (!email) return { email: false };
+    const actor = {
+      id: params.actorId,
+      email: 'system@pssms',
+      organizationId: params.organizationId,
+      fullName: 'System',
+      roles: [] as string[],
+      permissions: [] as string[],
+      allowedBranchIds: [] as string[],
+      allowedSiteIds: [] as string[],
+    };
+    const body = [
+      `Dear ${params.applicantName},`,
+      '',
+      `You have been shortlisted for interview for: ${params.postingTitle}.`,
+      '',
+      'HIGHLINK Recruitment will contact you on this email with the interview time and location.',
+      'Track your application with your reference number on the careers portal.',
+      '',
+      '— HIGHLINK Investigation and Security Guard Company',
+    ].join('\n');
+    try {
+      await this.enqueue(
+        {
+          channel: NotificationChannel.EMAIL,
+          recipient: email,
+          templateCode: 'RECRUITMENT_INTERVIEW',
+          subject: `HIGHLINK interview — ${params.postingTitle}`,
+          body,
+          resourceType: 'JobApplication',
+          resourceId: params.applicationId,
+          idempotencyKey: `recruitment-interview-email-${params.applicationId}`,
+        },
+        actor,
+      );
+      return { email: true };
+    } catch {
+      return { email: false };
+    }
+  }
+
+  /**
    * Module 12-C — enqueue gate code once per channel on host approve.
    * Idempotency keys are appointment+channel so approve never double-queues.
    */

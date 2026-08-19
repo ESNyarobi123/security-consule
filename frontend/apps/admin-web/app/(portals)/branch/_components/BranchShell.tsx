@@ -60,6 +60,26 @@ export const BRANCH_TABS = [
     permission: 'incidents.manage',
   },
   {
+    href: '/branch/staff',
+    label: 'Staff',
+    permission: 'operations.manage',
+  },
+  {
+    href: '/branch/inspections',
+    label: 'Inspections',
+    permission: 'operations.manage',
+  },
+  {
+    href: '/branch/parking',
+    label: 'Parking',
+    permission: 'operations.manage',
+  },
+  {
+    href: '/branch/petty-cash',
+    label: 'Petty cash',
+    permission: 'operations.manage',
+  },
+  {
     href: '/branch/reports',
     label: 'Reports',
     permission: 'operations.manage',

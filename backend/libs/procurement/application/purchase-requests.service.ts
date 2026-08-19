@@ -9,6 +9,7 @@ import {
   PurchaseOrderStatus,
   PurchaseRequestQuoteStatus,
   PurchaseRequestStatus,
+  SupplierPaymentStatus,
   SupplierStatus,
 } from '@prisma/client';
 import { AuditService } from '@pssms/audit';
@@ -17,6 +18,7 @@ import { AuthUser, PrismaService } from '@pssms/shared';
 import {
   CreatePurchaseRequestDto,
   CreatePurchaseRequestQuoteDto,
+  ProcurementReportResponseDto,
   PurchaseOrderResponseDto,
   RejectPurchaseRequestDto,
 } from '../presentation/dto/procurement.dto';
@@ -583,5 +585,96 @@ export class PurchaseRequestsService {
         message: `The officer who created this record cannot ${verb} it`,
       });
     }
+  }
+
+  async getReports(user: AuthUser): Promise<ProcurementReportResponseDto> {
+    this.assertStaff(user);
+    const org = user.organizationId;
+    const [
+      suppliers,
+      prByStatus,
+      poByStatus,
+      goodsReceiptsTotal,
+      submissionsUnpaid,
+    ] = await Promise.all([
+      this.prisma.supplier.groupBy({
+        by: ['status'],
+        where: { organizationId: org },
+        _count: { _all: true },
+      }),
+      this.prisma.purchaseRequest.groupBy({
+        by: ['status'],
+        where: { organizationId: org },
+        _count: { _all: true },
+      }),
+      this.prisma.purchaseOrder.groupBy({
+        by: ['status'],
+        where: { organizationId: org },
+        _count: { _all: true },
+      }),
+      this.prisma.goodsReceipt.count({ where: { organizationId: org } }),
+      this.prisma.supplierSubmission.count({
+        where: {
+          organizationId: org,
+          paymentStatus: SupplierPaymentStatus.UNPAID,
+        },
+      }),
+    ]);
+
+    const supplierMap = Object.fromEntries(
+      suppliers.map((s) => [s.status, s._count._all]),
+    );
+    const prRows = prByStatus.map((s) => ({
+      status: s.status,
+      count: s._count._all,
+    }));
+    const poRows = poByStatus.map((s) => ({
+      status: s.status,
+      count: s._count._all,
+    }));
+    const poMap = Object.fromEntries(poRows.map((r) => [r.status, r.count]));
+    const prMap = Object.fromEntries(prRows.map((r) => [r.status, r.count]));
+
+    const openPo =
+      (poMap[PurchaseOrderStatus.DRAFT] ?? 0) +
+      (poMap[PurchaseOrderStatus.PENDING_APPROVAL] ?? 0) +
+      (poMap[PurchaseOrderStatus.APPROVED] ?? 0) +
+      (poMap[PurchaseOrderStatus.ORDERED] ?? 0) +
+      (poMap[PurchaseOrderStatus.PARTIALLY_RECEIVED] ?? 0);
+
+    const pack: ProcurementReportResponseDto = {
+      suppliersTotal: Object.values(supplierMap).reduce((a, b) => a + b, 0),
+      suppliersPending: supplierMap[SupplierStatus.PENDING] ?? 0,
+      suppliersApproved: supplierMap[SupplierStatus.APPROVED] ?? 0,
+      purchaseRequestsTotal: prRows.reduce((a, r) => a + r.count, 0),
+      purchaseRequestsPendingApproval:
+        prMap[PurchaseRequestStatus.PENDING_APPROVAL] ?? 0,
+      purchaseRequestsApproved: prMap[PurchaseRequestStatus.APPROVED] ?? 0,
+      purchaseOrdersOpen: openPo,
+      purchaseOrdersReceived: poMap[PurchaseOrderStatus.RECEIVED] ?? 0,
+      goodsReceiptsTotal,
+      submissionsUnpaid,
+      purchaseRequestsByStatus: prRows,
+      purchaseOrdersByStatus: poRows,
+      notes: [
+        'Vendors use supplier-web (Portal 35.17). Finance AP payment vouchers stay on Portal 35.15.',
+        'PR/PO approval is GM today (Dept→Procurement→Finance→GM matrix deferred).',
+        'Issued serialized assets are on /assets (storekeeper).',
+      ],
+    };
+
+    await this.audit.record({
+      organizationId: org,
+      actorId: user.id,
+      action: 'procurement.reports.generated',
+      resourceType: 'PurchaseRequest',
+      resourceId: org,
+      after: {
+        suppliersTotal: pack.suppliersTotal,
+        purchaseRequestsTotal: pack.purchaseRequestsTotal,
+        goodsReceiptsTotal: pack.goodsReceiptsTotal,
+      },
+    });
+    return pack;
   }
 }

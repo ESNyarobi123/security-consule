@@ -123,6 +123,48 @@ export class AttendanceListItemDto {
   @ApiProperty() syncStatus!: string;
 }
 
+export class GuardDutySiteDto {
+  @ApiProperty() id!: string;
+  @ApiProperty() code!: string;
+  @ApiProperty() name!: string;
+}
+
+export class GuardDutyShiftDto {
+  @ApiProperty() id!: string;
+  @ApiProperty() name!: string;
+  @ApiProperty() startAt!: Date;
+  @ApiProperty() endAt!: Date;
+  @ApiProperty() status!: string;
+  @ApiPropertyOptional() supervisorId?: string | null;
+  @ApiPropertyOptional() supervisorName?: string | null;
+}
+
+export class GuardDutyResponseDto {
+  @ApiProperty() guardId!: string;
+  @ApiProperty() employeeNumber!: string;
+  @ApiPropertyOptional() fullName?: string | null;
+  @ApiPropertyOptional({ type: GuardDutySiteDto })
+  site?: GuardDutySiteDto | null;
+  @ApiPropertyOptional({ type: GuardDutyShiftDto })
+  shift?: GuardDutyShiftDto | null;
+  @ApiPropertyOptional() deploymentId?: string | null;
+  @ApiProperty() note!: string;
+}
+
+export class CreateGuardEmergencyDto {
+  @ApiPropertyOptional() @IsOptional() @IsString() siteId?: string;
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  @MaxLength(500)
+  message?: string;
+  @ApiPropertyOptional({ type: GpsDto })
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => GpsDto)
+  gps?: GpsDto;
+}
+
 export class FieldAlertResponseDto {
   @ApiProperty() id!: string;
   @ApiProperty() organizationId!: string;

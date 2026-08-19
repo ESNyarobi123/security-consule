@@ -35,7 +35,7 @@ Stack: NestJS + Fastify modular monolith. Global prefix **`/api/v1`**. Swagger *
 
 ## Major route prefixes (`/api/v1/…`)
 
-`auth` `users` `roles` · `enterprise/*` · `customers` `contracts` `approvals` `audit` · `guards` `hr/*` · `operations/*` · `attendance` `attendance/alertness|patrols|field-alerts` `field/sync` · `occurrence-book` `incidents` `access` `visitors` `parking` · `recruitment` `payroll` `loans` · `finance/*` · `procurement/*` `inventory` `assets` `documents` · `compliance/*` · `notifications` `devices` `device-api` · reporting on :4005 · webhooks/iclock on :4003 · SSE `events` on :4004
+`auth` `users` `roles` · `enterprise/*` · `customers` `marketing` `callcentre` `contracts` `approvals` `audit` · `guards` `hr/*` · `operations/*` · `attendance` `attendance/alertness|patrols|field-alerts` `field/sync` · `occurrence-book` `incidents` `access` `visitors` `parking` · `recruitment` `payroll` `loans` · `finance/*` · `procurement/*` `inventory` `assets` `documents` · `compliance/*` · `cctv` `notifications` `devices` `device-api` `developer` · reporting on :4005 · webhooks/iclock on :4003 · SSE `events` on :4004
 
 ## Auth & events (reality)
 

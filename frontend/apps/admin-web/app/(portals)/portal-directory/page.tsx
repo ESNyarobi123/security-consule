@@ -298,7 +298,15 @@ export default function PortalDirectoryPage() {
                 Full map of portals, HTTPS subdomains (or local ports), demo logins,
                 and how each surface works. Internal modules share{' '}
                 <span className="text-sky-200">web.hisgc.co.tz</span> — no extra
-                subdomain per HR / Branch / CCTV route.
+                subdomain per HR / Branch / CCTV route. IAM map of accounts ↔
+                portals:{' '}
+                <a
+                  href="/superadmin/portals"
+                  className="font-semibold text-sky-200 underline decoration-sky-500/50 underline-offset-2 hover:text-white"
+                >
+                  Super Admin · Portals
+                </a>
+                .
               </p>
             </div>
 

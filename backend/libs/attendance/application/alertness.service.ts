@@ -518,7 +518,7 @@ export class AlertnessService {
     return { markedMissed: due.length, referenceNumbers };
   }
 
-  async listPending(user: AuthUser, guardId?: string) {
+  async listPending(user: AuthUser, guardId?: string, siteId?: string) {
     const manage = canManageAlertness(user);
     let resolvedGuardId = guardId;
 
@@ -548,12 +548,21 @@ export class AlertnessService {
       resolvedGuardId = target.id;
     }
 
+    if (siteId && manage) {
+      const site = await this.prisma.site.findFirst({
+        where: { id: siteId, organizationId: user.organizationId },
+        select: { id: true },
+      });
+      if (!site) throw new NotFoundException('Site not found');
+      assertSiteAccess(user, siteId);
+    }
+
     const rows = await this.prisma.alertnessCheck.findMany({
       where: {
         organizationId: user.organizationId,
         status: AlertnessStatus.SCHEDULED,
         ...(resolvedGuardId ? { guardId: resolvedGuardId } : {}),
-        ...(manage ? siteScopeWhere(user) : {}),
+        ...(manage ? siteScopeWhere(user, siteId) : {}),
       },
       orderBy: { scheduledAt: 'asc' },
       take: 50,

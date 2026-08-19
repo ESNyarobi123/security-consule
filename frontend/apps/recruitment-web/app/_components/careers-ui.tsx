@@ -142,6 +142,13 @@ export function StatusPill({ status }: { status: string }) {
   );
 }
 
+export function applicantTrackLabel(track?: string | null): string {
+  const t = (track ?? 'GENERAL').toUpperCase();
+  if (t === 'GUARD') return 'Guard applicant';
+  if (t === 'OFFICE') return 'Office staff';
+  return 'General role';
+}
+
 export function formatDate(iso?: string | null, withTime = false) {
   if (!iso) return null;
   const d = new Date(iso);

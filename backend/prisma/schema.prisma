@@ -318,6 +318,7 @@ model Customer {
   serviceRequests     CustomerServiceRequest[]
   complaints          CustomerComplaint[]
   contacts            CustomerContact[]
+  marketingLeads      MarketingLead[]
   organization        Organization             @relation(fields: [organizationId], references: [id])
 
   @@unique([organizationId, code])
@@ -350,6 +351,145 @@ model CustomerContact {
   @@index([organizationId, customerId, isActive])
   @@index([organizationId, customerId, isPrimary])
   @@map("contacts")
+  @@schema("customers")
+}
+
+/**
+ * Portal 35.19 — marketing campaigns (lead source). Not an email engine.
+ */
+model MarketingCampaign {
+  id             String                  @id @default(uuid())
+  organizationId String                  @map("organization_id")
+  code           String
+  name           String
+  channel        MarketingCampaignChannel @default(OTHER)
+  startsAt       DateTime?               @map("starts_at")
+  endsAt         DateTime?               @map("ends_at")
+  isActive       Boolean                 @default(true) @map("is_active")
+  notes          String?
+  createdBy      String                  @map("created_by")
+  createdAt      DateTime                @default(now()) @map("created_at")
+  updatedAt      DateTime                @updatedAt @map("updated_at")
+  leads          MarketingLead[]
+
+  @@unique([organizationId, code])
+  @@index([organizationId, isActive])
+  @@map("marketing_campaigns")
+  @@schema("customers")
+}
+
+/**
+ * Portal 35.19 — BD pipeline lead (prospect before CRM customer).
+ */
+model MarketingLead {
+  id               String              @id @default(uuid())
+  organizationId   String              @map("organization_id")
+  code             String
+  companyName      String              @map("company_name")
+  contactName      String              @map("contact_name")
+  contactEmail     String?             @map("contact_email")
+  contactPhone     String?             @map("contact_phone")
+  source           MarketingLeadSource @default(OTHER)
+  stage            MarketingLeadStage  @default(LEAD)
+  campaignId       String?             @map("campaign_id")
+  referrerName     String?             @map("referrer_name")
+  referrerType     MarketingReferrerType? @map("referrer_type")
+  ownerUserId      String?             @map("owner_user_id")
+  estimatedValue   Decimal?            @map("estimated_value") @db.Decimal(18, 2)
+  currency         String              @default("TZS")
+  notes            String?
+  lostReason       String?             @map("lost_reason")
+  customerId       String?             @map("customer_id")
+  customerCode     String?             @map("customer_code")
+  contractId       String?             @map("contract_id")
+  contractNumber   String?             @map("contract_number")
+  wonAt            DateTime?           @map("won_at")
+  lostAt           DateTime?           @map("lost_at")
+  createdBy        String              @map("created_by")
+  createdAt        DateTime            @default(now()) @map("created_at")
+  updatedAt        DateTime            @updatedAt @map("updated_at")
+  campaign         MarketingCampaign?  @relation(fields: [campaignId], references: [id])
+  customer         Customer?           @relation(fields: [customerId], references: [id])
+  surveys          MarketingSiteSurvey[]
+  quotes           MarketingQuote[]
+  commissions      MarketingCommission[]
+
+  @@unique([organizationId, code])
+  @@index([organizationId, stage])
+  @@index([organizationId, source])
+  @@map("marketing_leads")
+  @@schema("customers")
+}
+
+model MarketingSiteSurvey {
+  id             String                 @id @default(uuid())
+  organizationId String                 @map("organization_id")
+  leadId         String                 @map("lead_id")
+  siteAddress    String                 @map("site_address")
+  scheduledAt    DateTime               @map("scheduled_at")
+  completedAt    DateTime?              @map("completed_at")
+  status         MarketingSurveyStatus  @default(SCHEDULED)
+  outcome        String?
+  officerName    String?                @map("officer_name")
+  notes          String?
+  createdBy      String                 @map("created_by")
+  createdAt      DateTime               @default(now()) @map("created_at")
+  updatedAt      DateTime               @updatedAt @map("updated_at")
+  lead           MarketingLead          @relation(fields: [leadId], references: [id])
+
+  @@index([organizationId, leadId])
+  @@map("marketing_site_surveys")
+  @@schema("customers")
+}
+
+model MarketingQuote {
+  id             String                @id @default(uuid())
+  organizationId String                @map("organization_id")
+  leadId         String                @map("lead_id")
+  quoteNumber    String                @map("quote_number")
+  kind           MarketingQuoteKind
+  status         MarketingQuoteStatus  @default(DRAFT)
+  amount         Decimal               @db.Decimal(18, 2)
+  currency       String                @default("TZS")
+  validUntil     DateTime?             @map("valid_until") @db.Date
+  serviceTypes   String[]              @default([]) @map("service_types")
+  notes          String?
+  sentAt         DateTime?             @map("sent_at")
+  decidedAt      DateTime?             @map("decided_at")
+  createdBy      String                @map("created_by")
+  createdAt      DateTime              @default(now()) @map("created_at")
+  updatedAt      DateTime              @updatedAt @map("updated_at")
+  lead           MarketingLead         @relation(fields: [leadId], references: [id])
+
+  @@unique([organizationId, quoteNumber])
+  @@index([organizationId, leadId])
+  @@map("marketing_quotes")
+  @@schema("customers")
+}
+
+/**
+ * Referral / BD commission register. Payment stays on Finance (35.15) — not payroll.
+ */
+model MarketingCommission {
+  id             String                     @id @default(uuid())
+  organizationId String                     @map("organization_id")
+  leadId         String                     @map("lead_id")
+  beneficiary    String
+  referrerType   MarketingReferrerType?     @map("referrer_type")
+  amount         Decimal                    @db.Decimal(18, 2)
+  currency       String                     @default("TZS")
+  status         MarketingCommissionStatus  @default(PENDING)
+  notes          String?
+  createdBy      String                     @map("created_by")
+  accruedBy      String?                    @map("accrued_by")
+  accruedAt      DateTime?                  @map("accrued_at")
+  createdAt      DateTime                   @default(now()) @map("created_at")
+  updatedAt      DateTime                   @updatedAt @map("updated_at")
+  lead           MarketingLead              @relation(fields: [leadId], references: [id])
+
+  @@index([organizationId, status])
+  @@index([organizationId, leadId])
+  @@map("marketing_commissions")
   @@schema("customers")
 }
 
@@ -402,6 +542,8 @@ model CustomerServiceRequest {
   description     String
   siteId          String?                @map("site_id")
   callbackPhone   String?                @map("callback_phone")
+  incidentId      String?                @map("incident_id")
+  incidentNumber  String?                @map("incident_number")
   createdBy       String                 @map("created_by")
   acknowledgedBy  String?                @map("acknowledged_by")
   acknowledgedAt  DateTime?              @map("acknowledged_at")
@@ -865,6 +1007,10 @@ model CustomerEmployee {
   accessLevel         AccessLevel @default(STANDARD) @map("access_level")
   accessCardRef       String?     @map("access_card_ref")
   biometricRef        String?     @map("biometric_ref")
+  /**
+   * Portal 35.9 — employee confirmed identity details in self-service.
+   */
+  identityVerifiedAt  DateTime?   @map("identity_verified_at")
   isActive            Boolean     @default(true) @map("is_active")
   createdAt           DateTime    @default(now()) @map("created_at")
   updatedAt           DateTime    @updatedAt @map("updated_at")
@@ -931,6 +1077,11 @@ model VisitorAppointment {
   visitorPhone      String?            @map("visitor_phone")
   companyName       String?            @map("company_name")
   purpose           String
+  /**
+   * Portal 35.10 — visit audience kind (guest/contractor/candidate/…).
+   * Not an account role. Catalog enforced in DTO (column stays String).
+   */
+  visitKind         String             @default("VISITOR") @map("visit_kind")
   /**
    * Module 12-D — ID document refs (not MinIO scan)
    */
@@ -1487,6 +1638,10 @@ model JobPosting {
   location       String?
   description    String
   requirements   String?
+  /**
+   * Portal 35.13 — GUARD | OFFICE | GENERAL (not an IAM role)
+   */
+  applicantTrack String           @default("GENERAL") @map("applicant_track")
   status         JobPostingStatus @default(DRAFT)
   publishedAt    DateTime?        @map("published_at")
   closesAt       DateTime?        @map("closes_at")
@@ -1512,6 +1667,10 @@ model JobApplication {
   notes           String?
   employeeId      String?           @map("employee_id")
   screenedBy      String?           @map("screened_by")
+  /**
+   * Portal 35.13 — hire checklist JSON [{code,label,done,completedAt}]
+   */
+  onboardingProgress Json?          @map("onboarding_progress")
   createdAt       DateTime          @default(now()) @map("created_at")
   referenceNumber String            @map("reference_number")
   posting         JobPosting        @relation(fields: [postingId], references: [id])
@@ -1980,6 +2139,7 @@ model Supplier {
   createdBy           String?              @map("created_by")
   purchaseOrders      PurchaseOrder[]
   submissions         SupplierSubmission[]
+  messages            SupplierMessage[]
 
   @@unique([organizationId, code])
   @@index([organizationId, status])
@@ -2015,6 +2175,24 @@ model SupplierSubmission {
   @@index([organizationId, supplierId, status])
   @@index([organizationId, kind, status])
   @@map("supplier_submissions")
+  @@schema("procurement")
+}
+
+/**
+ * Portal 35.17 — supplier ↔ procurement thread (own supplier only; not a ticketing CMS).
+ */
+model SupplierMessage {
+  id             String                 @id @default(uuid())
+  organizationId String                 @map("organization_id")
+  supplierId     String                 @map("supplier_id")
+  authorType     SupplierMessageAuthor  @map("author_type")
+  body           String
+  createdBy      String                 @map("created_by")
+  createdAt      DateTime               @default(now()) @map("created_at")
+  supplier       Supplier               @relation(fields: [supplierId], references: [id])
+
+  @@index([organizationId, supplierId, createdAt])
+  @@map("supplier_messages")
   @@schema("procurement")
 }
 
@@ -2234,6 +2412,8 @@ model AssetAssignment {
   returnReceiptNote    String?   @map("return_receipt_note")
   returnRequestedAt    DateTime? @map("return_requested_at")
   returnRequestedBy    String?   @map("return_requested_by")
+  confirmedAt          DateTime? @map("confirmed_at")
+  confirmedBy          String?   @map("confirmed_by")
   asset                Asset     @relation(fields: [assetId], references: [id])
 
   @@index([assetId, assignedAt])
@@ -2634,6 +2814,35 @@ model ConsentRecord {
   @@schema("compliance")
 }
 
+/**
+ * Portal 35.21 / §32 — thin risk register (not a full DPIA engine).
+ */
+model RiskRegisterItem {
+  id              String       @id @default(uuid())
+  organizationId  String       @map("organization_id")
+  referenceCode   String       @map("reference_code")
+  title           String
+  description     String
+  category        String
+  severity        RiskSeverity
+  status          RiskStatus   @default(OPEN)
+  regulatoryRef   String?      @map("regulatory_ref")
+  mitigation      String?
+  residualNotes   String?      @map("residual_notes")
+  ownerUserId     String?      @map("owner_user_id")
+  createdBy       String       @map("created_by")
+  closedBy        String?      @map("closed_by")
+  closedAt        DateTime?    @map("closed_at")
+  createdAt       DateTime     @default(now()) @map("created_at")
+  updatedAt       DateTime     @updatedAt @map("updated_at")
+
+  @@unique([organizationId, referenceCode])
+  @@index([organizationId, status])
+  @@index([organizationId, severity])
+  @@map("risk_register_items")
+  @@schema("compliance")
+}
+
 model DocumentObject {
   id             String   @id @default(uuid())
   organizationId String   @map("organization_id")
@@ -2681,12 +2890,94 @@ enum CustomerContactRole {
   @@schema("customers")
 }
 
+enum MarketingCampaignChannel {
+  EMAIL
+  SMS
+  WHATSAPP
+  EVENT
+  BRANCH
+  OTHER
+
+  @@schema("customers")
+}
+
+enum MarketingLeadSource {
+  CAMPAIGN
+  REFERRAL
+  WALK_IN
+  BRANCH
+  TENDER
+  OTHER
+
+  @@schema("customers")
+}
+
+enum MarketingLeadStage {
+  LEAD
+  QUALIFIED
+  SURVEY_SCHEDULED
+  SURVEY_DONE
+  QUOTED
+  PROPOSAL
+  WON
+  LOST
+
+  @@schema("customers")
+}
+
+enum MarketingReferrerType {
+  STAFF
+  CUSTOMER
+  PARTNER
+  OTHER
+
+  @@schema("customers")
+}
+
+enum MarketingSurveyStatus {
+  SCHEDULED
+  COMPLETED
+  CANCELLED
+
+  @@schema("customers")
+}
+
+enum MarketingQuoteKind {
+  QUOTATION
+  PROPOSAL
+
+  @@schema("customers")
+}
+
+enum MarketingQuoteStatus {
+  DRAFT
+  SENT
+  ACCEPTED
+  REJECTED
+  EXPIRED
+
+  @@schema("customers")
+}
+
+enum MarketingCommissionStatus {
+  PENDING
+  ACCRUED
+  PAID
+  VOID
+
+  @@schema("customers")
+}
+
 enum ServiceRequestCategory {
   EXTRA_GUARDS
   COVERAGE
   ACCESS
   VISITOR
   BILLING
+  PARKING
+  SUPPLIER
+  PAYROLL
+  INCIDENT
   OTHER
 
   @@schema("customers")
@@ -2861,6 +3152,7 @@ enum AccessMethod {
   QR
   BIOMETRIC
   MANUAL
+  PIN
 
   @@schema("access")
 }
@@ -3141,6 +3433,8 @@ enum DisciplineStatus {
 enum MovementType {
   TRANSFER
   EXIT
+  PROMOTION
+  REDUNDANCY
 
   @@schema("workforce")
 }
@@ -3347,6 +3641,13 @@ enum SupplierPaymentStatus {
   NONE
   UNPAID
   PAID
+
+  @@schema("procurement")
+}
+
+enum SupplierMessageAuthor {
+  SUPPLIER
+  PROCUREMENT
 
   @@schema("procurement")
 }
@@ -3623,6 +3924,24 @@ enum ConsentStatus {
   ACTIVE
   WITHDRAWN
   EXPIRED
+
+  @@schema("compliance")
+}
+
+enum RiskSeverity {
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
+
+  @@schema("compliance")
+}
+
+enum RiskStatus {
+  OPEN
+  MITIGATING
+  ACCEPTED
+  CLOSED
 
   @@schema("compliance")
 }

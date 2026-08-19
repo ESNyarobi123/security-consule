@@ -5,7 +5,7 @@ import {
   BadRequestException,
   ConflictException,
 } from '@nestjs/common';
-import { ShiftStatus, AttendanceMethod, GuardStatus } from '@prisma/client';
+import { ShiftStatus, AttendanceMethod, GuardStatus, AssignmentStatus, DeploymentStatus } from '@prisma/client';
 import {
   PrismaService,
   AuthUser,
@@ -114,6 +114,19 @@ export class AttendanceService {
       where: { id: dto.siteId, organizationId: user.organizationId },
     });
     if (!site) throw new NotFoundException('Site not found');
+    assertSiteAccess(user, dto.siteId);
+
+    if (dto.shiftId) {
+      const shift = await this.prisma.shift.findFirst({
+        where: {
+          id: dto.shiftId,
+          organizationId: user.organizationId,
+          siteId: dto.siteId,
+        },
+        select: { id: true },
+      });
+      if (!shift) throw new NotFoundException('Shift not found');
+    }
 
     const geofenceOk = this.verifyGeofence(
       dto.gps.latitude,
@@ -647,6 +660,124 @@ export class AttendanceService {
         select: { id: true, startAt: true, endAt: true },
       })) ?? undefined
     );
+  }
+
+  async getMyDuty(user: AuthUser): Promise<{
+    guardId: string;
+    employeeNumber: string;
+    fullName: string | null;
+    site: { id: string; code: string; name: string } | null;
+    shift: {
+      id: string;
+      name: string;
+      startAt: Date;
+      endAt: Date;
+      status: string;
+      supervisorId: string | null;
+      supervisorName: string | null;
+    } | null;
+    deploymentId: string | null;
+    note: string;
+  }> {
+    const guard = await this.guards.getByUserId(user.id, user.organizationId);
+    if (!guard) {
+      throw new BadRequestException({
+        error: 'NOT_A_GUARD',
+        message: 'No guard profile is linked to this login',
+      });
+    }
+
+    const deployment = await this.prisma.guardDeployment.findFirst({
+      where: {
+        organizationId: user.organizationId,
+        guardId: guard.id,
+        status: DeploymentStatus.ACTIVE,
+      },
+      orderBy: { startDate: 'desc' },
+    });
+
+    let site: { id: string; code: string; name: string } | null = null;
+    if (deployment) {
+      site = await this.prisma.site.findFirst({
+        where: { id: deployment.siteId, organizationId: user.organizationId },
+        select: { id: true, code: true, name: true },
+      });
+    }
+    if (!site) {
+      const allowed = user.allowedSiteIds.filter(Boolean);
+      if (allowed.length > 0) {
+        site = await this.prisma.site.findFirst({
+          where: {
+            organizationId: user.organizationId,
+            id: { in: allowed },
+            isActive: true,
+          },
+          select: { id: true, code: true, name: true },
+          orderBy: { code: 'asc' },
+        });
+      }
+    }
+
+    const now = new Date();
+    const assignments = await this.prisma.shiftAssignment.findMany({
+      where: {
+        guardId: guard.id,
+        status: { in: [AssignmentStatus.ASSIGNED, AssignmentStatus.CONFIRMED] },
+        shift: {
+          organizationId: user.organizationId,
+          ...(site ? { siteId: site.id } : {}),
+          status: { not: ShiftStatus.CANCELLED },
+        },
+      },
+      include: { shift: true },
+      orderBy: { shift: { startAt: 'asc' } },
+    });
+
+    const current =
+      assignments.find(
+        (a) => a.shift.startAt <= now && a.shift.endAt >= now,
+      ) ??
+      assignments.find((a) => a.shift.startAt > now) ??
+      assignments[assignments.length - 1] ??
+      null;
+
+    let supervisorName: string | null = null;
+    if (current?.supervisorId) {
+      const supervisor = await this.prisma.user.findFirst({
+        where: {
+          id: current.supervisorId,
+          organizationId: user.organizationId,
+        },
+        select: { fullName: true },
+      });
+      supervisorName = supervisor?.fullName ?? null;
+    }
+
+    const note = site
+      ? current
+        ? 'Assigned site and shift for this duty.'
+        : 'Assigned site found. No shift assignment yet — clock-in still records GPS.'
+      : 'No ACTIVE deployment or allowed site. Ask Branch Ops to deploy you.';
+
+    return {
+      guardId: guard.id,
+      employeeNumber: guard.employeeNumber,
+      fullName: user.fullName ?? null,
+      site,
+      shift: current
+        ? {
+            id: current.shift.id,
+            name: current.shift.name,
+            startAt: current.shift.startAt,
+            endAt: current.shift.endAt,
+            status: current.shift.status,
+            supervisorId: current.supervisorId,
+            supervisorName,
+          }
+        : null,
+      deploymentId: deployment?.id ?? null,
+      note,
+    };
   }
 
   private verifyGeofence(

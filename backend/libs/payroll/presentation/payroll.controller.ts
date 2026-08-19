@@ -24,7 +24,9 @@ import {
 import {
   CreatePayrollCycleDto,
   MarkPayrollPaidDto,
+  PayrollCustomerOptionDto,
   PayrollCycleResponseDto,
+  PayrollPortalReportDto,
   PayslipSnapshotResponseDto,
 } from './dto/payroll.dto';
 
@@ -61,6 +63,30 @@ export class PayrollController {
       customerId,
       tenantType,
     });
+  }
+
+  @Get('customer-options')
+  @ApiOperation({
+    summary:
+      'Thin customer picker for customer-managed cycles (id/code/name — not full CRM)',
+  })
+  @ApiOkResponse({ type: [PayrollCustomerOptionDto] })
+  customerOptions(@CurrentUser() user: AuthUser) {
+    return this.service.listCustomerOptions(user.organizationId);
+  }
+
+  @Get('reports')
+  @ApiOperation({
+    summary:
+      'Portal 35.16 live pack from immutable snapshots (OT, allowances, loans, statutory, alertness, e-payroll alerts)',
+  })
+  @ApiOkResponse({ type: PayrollPortalReportDto })
+  portalReport(
+    @CurrentUser() user: AuthUser,
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+  ) {
+    return this.service.getPortalReport(user, from, to);
   }
 
   @Post('cycles/:id/generate')

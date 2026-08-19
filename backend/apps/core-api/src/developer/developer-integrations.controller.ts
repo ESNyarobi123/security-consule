@@ -36,6 +36,53 @@ import { DeveloperIntegrationsService } from './developer-integrations.service';
 export class DeveloperIntegrationsController {
   constructor(private readonly service: DeveloperIntegrationsService) {}
 
+  @Get('catalog')
+  @RequirePermissions('integrations.manage')
+  @ApiOperation({
+    summary:
+      'Portal 35.24 design topics vs honest wiring (WIRED / CONSOLE / DEFERRED)',
+  })
+  catalog() {
+    return this.service.integrationCatalog();
+  }
+
+  @Get('apis')
+  @RequirePermissions('integrations.manage')
+  @ApiOperation({
+    summary: 'Swagger hosts (hostname only) + public API prefix notes',
+  })
+  apiSurface() {
+    return this.service.apiSurface();
+  }
+
+  @Get('systems')
+  @RequirePermissions('integrations.manage')
+  @ApiOperation({
+    summary:
+      'Biometric / CCTV / RFID / ANPR registry counts (metadata — no Nest video)',
+  })
+  systems(@CurrentUser() user: AuthUser) {
+    return this.service.systemsMonitor(user);
+  }
+
+  @Get('export')
+  @RequirePermissions('integrations.manage')
+  @ApiOperation({
+    summary:
+      'CSV export of logs, webhooks, or outbox (safe columns, cap 100)',
+  })
+  @ApiQuery({
+    name: 'kind',
+    required: false,
+    description: 'logs | webhooks | outbox (default logs)',
+  })
+  exportPack(
+    @CurrentUser() user: AuthUser,
+    @Query('kind') kind?: string,
+  ) {
+    return this.service.exportPack(user, kind);
+  }
+
   @Get('services/health')
   @RequirePermissions('integrations.manage')
   @ApiOperation({

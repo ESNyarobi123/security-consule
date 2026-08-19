@@ -51,12 +51,13 @@ const MODULES = [
   { href: '/invoices', label: 'Invoices', desc: 'Billing status', icon: FileText },
   { href: '/guards', label: 'Guards', desc: 'Deployed officers', icon: Shield },
   { href: '/attendance', label: 'Attendance', desc: 'Site coverage', icon: ClipboardList },
-  { href: '/visitors', label: 'Visitors', desc: 'Appointments', icon: Users },
-  { href: '/access', label: 'Staff access', desc: 'Your employees', icon: Users },
+  { href: '/visitors', label: 'Visitors', desc: 'Appointments & gate logs', icon: Users },
+  { href: '/access', label: 'Staff access', desc: 'Employee attendance', icon: Users },
   { href: '/parking', label: 'Parking', desc: 'Vehicles & permits', icon: Car },
   { href: '/incidents', label: 'Incidents', desc: 'Site events', icon: ShieldAlert },
   { href: '/complaints', label: 'Complaints', desc: 'Service complaints', icon: MessageSquareWarning },
   { href: '/requests', label: 'Requests', desc: 'Service tickets', icon: ClipboardList },
+  { href: '/payroll', label: 'Payroll', desc: 'Employee payroll', icon: ClipboardList },
   { href: '/contacts', label: 'Contacts', desc: 'Directory', icon: Users },
   { href: '/documents', label: 'Documents', desc: 'Shared files', icon: FolderOpen },
   { href: '/sla', label: 'SLA', desc: 'Service levels', icon: FileText },
@@ -456,7 +457,7 @@ export default function DashboardPage() {
               ? `${money(payrollReport.netPayInLatestCycle, summary?.currency ?? 'TZS')} latest net`
               : 'No customer payroll cycle yet'
           }
-          href="/reports"
+          href="/payroll"
           tone="amber"
         />
       </div>

@@ -20,6 +20,7 @@ import { useEffect, useMemo, useState } from 'react';
 import {
   CareersHero,
   CareersShell,
+  applicantTrackLabel,
   formatDate,
   postingMentionsDocuments,
   splitJobCopy,
@@ -82,7 +83,7 @@ export default function JobDetailPage() {
         <>
           <CareersHero
             bleed
-            eyebrow={job.department ?? 'HIGHLINK'}
+            eyebrow={`${applicantTrackLabel(job.applicantTrack)} · ${job.department ?? 'HIGHLINK'}`}
             title={job.title}
             subtitle={[
               job.location,

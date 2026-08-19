@@ -25,6 +25,15 @@ export class CreateShiftDto {
   @ApiPropertyOptional() @IsOptional() @IsString() supervisorId?: string;
 }
 
+export class ShiftAssignmentDto {
+  @ApiProperty() id!: string;
+  @ApiProperty() guardId!: string;
+  @ApiPropertyOptional() employeeNumber?: string | null;
+  @ApiProperty() status!: string;
+  @ApiPropertyOptional() supervisorId?: string | null;
+  @ApiProperty() assignedAt!: Date;
+}
+
 export class ShiftResponseDto {
   @ApiProperty() id!: string;
   @ApiProperty() siteId!: string;
@@ -32,6 +41,14 @@ export class ShiftResponseDto {
   @ApiProperty() startAt!: Date;
   @ApiProperty() endAt!: Date;
   @ApiProperty({ enum: ShiftStatus }) status!: ShiftStatus;
+  @ApiPropertyOptional({ type: [ShiftAssignmentDto] })
+  assignments?: ShiftAssignmentDto[];
+}
+
+export class ReplaceShiftAssignmentDto {
+  @ApiProperty({ description: 'Guard profile that takes the post' })
+  @IsString()
+  replacementGuardId!: string;
 }
 
 export class CreateCheckpointDto {
@@ -154,4 +171,29 @@ export class DeploymentResponseDto {
   @ApiProperty() status!: string;
   @ApiProperty() startDate!: Date;
   @ApiPropertyOptional() endDate?: Date | null;
+}
+
+export class CreateBranchPettyCashDto {
+  @ApiProperty()
+  @IsNumber()
+  @Min(1)
+  amount!: number;
+
+  @ApiProperty()
+  @IsString()
+  purpose!: string;
+
+  @ApiProperty({ example: 'TRANSPORT' })
+  @IsString()
+  category!: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  branchId?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  department?: string;
 }

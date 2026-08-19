@@ -51,3 +51,24 @@ export class ApprovalInstanceResponseDto {
   })
   requiredRole?: string | null;
 }
+
+export class WorkflowStepCatalogDto {
+  @ApiProperty() stepOrder!: number;
+  @ApiProperty() name!: string;
+  @ApiProperty() requiredRole!: string;
+  @ApiProperty() minApprovers!: number;
+  @ApiPropertyOptional({ nullable: true })
+  amountThreshold?: number | null;
+}
+
+export class WorkflowCatalogDto {
+  @ApiProperty() id!: string;
+  @ApiProperty() code!: string;
+  @ApiProperty() name!: string;
+  @ApiPropertyOptional({ nullable: true })
+  description?: string | null;
+  @ApiProperty() isActive!: boolean;
+  @ApiProperty() version!: number;
+  @ApiProperty({ type: [WorkflowStepCatalogDto] })
+  steps!: WorkflowStepCatalogDto[];
+}

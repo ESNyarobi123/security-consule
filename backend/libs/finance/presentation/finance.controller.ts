@@ -32,6 +32,7 @@ import {
   CreatePettyCashFundDto,
   CreatePettyCashVoucherDto,
   DisputeInvoiceDto,
+  FinanceReportResponseDto,
   InvoiceAlertsPackDto,
   InvoiceResponseDto,
   InvoiceScanOverdueResultDto,
@@ -276,6 +277,7 @@ export class PaymentVouchersController {
   @ApiOperation({ summary: 'Create payment voucher (AP)' })
   @ApiCreatedResponse({ type: PaymentVoucherResponseDto })
   create(@Body() dto: CreatePaymentVoucherDto, @CurrentUser() user: AuthUser) {
+    assertStaff(user);
     return this.service.createPaymentVoucher(dto, user);
   }
 
@@ -283,22 +285,55 @@ export class PaymentVouchersController {
   @ApiOperation({ summary: 'List payment vouchers' })
   @ApiOkResponse({ type: [PaymentVoucherResponseDto] })
   list(@CurrentUser() user: AuthUser) {
+    assertStaff(user);
     return this.service.listPaymentVouchers(user.organizationId);
   }
 
   @Post(':id/approve')
-  @ApiOperation({ summary: 'Approve payment voucher' })
+  @ApiOperation({
+    summary: 'Approve payment voucher via shared approvals (creator ≠ approver)',
+  })
   approve(@Param('id') id: string, @CurrentUser() user: AuthUser) {
+    assertStaff(user);
     return this.service.approvePaymentVoucher(id, user);
   }
 
   @Post(':id/pay')
-  @ApiOperation({ summary: 'Mark payment voucher as paid' })
+  @ApiOperation({
+    summary: 'Mark payment voucher as paid (approved first; creator ≠ payer)',
+  })
   pay(
     @Param('id') id: string,
     @Body() dto: PayVoucherDto,
     @CurrentUser() user: AuthUser,
   ) {
+    assertStaff(user);
     return this.service.payPaymentVoucher(id, dto.paymentReference, user);
+  }
+}
+
+@ApiTags('Finance — Reports')
+@ApiBearerAuth()
+@UseGuards(PermissionsGuard)
+@RequirePermissions('finance.manage')
+@Controller('finance/reports')
+export class FinanceReportsController {
+  constructor(private readonly service: FinanceOpsService) {}
+
+  @Get()
+  @ApiOperation({
+    summary:
+      'Live finance pack — invoices, customer receipts, parking, petty cash, AP vouchers (no fake KPIs; recon deferred)',
+  })
+  @ApiQuery({ name: 'from', required: false })
+  @ApiQuery({ name: 'to', required: false })
+  @ApiOkResponse({ type: FinanceReportResponseDto })
+  reports(
+    @CurrentUser() user: AuthUser,
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+  ) {
+    assertStaff(user);
+    return this.service.getReports(user, from, to);
   }
 }

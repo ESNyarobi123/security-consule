@@ -35,6 +35,23 @@ export class CreateBranchDto {
   address?: string;
 }
 
+export class UpdateBranchDto {
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  name?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  region?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsBoolean()
+  isActive?: boolean;
+}
+
 export class BranchResponseDto {
   @ApiProperty() id!: string;
   @ApiProperty() organizationId!: string;
@@ -58,6 +75,18 @@ export class CreateDepartmentDto {
   @IsOptional()
   @IsString()
   branchId?: string;
+}
+
+export class UpdateDepartmentDto {
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  name?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsBoolean()
+  isActive?: boolean;
 }
 
 export class DepartmentResponseDto {

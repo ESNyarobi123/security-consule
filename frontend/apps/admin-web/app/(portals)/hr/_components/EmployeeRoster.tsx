@@ -1,7 +1,7 @@
 'use client';
 
 import type { Employee } from '@pssms/api-client';
-import { Link2, Link2Off, Mail, Pencil, Phone, Users } from 'lucide-react';
+import { Link2, Link2Off, Mail, Pencil, Phone, Users, FileText } from 'lucide-react';
 import type { ReactNode } from 'react';
 import {
   avatarColor,
@@ -71,6 +71,7 @@ export function EmployeeRoster({
   loading,
   compact = false,
   onEdit,
+  onFiles,
   toolbar,
   empty,
 }: {
@@ -79,6 +80,7 @@ export function EmployeeRoster({
   /** Overview preview — fewer columns, denser rows */
   compact?: boolean;
   onEdit?: (employee: Employee) => void;
+  onFiles?: (employee: Employee) => void;
   toolbar?: ReactNode;
   empty?: ReactNode;
 }) {
@@ -124,7 +126,7 @@ export function EmployeeRoster({
         {!compact ? <span>ESS</span> : null}
         <span>Status</span>
         {!compact ? <span>Hired</span> : null}
-        {!compact && onEdit ? <span className="text-right"> </span> : null}
+        {!compact && (onEdit || onFiles) ? <span className="text-right"> </span> : null}
       </div>
 
       <ul className="divide-y divide-[#f3f2f1]">
@@ -212,6 +214,36 @@ export function EmployeeRoster({
                             ) : null}
                           </p>
                         ) : null}
+                        {!compact && (onEdit || onFiles) ? (
+                          <div className="mt-2 flex flex-wrap gap-1.5">
+                            {onEdit ? (
+                              <button
+                                type="button"
+                                className="inline-flex items-center gap-1 rounded-md border border-[#e1dfdd] bg-white px-2 py-1 text-[11px] font-semibold text-[#323130]"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  onEdit(r);
+                                }}
+                              >
+                                <Pencil className="h-3 w-3" />
+                                Edit
+                              </button>
+                            ) : null}
+                            {onFiles ? (
+                              <button
+                                type="button"
+                                className="inline-flex items-center gap-1 rounded-md border border-[#e1dfdd] bg-white px-2 py-1 text-[11px] font-semibold text-[#323130]"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  onFiles(r);
+                                }}
+                              >
+                                <FileText className="h-3 w-3" />
+                                Files
+                              </button>
+                            ) : null}
+                          </div>
+                        ) : null}
                       </div>
                     </div>
 
@@ -281,19 +313,34 @@ export function EmployeeRoster({
                         </div>
                       ) : null}
 
-                      {!compact && onEdit ? (
-                        <div className="flex justify-end">
-                          <button
-                            type="button"
-                            className="inline-flex items-center gap-1 rounded-md border border-[#e1dfdd] bg-white px-2.5 py-1.5 text-[11px] font-semibold text-[#323130] shadow-sm transition hover:border-[#0078d4]/50 hover:text-[#0078d4]"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              onEdit(r);
-                            }}
-                          >
-                            <Pencil className="h-3 w-3" />
-                            Edit
-                          </button>
+                      {!compact && (onEdit || onFiles) ? (
+                        <div className="flex justify-end gap-1.5">
+                          {onFiles ? (
+                            <button
+                              type="button"
+                              className="inline-flex items-center gap-1 rounded-md border border-[#e1dfdd] bg-white px-2.5 py-1.5 text-[11px] font-semibold text-[#323130] shadow-sm transition hover:border-[#0078d4]/50 hover:text-[#0078d4]"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                onFiles(r);
+                              }}
+                            >
+                              <FileText className="h-3 w-3" />
+                              Files
+                            </button>
+                          ) : null}
+                          {onEdit ? (
+                            <button
+                              type="button"
+                              className="inline-flex items-center gap-1 rounded-md border border-[#e1dfdd] bg-white px-2.5 py-1.5 text-[11px] font-semibold text-[#323130] shadow-sm transition hover:border-[#0078d4]/50 hover:text-[#0078d4]"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                onEdit(r);
+                              }}
+                            >
+                              <Pencil className="h-3 w-3" />
+                              Edit
+                            </button>
+                          ) : null}
                         </div>
                       ) : null}
                     </div>

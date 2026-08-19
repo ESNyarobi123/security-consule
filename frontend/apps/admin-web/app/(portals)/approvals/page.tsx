@@ -2,9 +2,11 @@
 
 import {
   actOnApproval,
+  approveEmployeeMovement,
   approveLeaveRequest,
   approveRoleChangeRequest,
   listApprovalInstances,
+  rejectEmployeeMovement,
   rejectLeaveRequest,
   rejectRoleChangeRequest,
   type ApprovalInstance,
@@ -116,7 +118,7 @@ export default function ApprovalsPage() {
     setError(null);
     setActing(true);
     try {
-      // Domain routes keep Leave / IAM change rows in sync on final step.
+      // Domain routes keep Leave / IAM / HR movement rows in sync on final step.
       if (row.resourceType === 'LeaveRequest') {
         if (decision === 'APPROVE') {
           await approveLeaveRequest(row.resourceId);
@@ -131,6 +133,15 @@ export default function ApprovalsPage() {
           await approveRoleChangeRequest(row.resourceId);
         } else {
           await rejectRoleChangeRequest(
+            row.resourceId,
+            note?.trim() || 'Rejected from admin queue',
+          );
+        }
+      } else if (row.resourceType === 'EmployeeMovement') {
+        if (decision === 'APPROVE') {
+          await approveEmployeeMovement(row.resourceId);
+        } else {
+          await rejectEmployeeMovement(
             row.resourceId,
             note?.trim() || 'Rejected from admin queue',
           );

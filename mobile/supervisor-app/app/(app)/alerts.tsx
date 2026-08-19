@@ -9,17 +9,44 @@ import {
   View,
 } from 'react-native';
 import { useFocusEffect } from 'expo-router';
+import { useAuth } from '@/hooks/useAuth';
 import { useOnline } from '@/hooks/useOnline';
 import { useSiteDuty } from '@/hooks/useSiteDuty';
 import {
   acknowledgeAlert,
+  escalateAlert,
   listFieldAlerts,
   type FieldAlert,
 } from '@/services/alerts';
 import { guardNameMap, listGuards } from '@/services/guards';
 
+const ESCALATE_ROLES: Record<string, string[]> = {
+  SUPERVISOR: [
+    'SUPERVISOR',
+    'FIELD_OFFICER',
+    'BRANCH_MANAGER',
+    'OPERATIONS_MANAGER',
+    'SUPER_ADMIN',
+  ],
+  FIELD: [
+    'FIELD_OFFICER',
+    'BRANCH_MANAGER',
+    'OPERATIONS_MANAGER',
+    'SUPER_ADMIN',
+  ],
+  BOM: ['BRANCH_MANAGER', 'OPERATIONS_MANAGER', 'SUPER_ADMIN'],
+};
+
+function canEscalateStage(stage: string | undefined, roles: string[]): boolean {
+  if (!stage || stage === 'CONTROL') return false;
+  const allowed = ESCALATE_ROLES[stage];
+  if (!allowed) return false;
+  return roles.some((r) => allowed.includes(r));
+}
+
 export default function AlertsScreen() {
   const online = useOnline();
+  const { user } = useAuth();
   const { site } = useSiteDuty();
   const [rows, setRows] = useState<FieldAlert[]>([]);
   const [names, setNames] = useState<Record<string, string>>({});
@@ -61,7 +88,7 @@ export default function AlertsScreen() {
 
   async function onAck(id: string) {
     if (!online) return;
-    setActing(id);
+    setActing(`ack-${id}`);
     setError(null);
     try {
       await acknowledgeAlert(id);
@@ -73,11 +100,28 @@ export default function AlertsScreen() {
     }
   }
 
+  async function onEscalate(id: string) {
+    if (!online) return;
+    setActing(`esc-${id}`);
+    setError(null);
+    try {
+      await escalateAlert(id);
+      await load();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Escalate failed');
+    } finally {
+      setActing(null);
+    }
+  }
+
   return (
     <View style={styles.root}>
       {!online ? (
-        <Text style={styles.warn}>Offline — Ack disabled.</Text>
+        <Text style={styles.warn}>Offline — Ack / Escalate disabled.</Text>
       ) : null}
+      <Text style={styles.hint}>
+        Escalate SUPERVISOR → FIELD → BOM → CONTROL. Guards cannot escalate.
+      </Text>
       {error ? <Text style={styles.error}>{error}</Text> : null}
       {busy && rows.length === 0 ? (
         <ActivityIndicator color="#0f2744" style={{ marginTop: 24 }} />
@@ -100,6 +144,9 @@ export default function AlertsScreen() {
             const guardLabel = item.guardId
               ? names[item.guardId] ?? item.guardId.slice(0, 8)
               : '—';
+            const canEscalate =
+              !item.acknowledged &&
+              canEscalateStage(item.escalationStage, user?.roles ?? []);
             return (
               <View
                 style={[
@@ -107,31 +154,48 @@ export default function AlertsScreen() {
                   high && !item.acknowledged && styles.rowHigh,
                 ]}
               >
-                <Text
-                  style={[styles.sev, high && styles.sevHigh]}
-                >
+                <Text style={[styles.sev, high && styles.sevHigh]}>
                   {item.severity}
                 </Text>
                 <Text style={styles.type}>{item.alertType}</Text>
                 <Text style={styles.msg}>{item.message}</Text>
                 <Text style={styles.meta}>
                   Guard {guardLabel}
+                  {item.escalationStage ? ` · ${item.escalationStage}` : ''}
                   {item.acknowledged ? ' · acked' : ' · unacked'}
                 </Text>
-                {!item.acknowledged ? (
-                  <Pressable
-                    style={[
-                      styles.btn,
-                      (!online || acting === item.id) && styles.disabled,
-                    ]}
-                    disabled={!online || acting === item.id}
-                    onPress={() => void onAck(item.id)}
-                  >
-                    <Text style={styles.btnText}>
-                      {acting === item.id ? '…' : 'Ack'}
-                    </Text>
-                  </Pressable>
-                ) : null}
+                <View style={styles.actions}>
+                  {!item.acknowledged ? (
+                    <Pressable
+                      style={[
+                        styles.btn,
+                        (!online || acting === `ack-${item.id}`) &&
+                          styles.disabled,
+                      ]}
+                      disabled={!online || acting === `ack-${item.id}`}
+                      onPress={() => void onAck(item.id)}
+                    >
+                      <Text style={styles.btnText}>
+                        {acting === `ack-${item.id}` ? '…' : 'Ack'}
+                      </Text>
+                    </Pressable>
+                  ) : null}
+                  {canEscalate ? (
+                    <Pressable
+                      style={[
+                        styles.btnGhost,
+                        (!online || acting === `esc-${item.id}`) &&
+                          styles.disabled,
+                      ]}
+                      disabled={!online || acting === `esc-${item.id}`}
+                      onPress={() => void onEscalate(item.id)}
+                    >
+                      <Text style={styles.btnGhostText}>
+                        {acting === `esc-${item.id}` ? '…' : 'Escalate'}
+                      </Text>
+                    </Pressable>
+                  ) : null}
+                </View>
               </View>
             );
           }}
@@ -143,6 +207,7 @@ export default function AlertsScreen() {
 
 const styles = StyleSheet.create({
   root: { flex: 1, padding: 16 },
+  hint: { color: '#667788', fontSize: 12, marginBottom: 8 },
   warn: { color: '#8a5a00', marginBottom: 8 },
   error: { color: '#b3261e', marginBottom: 8 },
   empty: { color: '#667788', marginTop: 24, textAlign: 'center' },
@@ -163,14 +228,21 @@ const styles = StyleSheet.create({
   type: { fontWeight: '700', color: '#0f2744', fontSize: 15 },
   msg: { color: '#1a2b3c', fontSize: 14 },
   meta: { color: '#667788', fontSize: 12 },
+  actions: { flexDirection: 'row', gap: 8, marginTop: 6 },
   btn: {
-    alignSelf: 'flex-start',
-    marginTop: 6,
     backgroundColor: '#0f2744',
     borderRadius: 6,
     paddingHorizontal: 14,
     paddingVertical: 8,
   },
   btnText: { color: '#fff', fontWeight: '700', fontSize: 13 },
+  btnGhost: {
+    borderWidth: 1,
+    borderColor: '#0f2744',
+    borderRadius: 6,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+  },
+  btnGhostText: { color: '#0f2744', fontWeight: '700', fontSize: 13 },
   disabled: { opacity: 0.45 },
 });

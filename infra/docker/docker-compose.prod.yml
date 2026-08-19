@@ -174,6 +174,15 @@ services:
         npx prisma db execute --file prisma/migrations/0058_asset_lifecycle_events/migration.sql --schema prisma/schema.prisma &&
         npx prisma db execute --file prisma/migrations/0059_incident_case_management/migration.sql --schema prisma/schema.prisma &&
         npx prisma db execute --file prisma/migrations/0060_consent_records/migration.sql --schema prisma/schema.prisma &&
+        npx prisma db execute --file prisma/migrations/0061_hr_movement_promotion_redundancy/migration.sql --schema prisma/schema.prisma &&
+        npx prisma db execute --file prisma/migrations/0062_asset_assignment_confirm/migration.sql --schema prisma/schema.prisma &&
+        npx prisma db execute --file prisma/migrations/0063_access_method_pin_identity/migration.sql --schema prisma/schema.prisma &&
+        npx prisma db execute --file prisma/migrations/0064_visitor_appointment_visit_kind/migration.sql --schema prisma/schema.prisma &&
+        npx prisma db execute --file prisma/migrations/0065_recruitment_track_onboarding/migration.sql --schema prisma/schema.prisma &&
+        npx prisma db execute --file prisma/migrations/0066_supplier_portal_messages/migration.sql --schema prisma/schema.prisma &&
+        npx prisma db execute --file prisma/migrations/0067_marketing_bd_pipeline/migration.sql --schema prisma/schema.prisma &&
+        npx prisma db execute --file prisma/migrations/0068_support_ticket_categories/migration.sql --schema prisma/schema.prisma &&
+        npx prisma db execute --file prisma/migrations/0069_risk_register/migration.sql --schema prisma/schema.prisma &&
         if [ \"$$PSSMS_RUN_SEED\" = \"true\" ]; then npm run prisma:seed; else echo 'SKIP_SEED (set PSSMS_RUN_SEED=true to seed)'; fi
       "
     depends_on:

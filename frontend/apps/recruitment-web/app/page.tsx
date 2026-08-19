@@ -15,7 +15,12 @@ import {
 } from 'lucide-react';
 import Link from 'next/link';
 import { useEffect, useMemo, useState } from 'react';
-import { CareersHero, CareersShell, formatDate } from './_components/careers-ui';
+import {
+  CareersHero,
+  CareersShell,
+  applicantTrackLabel,
+  formatDate,
+} from './_components/careers-ui';
 
 export default function CareersHomePage() {
   const [jobs, setJobs] = useState<OpenJobPosting[]>([]);
@@ -23,6 +28,9 @@ export default function CareersHomePage() {
   const [loading, setLoading] = useState(true);
   const [query, setQuery] = useState('');
   const [department, setDepartment] = useState('ALL');
+  const [track, setTrack] = useState<'ALL' | 'GUARD' | 'OFFICE' | 'GENERAL'>(
+    'ALL',
+  );
 
   useEffect(() => {
     let cancelled = false;
@@ -57,6 +65,9 @@ export default function CareersHomePage() {
     const q = query.trim().toLowerCase();
     return jobs.filter((j) => {
       if (department !== 'ALL' && j.department !== department) return false;
+      if (track !== 'ALL' && (j.applicantTrack ?? 'GENERAL') !== track) {
+        return false;
+      }
       if (!q) return true;
       return (
         j.title.toLowerCase().includes(q) ||
@@ -65,7 +76,7 @@ export default function CareersHomePage() {
         j.description.toLowerCase().includes(q)
       );
     });
-  }, [jobs, query, department]);
+  }, [jobs, query, department, track]);
 
   const closingSoon = useMemo(() => {
     const soon = Date.now() + 7 * 24 * 60 * 60 * 1000;
@@ -83,7 +94,7 @@ export default function CareersHomePage() {
       <CareersHero
         eyebrow="Portal 35.13 · Careers"
         title="Build your career with HIGHLINK"
-        subtitle="Browse open security and office roles nationwide. Apply online without creating an account, then keep your reference number to follow screening, interview, and hiring updates."
+        subtitle="For job applicants, guard applicants, and office staff applicants. Apply online, upload a CV, track status, and complete onboarding after hire. HR Officers, Recruitment Officers, and interview panels work the inbox in admin-web (HR_OFFICER + recruitment.manage — no extra panel role)."
         actions={
           <>
             <Link
@@ -150,8 +161,8 @@ export default function CareersHomePage() {
                   Find the right role faster
                 </h2>
                 <p className="mt-1 text-sm text-slate-500">
-                  Search by title, location, or department, then open the role to
-                  read full requirements and apply.
+                  Filter by applicant track (guard, office, or general), then
+                  search title or location.
                 </p>
               </div>
               <div className="inline-flex items-center gap-2 rounded-full bg-slate-100 px-3 py-1 text-sm text-slate-500">
@@ -160,6 +171,30 @@ export default function CareersHomePage() {
                   ? 'Loading open positions…'
                   : `${filtered.length} role${filtered.length === 1 ? '' : 's'} shown`}
               </div>
+            </div>
+
+            <div className="mt-4 flex flex-wrap gap-2">
+              {(
+                [
+                  ['ALL', 'All tracks'],
+                  ['GUARD', 'Guard'],
+                  ['OFFICE', 'Office staff'],
+                  ['GENERAL', 'General'],
+                ] as const
+              ).map(([key, label]) => (
+                <button
+                  key={key}
+                  type="button"
+                  onClick={() => setTrack(key)}
+                  className={`rounded-full px-3 py-1.5 text-xs font-semibold ${
+                    track === key
+                      ? 'bg-[#312e81] text-white'
+                      : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                  }`}
+                >
+                  {label}
+                </button>
+              ))}
             </div>
 
             <div className="mt-5 grid gap-3 lg:grid-cols-[minmax(0,1fr)_220px]">
@@ -224,7 +259,7 @@ export default function CareersHomePage() {
                   >
                     <div className="flex items-start justify-between gap-3">
                       <span className="rounded-full bg-indigo-50 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.14em] text-indigo-700 ring-1 ring-indigo-100">
-                        {job.department ?? 'HIGHLINK'}
+                        {applicantTrackLabel(job.applicantTrack)}
                       </span>
                       {closes ? (
                         <span className="inline-flex items-center gap-1 text-xs text-slate-500">
@@ -289,7 +324,7 @@ export default function CareersHomePage() {
                 <span className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-sky-50 text-xs font-semibold text-sky-700">
                   3
                 </span>
-                <span>Track screening, interview, and final hiring status on the status page.</span>
+                <span>Apply online with your CV. Interview notices go to the same email. After hire, complete onboarding steps on the status page.</span>
               </li>
             </ul>
           </section>

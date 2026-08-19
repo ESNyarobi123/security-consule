@@ -97,7 +97,7 @@ export default function HrMovementsPage() {
   return (
     <HrShell
       title="Movements"
-      description="Transfer and exit requests. Approve/reject pending items (creator ≠ approver)."
+      description="Transfer, promotion, exit, and redundancy. Approve/reject pending items (creator ≠ approver). Exit and redundancy terminate employment and end active guard deployments."
       actions={
         <>
           <button
@@ -163,7 +163,7 @@ export default function HrMovementsPage() {
             title={rows.length === 0 ? 'No movements' : 'No matches'}
             description={
               rows.length === 0
-                ? 'Request a transfer or exit for an employee.'
+                ? 'Request a transfer, promotion, exit, or redundancy.'
                 : 'Try another search.'
             }
           />
@@ -222,8 +222,15 @@ function CreateMovementModal({
 
   async function onSubmit(e: FormEvent) {
     e.preventDefault();
-    if (type === 'TRANSFER' && !toDepartment.trim()) {
-      setError('Destination department is required for transfers.');
+    if (
+      (type === 'TRANSFER' || type === 'PROMOTION') &&
+      !toDepartment.trim()
+    ) {
+      setError(
+        type === 'PROMOTION'
+          ? 'New department / role is required for promotions.'
+          : 'Destination department is required for transfers.',
+      );
       return;
     }
     setSubmitting(true);
@@ -234,7 +241,9 @@ function CreateMovementModal({
         type,
         fromDepartment: selected?.department ?? undefined,
         toDepartment:
-          type === 'TRANSFER' ? toDepartment.trim() : undefined,
+          type === 'TRANSFER' || type === 'PROMOTION'
+            ? toDepartment.trim()
+            : undefined,
         effectiveDate,
         reason: reason.trim(),
       });
@@ -249,7 +258,7 @@ function CreateMovementModal({
   return (
     <Modal
       title="New movement"
-      description="Transfer or exit — starts the approval workflow."
+      description="Transfer, promotion, exit, or redundancy — starts the approval workflow."
       onClose={onClose}
       size="lg"
     >
@@ -283,17 +292,23 @@ function CreateMovementModal({
               required
             >
               <option value="TRANSFER">TRANSFER</option>
+              <option value="PROMOTION">PROMOTION</option>
               <option value="EXIT">EXIT</option>
+              <option value="REDUNDANCY">REDUNDANCY</option>
             </select>
           </label>
-          {type === 'TRANSFER' ? (
+          {type === 'TRANSFER' || type === 'PROMOTION' ? (
             <label className="block text-sm font-medium text-[#323130] sm:col-span-2">
-              To department
+              {type === 'PROMOTION' ? 'To department / role' : 'To department'}
               <input
                 value={toDepartment}
                 onChange={(e) => setToDepartment(e.target.value)}
                 className={inputCls}
-                placeholder="Operations / Branch Arusha / …"
+                placeholder={
+                  type === 'PROMOTION'
+                    ? 'New department or role title'
+                    : 'Operations / Branch Arusha / …'
+                }
                 required
               />
               {selected?.department ? (

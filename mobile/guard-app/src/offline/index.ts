@@ -14,6 +14,7 @@ export {
   enqueueAlertnessConfirm,
   enqueueClockIn,
   enqueueClockOut,
+  enqueueIncident,
   enqueuePatrolScan,
   listOutbox,
   listSyncable,

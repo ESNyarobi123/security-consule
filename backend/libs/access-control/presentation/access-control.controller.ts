@@ -11,6 +11,7 @@ import {
   AuthUser,
   CurrentUser,
   PermissionsGuard,
+  Public,
   RequireAnyPermissions,
   RequirePermissions,
   requireCustomerScope,
@@ -23,6 +24,9 @@ import {
   CreateCustomerEmployeeDto,
   CustomerEmployeeResponseDto,
   AccessEntryResponseDto,
+  AccessMethodOptionDto,
+  RegisterCustomerEmployeeAccessDto,
+  RegisterCustomerEmployeeAccessResponseDto,
   SelfAccessSitesResponseDto,
 } from './dto/access.dto';
 
@@ -32,6 +36,27 @@ import {
 @Controller('access')
 export class AccessControlController {
   constructor(private readonly service: AccessControlService) {}
+
+  @Public()
+  @Post('register')
+  @ApiOperation({
+    summary:
+      'Portal 35.9 — employee self-register against an existing customer roster (no new employee record)',
+  })
+  @ApiCreatedResponse({ type: RegisterCustomerEmployeeAccessResponseDto })
+  register(@Body() dto: RegisterCustomerEmployeeAccessDto) {
+    return this.service.register(dto);
+  }
+
+  @Get('method-options')
+  @RequireAnyPermissions('access.self', 'access.manage')
+  @ApiOperation({
+    summary: 'Portal 35.9 — access methods for self check-in (QR/card/bio/PIN)',
+  })
+  @ApiOkResponse({ type: [AccessMethodOptionDto] })
+  methodOptions() {
+    return this.service.accessMethodOptions();
+  }
 
   @Get('me')
   @RequireAnyPermissions('access.self', 'access.manage')
@@ -66,6 +91,16 @@ export class AccessControlController {
   @ApiOkResponse({ type: SelfAccessSitesResponseDto })
   mySites(@CurrentUser() user: AuthUser) {
     return this.service.listMySites(user);
+  }
+
+  @Post('me/verify-identity')
+  @RequirePermissions('access.self')
+  @ApiOperation({
+    summary: 'Portal 35.9 — confirm own identity details on file',
+  })
+  @ApiOkResponse({ type: CustomerEmployeeResponseDto })
+  verifyMyIdentity(@CurrentUser() user: AuthUser) {
+    return this.service.verifyMyIdentity(user);
   }
 
   @Post('employees')
@@ -114,16 +149,22 @@ export class AccessControlController {
   })
   @ApiQuery({ name: 'customerId', required: false })
   @ApiQuery({ name: 'siteId', required: false })
+  @ApiQuery({ name: 'employeeId', required: false })
+  @ApiQuery({ name: 'from', required: false })
+  @ApiQuery({ name: 'to', required: false })
   @ApiOkResponse({ type: [AccessEntryResponseDto] })
   listEntries(
     @CurrentUser() user: AuthUser,
     @Query('customerId') customerId?: string,
     @Query('siteId') siteId?: string,
+    @Query('employeeId') employeeId?: string,
+    @Query('from') from?: string,
+    @Query('to') to?: string,
   ) {
     // Portal JWT always force-scoped; staff may pass customerId optionally.
     const scoped = user.customerId
       ? requireCustomerScope(user, customerId)
       : resolveCustomerScope(user, customerId);
-    return this.service.listEntries(user, scoped, siteId);
+    return this.service.listEntries(user, scoped, siteId, employeeId, from, to);
   }
 }

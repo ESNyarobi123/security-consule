@@ -6,6 +6,9 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useMemo, type ReactNode } from 'react';
 import { AzureGlyph } from '@pssms/ui';
+import { isGovernanceAudience } from './shared';
+
+const GOV_PERMS = ['dpo.manage', 'compliance.manage', 'audit.read'] as const;
 
 export const COMPLIANCE_TABS = [
   {
@@ -13,22 +16,49 @@ export const COMPLIANCE_TABS = [
     label: 'Overview',
     exact: true,
     permissions: ['audit.read'] as const,
+    governanceOnly: false,
   },
   {
     href: '/compliance/policies',
     label: 'Policies',
-    /** CO mutates; DPO/auditor may view via audit.read */
     permissions: ['compliance.manage', 'audit.read'] as const,
+    governanceOnly: false,
   },
   {
     href: '/compliance/consents',
     label: 'Consents',
-    permissions: ['dpo.manage', 'compliance.manage', 'audit.read'] as const,
+    permissions: GOV_PERMS,
+    governanceOnly: true,
   },
   {
     href: '/compliance/breaches',
     label: 'Breaches',
-    permissions: ['dpo.manage', 'compliance.manage', 'audit.read'] as const,
+    permissions: GOV_PERMS,
+    governanceOnly: true,
+  },
+  {
+    href: '/compliance/risks',
+    label: 'Risks',
+    permissions: GOV_PERMS,
+    governanceOnly: true,
+  },
+  {
+    href: '/compliance/access',
+    label: 'Access',
+    permissions: GOV_PERMS,
+    governanceOnly: true,
+  },
+  {
+    href: '/compliance/incidents',
+    label: 'Incidents',
+    permissions: GOV_PERMS,
+    governanceOnly: true,
+  },
+  {
+    href: '/compliance/legal',
+    label: 'Legal',
+    permissions: GOV_PERMS,
+    governanceOnly: true,
   },
 ] as const;
 
@@ -45,9 +75,11 @@ export function ComplianceShell({
 }) {
   const pathname = usePathname();
   const sessionUser = useMemo(() => getSessionUser(), []);
-  const tabs = COMPLIANCE_TABS.filter((tab) =>
-    tab.permissions.some((p) => can(sessionUser, p)),
-  );
+  const tabs = COMPLIANCE_TABS.filter((tab) => {
+    if (!tab.permissions.some((p) => can(sessionUser, p))) return false;
+    if (tab.governanceOnly && !isGovernanceAudience(sessionUser)) return false;
+    return true;
+  });
 
   return (
     <div>
@@ -58,7 +90,7 @@ export function ComplianceShell({
           </span>
           <div className="min-w-0">
             <p className="text-[11px] font-medium uppercase tracking-[0.14em] text-[#605e5c]">
-              Compliance · DPO
+              Portal 35.21 · Compliance · Audit · DPO
             </p>
             <h1 className="text-lg font-semibold leading-tight text-[#1b1a19]">
               {title}

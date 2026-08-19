@@ -10,6 +10,8 @@ import {
   type EmploymentType,
   type OrgUser,
 } from '@pssms/api-client';
+import { getSessionUser } from '@pssms/auth';
+import { can } from '@pssms/permissions';
 import {
   Modal,
   btnPrimary,
@@ -35,6 +37,7 @@ import {
   EMPLOYMENT_TYPES,
   PanelEmpty,
 } from '../_components/shared';
+import { FileCabinet } from '../../administration/_components/FileCabinet';
 
 type StatusFilter = 'all' | 'active' | 'leave' | 'suspended' | 'terminated';
 
@@ -52,8 +55,11 @@ export default function HrEmployeesPage() {
   const [error, setError] = useState<string | null>(null);
   const [createOpen, setCreateOpen] = useState(false);
   const [editRow, setEditRow] = useState<Employee | null>(null);
+  const [filesRow, setFilesRow] = useState<Employee | null>(null);
   const [query, setQuery] = useState('');
   const [filter, setFilter] = useState<StatusFilter>('all');
+  const session = useMemo(() => getSessionUser(), []);
+  const canFiles = can(session, 'documents.manage');
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -101,7 +107,7 @@ export default function HrEmployeesPage() {
   return (
     <HrShell
       title="Employees"
-      description="Company employee registry (separate from customer staff access)."
+      description="Company employee registry and staff file scans (separate from customer staff access)."
       actions={
         <>
           <button
@@ -136,6 +142,7 @@ export default function HrEmployeesPage() {
         rows={filtered}
         loading={loading}
         onEdit={setEditRow}
+        onFiles={canFiles ? setFilesRow : undefined}
         toolbar={
           <div className="flex flex-col gap-2.5 sm:flex-row sm:items-center sm:justify-between">
             <label className="flex min-w-0 flex-1 items-center gap-2 rounded-lg border border-[#e1dfdd] bg-white px-3 py-2 shadow-sm focus-within:border-[#0078d4] focus-within:ring-1 focus-within:ring-[#0078d4]">
@@ -213,6 +220,30 @@ export default function HrEmployeesPage() {
             await refresh();
           }}
         />
+      ) : null}
+
+      {filesRow ? (
+        <Modal
+          title="Staff file"
+          description={`${filesRow.fullName} · ${filesRow.employeeNumber} — employment contract scans, ID, and HR papers. Not customer or contract attachments.`}
+          onClose={() => setFilesRow(null)}
+          size="xl"
+        >
+          <FileCabinet
+            resourceType="Employee"
+            records={[
+              {
+                id: filesRow.id,
+                title: filesRow.fullName,
+                subtitle: `${filesRow.employeeNumber}${filesRow.department ? ` · ${filesRow.department}` : ''}`,
+              },
+            ]}
+            recordsLoading={false}
+            canUpload={canFiles}
+            autoSelectFirst
+            emptyHint="No employee selected."
+          />
+        </Modal>
       ) : null}
     </HrShell>
   );
@@ -443,8 +474,8 @@ function EditEmployeeModal({
             className={inputCls}
           />
           <span className="mt-0.5 block text-[11px] font-normal text-[#605e5c]">
-            Formal transfers use Movements → Transfer (approval). Exit uses
-            Movements → Exit.
+            Formal department or role changes use Movements (transfer,
+            promotion, exit, redundancy) with approval. Creator ≠ approver.
           </span>
         </label>
         <label className="block text-sm font-medium text-[#323130]">

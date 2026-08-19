@@ -2,6 +2,12 @@ import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { PayrollCycleStatus, PayrollTenantType } from '@prisma/client';
 import { IsDateString, IsEnum, IsOptional, IsString, IsUUID } from 'class-validator';
 
+export class PayrollCustomerOptionDto {
+  @ApiProperty() id!: string;
+  @ApiProperty() code!: string;
+  @ApiProperty() name!: string;
+}
+
 export class CreatePayrollCycleDto {
   @ApiProperty()
   @IsDateString()
@@ -65,4 +71,35 @@ export class PayslipSnapshotResponseDto {
   @ApiProperty() netPay!: number;
   @ApiProperty() ruleVersionId!: string;
   @ApiProperty() createdAt!: Date;
+}
+
+export class PayrollMoneyCountDto {
+  @ApiProperty() count!: number;
+  @ApiProperty() amount!: number;
+}
+
+export class PayrollTenantPackDto {
+  @ApiProperty() cycles!: number;
+  @ApiProperty() payslipSnapshots!: number;
+  @ApiProperty() grossPay!: number;
+  @ApiProperty() netPay!: number;
+  @ApiProperty() overtime!: PayrollMoneyCountDto;
+  @ApiProperty() allowances!: PayrollMoneyCountDto;
+  @ApiProperty() loanDeductions!: PayrollMoneyCountDto;
+  @ApiProperty() statutoryNssf!: number;
+  @ApiProperty() statutoryPaye!: number;
+  @ApiProperty() alertnessBonus!: number;
+  @ApiProperty() alertnessPenalty!: number;
+  @ApiProperty() alertnessMissed!: number;
+}
+
+export class PayrollPortalReportDto {
+  @ApiProperty() from!: string;
+  @ApiProperty() to!: string;
+  @ApiProperty() company!: PayrollTenantPackDto;
+  @ApiProperty() customer!: PayrollTenantPackDto;
+  @ApiProperty() approvedNetPay!: number;
+  @ApiProperty() unapprovedSnapshots!: number;
+  @ApiProperty() dueAlertsOpen!: number;
+  @ApiProperty({ type: [String] }) notes!: string[];
 }

@@ -100,14 +100,15 @@ export default function LoginPage() {
             <span className="block text-amber-200">Supplier Access</span>
           </h1>
           <p className="mt-4 text-base text-slate-200/90">
-            Register your company, then sign in. You only see your own profile,
-            purchase orders, quotes, invoices, delivery notes, and payment
-            status.
+            Register your company, upload documents, then sign in. You only see
+            your own profile, issued purchase orders, quotes, invoices, delivery
+            notes, payment status, and procurement messages.
           </p>
           <ul className="mt-6 space-y-2 text-sm text-slate-300">
             <li>• Self-register — procurement approves before trading</li>
             <li>• Upload licence, TIN and VRN on your profile</li>
-            <li>• Submit quotes, invoices, DNs and payment requests</li>
+            <li>• Receive issued POs; submit quotes, invoices and DNs</li>
+            <li>• Track payment status and message procurement</li>
           </ul>
         </div>
 

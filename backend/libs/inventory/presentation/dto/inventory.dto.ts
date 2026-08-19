@@ -1,14 +1,52 @@
-import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import {
+  ApiProperty,
+  ApiPropertyOptional,
+} from '@nestjs/swagger';
 import { StockMovementType } from '@prisma/client';
 import {
   IsBoolean,
   IsEnum,
+  IsIn,
   IsNumber,
   IsOptional,
   IsString,
   IsUUID,
   Min,
 } from 'class-validator';
+
+/** Design §25 / Portal 35.18 stock classes (bulk store — issued serialized kit stays on /assets). */
+export const STOCK_CATEGORIES = [
+  'UNIFORMS',
+  'SECURITY_BOOTS',
+  'SMARTPHONES',
+  'RADIOS',
+  'CCTV',
+  'PARKING',
+  'OFFICE',
+  'ACCESS_DEVICES',
+  'OTHER',
+] as const;
+export type StockCategory = (typeof STOCK_CATEGORIES)[number];
+
+const STOCK_CATEGORY_ALIASES: Record<string, StockCategory> = {
+  BOOTS: 'SECURITY_BOOTS',
+  STATIONERY: 'OFFICE',
+  UNIFORM: 'UNIFORMS',
+  RADIO: 'RADIOS',
+  PHONE: 'SMARTPHONES',
+  SMARTPHONE: 'SMARTPHONES',
+};
+
+export function resolveStockCategory(
+  raw?: string | null,
+): StockCategory | undefined {
+  if (raw == null || !raw.trim()) return undefined;
+  const key = raw.trim().toUpperCase().replace(/[\s-]+/g, '_');
+  if ((STOCK_CATEGORIES as readonly string[]).includes(key)) {
+    return key as StockCategory;
+  }
+  return STOCK_CATEGORY_ALIASES[key];
+}
 
 export class CreateStockItemDto {
   @ApiProperty({ example: 'UNIFORM-L' })
@@ -112,4 +150,25 @@ export class StockMovementResponseDto {
   @ApiPropertyOptional() referenceId?: string | null;
   @ApiPropertyOptional() notes?: string | null;
   @ApiProperty() createdAt!: Date;
+}
+
+export class StockCategoryOptionDto {
+  @ApiProperty() code!: string;
+  @ApiProperty() label!: string;
+}
+
+export class InventoryCategoryCountDto {
+  @ApiProperty() category!: string;
+  @ApiProperty() items!: number;
+  @ApiProperty() onHand!: number;
+}
+
+export class InventoryReportResponseDto {
+  @ApiProperty() itemsTotal!: number;
+  @ApiProperty() itemsActive!: number;
+  @ApiProperty() belowReorder!: number;
+  @ApiProperty() onHandUnits!: number;
+  @ApiProperty({ type: [InventoryCategoryCountDto] })
+  byCategory!: InventoryCategoryCountDto[];
+  @ApiProperty({ type: [String] }) notes!: string[];
 }

@@ -78,6 +78,22 @@ export class CustomerPayrollReportDto {
   @ApiPropertyOptional() latestPeriodEnd?: string | null;
 }
 
+/** Portal 35.8 — live ops vs contract commitments (not percentile SLA). */
+export class CustomerSlaPerformanceDto {
+  @ApiProperty() activeContracts!: number;
+  @ApiProperty() expiringContracts!: number;
+  @ApiProperty() contractsWithSlaTerms!: number;
+  @ApiProperty({ type: [String] }) slaLevels!: string[];
+  @ApiProperty() committedGuards!: number;
+  @ApiProperty() deployedGuards!: number;
+  @ApiProperty() incidentsOpened!: number;
+  @ApiProperty() incidentsStillOpen!: number;
+  @ApiProperty() complaintsOpened!: number;
+  @ApiProperty() complaintsStillOpen!: number;
+  @ApiProperty() visitorGateEntries!: number;
+  @ApiProperty() attendanceClockIns!: number;
+}
+
 export class CustomerReportSiteRowDto {
   @ApiProperty() siteId!: string;
   @ApiProperty() siteCode!: string;
@@ -103,6 +119,8 @@ export class CustomerReportResponseDto {
   parkingReport!: CustomerParkingReportDto;
   @ApiProperty({ type: CustomerPayrollReportDto })
   payrollReport!: CustomerPayrollReportDto;
+  @ApiProperty({ type: CustomerSlaPerformanceDto })
+  slaPerformance!: CustomerSlaPerformanceDto;
   @ApiProperty({ type: [CustomerReportSiteRowDto] })
   bySite!: CustomerReportSiteRowDto[];
   @ApiProperty() generatedAt!: string;

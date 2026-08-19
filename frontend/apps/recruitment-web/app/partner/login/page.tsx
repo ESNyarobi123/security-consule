@@ -26,7 +26,7 @@ const HIGHLIGHTS = [
   {
     Icon: ClipboardList,
     title: 'Guard supply requests',
-    body: 'Submit B2B recruitment requests by criteria to HIGHLINK.',
+    body: 'Specify guard count, qualifications, location, training needs, urgency, and service terms.',
   },
   {
     Icon: FileSearch,

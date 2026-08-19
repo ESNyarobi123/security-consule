@@ -172,34 +172,33 @@ export class CreateGuardSupplyRequestDto {
   @IsDateString()
   endDate?: string;
 
-  @ApiPropertyOptional({
+  @ApiProperty({
     example: 'Valid guard licence, night shift, basic firearms clearance',
   })
-  @IsOptional()
   @IsString()
+  @MinLength(2)
   @MaxLength(2000)
-  qualifications?: string;
+  qualifications!: string;
 
-  @ApiPropertyOptional({
+  @ApiProperty({
     example: 'Site induction and customer SOP briefing before deployment',
   })
-  @IsOptional()
   @IsString()
+  @MinLength(2)
   @MaxLength(2000)
-  trainingNeeds?: string;
+  trainingNeeds!: string;
 
-  @ApiPropertyOptional({ enum: GuardSupplyUrgency })
-  @IsOptional()
+  @ApiProperty({ enum: GuardSupplyUrgency })
   @IsEnum(GuardSupplyUrgency)
-  urgency?: GuardSupplyUrgency;
+  urgency!: GuardSupplyUrgency;
 
-  @ApiPropertyOptional({
+  @ApiProperty({
     example: '12-week cover, billed monthly, HIGHLINK uniforms on site',
   })
-  @IsOptional()
   @IsString()
+  @MinLength(2)
   @MaxLength(2000)
-  serviceTerms?: string;
+  serviceTerms!: string;
 
   @ApiPropertyOptional()
   @IsOptional()
@@ -401,4 +400,18 @@ export class GuardSupplyRequestResponseDto {
 
   @ApiPropertyOptional()
   createdBy?: string | null;
+}
+
+export class GuardSupplyUrgencyOptionDto {
+  @ApiProperty() value!: string;
+  @ApiProperty() label!: string;
+  @ApiProperty() hint!: string;
+}
+
+export class B2bRequestOptionsDto {
+  @ApiProperty({ type: [GuardSupplyUrgencyOptionDto] })
+  urgencies!: GuardSupplyUrgencyOptionDto[];
+
+  @ApiProperty({ type: [String] })
+  requiredFields!: string[];
 }

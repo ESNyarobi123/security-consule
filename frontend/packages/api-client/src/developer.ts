@@ -304,3 +304,74 @@ export const listDeveloperLogs = (
   opts?: { provider?: string; take?: number },
   token?: string,
 ) => listIntegrationLogs(opts?.provider, opts?.take, token);
+
+export type DeveloperCatalogTopic = {
+  id: string;
+  name: string;
+  status: 'WIRED' | 'CONSOLE' | 'DEFERRED' | string;
+  note: string;
+};
+
+export type DeveloperCatalog = {
+  generatedAt: string;
+  topics: DeveloperCatalogTopic[];
+  notes: string[];
+};
+
+export const getDeveloperCatalog = (token?: string) =>
+  coreFetch<DeveloperCatalog>('/api/v1/developer/catalog', { token });
+
+export type DeveloperApiDoc = {
+  code: string;
+  name: string;
+  host: string | null;
+  docsPath: string | null;
+  note: string;
+};
+
+export type DeveloperApiSurface = {
+  generatedAt: string;
+  docs: DeveloperApiDoc[];
+  prefixes: string[];
+  notes: string[];
+};
+
+export const getDeveloperApiSurface = (token?: string) =>
+  coreFetch<DeveloperApiSurface>('/api/v1/developer/apis', { token });
+
+export type DeviceTypeCounts = { total: number; online: number };
+
+export type DeveloperSystemsMonitor = {
+  generatedAt: string;
+  biometric: DeviceTypeCounts;
+  rfid: DeviceTypeCounts;
+  cctv: DeviceTypeCounts;
+  scanners: DeviceTypeCounts;
+  byType: Record<string, DeviceTypeCounts>;
+  anprToday: number;
+  openCctvEvents: number;
+  mqttConnectionDevices: number;
+  nestMqttClient: boolean;
+  notes: string[];
+};
+
+export const getDeveloperSystems = (token?: string) =>
+  coreFetch<DeveloperSystemsMonitor>('/api/v1/developer/systems', { token });
+
+export type DeveloperExportKind = 'logs' | 'webhooks' | 'outbox';
+
+export type DeveloperExportPack = {
+  kind: string;
+  filename: string;
+  csv: string;
+  rowCount: number;
+};
+
+export const exportDeveloperPack = (
+  kind: DeveloperExportKind = 'logs',
+  token?: string,
+) =>
+  coreFetch<DeveloperExportPack>(
+    `/api/v1/developer/export?kind=${encodeURIComponent(kind)}`,
+    { token },
+  );

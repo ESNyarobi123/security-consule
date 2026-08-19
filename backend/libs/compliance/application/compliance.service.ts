@@ -11,8 +11,13 @@ import {
   ConsentLawfulBasis,
   ConsentStatus,
   ConsentSubjectType,
+  ContractStatus,
+  IncidentSeverity,
+  IncidentStatus,
   PolicyStatus,
   Prisma,
+  RiskSeverity,
+  RiskStatus,
 } from '@prisma/client';
 import { PrismaService, AuthUser } from '@pssms/shared';
 import { AuditService } from '@pssms/audit';
@@ -25,13 +30,20 @@ import {
   CreateBreachDto,
   CreateConsentDto,
   CreatePolicyDto,
+  CreateRiskDto,
   DataBreachCaseResponseDto,
   POLICY_CATEGORIES,
   POLICY_CATEGORY_LABELS,
   PolicyDocumentResponseDto,
+  REGULATORY_FRAMEWORKS,
+  REGULATORY_FRAMEWORK_LABELS,
+  RISK_CATEGORIES,
+  RISK_CATEGORY_LABELS,
   RejectPolicyDto,
+  RiskRegisterItemResponseDto,
   UpdateBreachDto,
   UpdatePolicyDto,
+  UpdateRiskDto,
   WithdrawConsentDto,
 } from '../presentation/dto/compliance.dto';
 
@@ -42,6 +54,26 @@ const BREACH_NEXT: Record<BreachStatus, BreachStatus | null> = {
   [BreachStatus.CLOSED]: null,
 };
 
+const RISK_NEXT: Record<RiskStatus, RiskStatus[]> = {
+  [RiskStatus.OPEN]: [RiskStatus.MITIGATING, RiskStatus.ACCEPTED, RiskStatus.CLOSED],
+  [RiskStatus.MITIGATING]: [RiskStatus.ACCEPTED, RiskStatus.CLOSED, RiskStatus.OPEN],
+  [RiskStatus.ACCEPTED]: [RiskStatus.MITIGATING, RiskStatus.CLOSED],
+  [RiskStatus.CLOSED]: [],
+};
+
+const GOVERNANCE_ROLES = new Set([
+  'INTERNAL_AUDITOR',
+  'LEGAL',
+  'CISO',
+  'DPO',
+  'COMPLIANCE_OFFICER',
+  'SUPER_ADMIN',
+  'GENERAL_MANAGER',
+  'CEO',
+  'CMD',
+  'DEPARTMENT_HEAD',
+]);
+
 @Injectable()
 export class ComplianceService {
   constructor(
@@ -49,6 +81,245 @@ export class ComplianceService {
     private readonly audit: AuditService,
     private readonly approvals: ApprovalsService,
   ) {}
+
+  private assertGovernanceMonitor(user: AuthUser): void {
+    if (
+      user.permissions.includes('dpo.manage') ||
+      user.permissions.includes('compliance.manage')
+    ) {
+      return;
+    }
+    if (user.roles.some((r) => GOVERNANCE_ROLES.has(r))) {
+      return;
+    }
+    throw new ForbiddenException({
+      error: 'GOVERNANCE_DESK_DENIED',
+      message: 'IT helpdesk is not the Compliance / DPO / Audit desk',
+    });
+  }
+
+  private assertCanMutateRisk(user: AuthUser): void {
+    if (
+      user.permissions.includes('compliance.manage') ||
+      user.permissions.includes('dpo.manage')
+    ) {
+      return;
+    }
+    throw new ForbiddenException({
+      error: 'RISK_MUTATE_DENIED',
+      message: 'Only Compliance Officer / DPO / CISO may mutate the risk register',
+    });
+  }
+
+  riskCatalogOptions(): {
+    categories: CatalogOptionDto[];
+    frameworks: CatalogOptionDto[];
+    severities: CatalogOptionDto[];
+    statuses: CatalogOptionDto[];
+  } {
+    const labelize = (value: string) =>
+      value
+        .split('_')
+        .map((p) => p.charAt(0) + p.slice(1).toLowerCase())
+        .join(' ');
+    return {
+      categories: RISK_CATEGORIES.map((value) => ({
+        value,
+        label: RISK_CATEGORY_LABELS[value],
+      })),
+      frameworks: REGULATORY_FRAMEWORKS.map((value) => ({
+        value,
+        label: REGULATORY_FRAMEWORK_LABELS[value],
+      })),
+      severities: Object.values(RiskSeverity).map((value) => ({
+        value,
+        label: labelize(value),
+      })),
+      statuses: Object.values(RiskStatus).map((value) => ({
+        value,
+        label: labelize(value),
+      })),
+    };
+  }
+
+  async reports(user: AuthUser) {
+    this.assertGovernanceMonitor(user);
+    const org = user.organizationId;
+    const since = new Date();
+    since.setDate(since.getDate() - 30);
+
+    const [
+      policies,
+      openBreaches,
+      consents,
+      risks,
+      auditEvents30d,
+      loginRows,
+      openIncidents,
+      criticalIncidents,
+      contracts,
+    ] = await Promise.all([
+      this.prisma.policyDocument.groupBy({
+        by: ['status'],
+        where: { organizationId: org },
+        _count: { _all: true },
+      }),
+      this.prisma.dataBreachCase.count({
+        where: { organizationId: org, status: { not: BreachStatus.CLOSED } },
+      }),
+      this.prisma.consentRecord.groupBy({
+        by: ['status'],
+        where: { organizationId: org },
+        _count: { _all: true },
+      }),
+      this.prisma.riskRegisterItem.groupBy({
+        by: ['status'],
+        where: { organizationId: org },
+        _count: { _all: true },
+      }),
+      this.prisma.auditLog.count({
+        where: { organizationId: org, createdAt: { gte: since } },
+      }),
+      this.prisma.loginHistory.findMany({
+        where: {
+          createdAt: { gte: since },
+          user: { organizationId: org },
+        },
+        select: { success: true },
+      }),
+      this.prisma.incident.count({
+        where: {
+          organizationId: org,
+          status: { in: [IncidentStatus.OPEN, IncidentStatus.INVESTIGATING] },
+        },
+      }),
+      this.prisma.incident.count({
+        where: {
+          organizationId: org,
+          severity: IncidentSeverity.CRITICAL,
+          status: { not: IncidentStatus.CLOSED },
+        },
+      }),
+      this.prisma.contract.groupBy({
+        by: ['status'],
+        where: { organizationId: org },
+        _count: { _all: true },
+      }),
+    ]);
+
+    const policiesByStatus = Object.fromEntries(
+      Object.values(PolicyStatus).map((s) => [s, 0]),
+    ) as Record<string, number>;
+    for (const row of policies) policiesByStatus[row.status] = row._count._all;
+
+    const consentsByStatus = Object.fromEntries(
+      Object.values(ConsentStatus).map((s) => [s, 0]),
+    ) as Record<string, number>;
+    for (const row of consents) consentsByStatus[row.status] = row._count._all;
+
+    const risksByStatus = Object.fromEntries(
+      Object.values(RiskStatus).map((s) => [s, 0]),
+    ) as Record<string, number>;
+    for (const row of risks) risksByStatus[row.status] = row._count._all;
+
+    const contractsByStatus = Object.fromEntries(
+      Object.values(ContractStatus).map((s) => [s, 0]),
+    ) as Record<string, number>;
+    for (const row of contracts) contractsByStatus[row.status] = row._count._all;
+
+    const pack = {
+      publishedPolicies: policiesByStatus.PUBLISHED ?? 0,
+      policiesByStatus,
+      openBreaches,
+      activeConsents: consentsByStatus.ACTIVE ?? 0,
+      consentsByStatus,
+      openRisks: (risksByStatus.OPEN ?? 0) + (risksByStatus.MITIGATING ?? 0),
+      risksByStatus,
+      auditEvents30d,
+      loginSuccess30d: loginRows.filter((r) => r.success).length,
+      loginFailed30d: loginRows.filter((r) => !r.success).length,
+      openIncidents,
+      criticalIncidentsOpen: criticalIncidents,
+      contractsByStatus,
+      activeContracts:
+        (contractsByStatus.ACTIVE ?? 0) + (contractsByStatus.EXPIRING ?? 0),
+      generatedAt: new Date().toISOString(),
+      notes: [
+        'Live org-scoped counts. Incident mutate stays Branch Ops; IAM mutate stays Super Admin; contract edit stays CRM/Legal.',
+        'IT_SUPPORT (it1@) is helpdesk — not this desk. DPIA / backup-DR evidence pack deferred.',
+      ],
+    };
+
+    await this.audit.record({
+      organizationId: org,
+      actorId: user.id,
+      action: 'compliance.reports.generated',
+      resourceType: 'ComplianceReport',
+      after: {
+        openBreaches,
+        openRisks: pack.openRisks,
+        openIncidents,
+      },
+    });
+    return pack;
+  }
+
+  async accessReview(user: AuthUser) {
+    this.assertGovernanceMonitor(user);
+    const rows = await this.prisma.loginHistory.findMany({
+      where: { user: { organizationId: user.organizationId } },
+      orderBy: { createdAt: 'desc' },
+      take: 80,
+      select: {
+        id: true,
+        success: true,
+        ipAddress: true,
+        userAgent: true,
+        createdAt: true,
+        user: { select: { email: true, fullName: true, isActive: true } },
+      },
+    });
+    return {
+      rows: rows.map((r) => ({
+        id: r.id,
+        email: r.user.email,
+        fullName: r.user.fullName,
+        isActive: r.user.isActive,
+        success: r.success,
+        ipAddress: r.ipAddress,
+        userAgent: r.userAgent,
+        createdAt: r.createdAt,
+      })),
+      notes: [
+        'Read-only login history for this organization. Suspend / roles / MFA reset stay Super Admin (/superadmin/users).',
+      ],
+    };
+  }
+
+  async incidentMonitor(user: AuthUser) {
+    this.assertGovernanceMonitor(user);
+    const rows = await this.prisma.incident.findMany({
+      where: { organizationId: user.organizationId },
+      orderBy: { createdAt: 'desc' },
+      take: 40,
+      select: {
+        id: true,
+        incidentNumber: true,
+        category: true,
+        severity: true,
+        status: true,
+        title: true,
+        occurredAt: true,
+        createdAt: true,
+      },
+    });
+    return {
+      rows,
+      notes: [
+        'Read-only security incident reports. Investigate/close stays Branch Ops (/branch/incidents) — this portal does not grant incidents.manage.',
+      ],
+    };
+  }
 
   // ── Policies ──────────────────────────────────────────────
 
@@ -334,6 +605,14 @@ export class ComplianceService {
     if (
       user.roles.includes('INTERNAL_AUDITOR') &&
       user.permissions.includes('audit.read')
+    ) {
+      return;
+    }
+    if (
+      user.roles.includes('LEGAL') ||
+      user.roles.includes('CEO') ||
+      user.roles.includes('CMD') ||
+      user.roles.includes('CISO')
     ) {
       return;
     }
@@ -647,6 +926,130 @@ export class ComplianceService {
     return this.toConsentDto(updated, names);
   }
 
+  // ── Risk register (Portal 35.21) ──────────────────────────
+
+  async listRisks(user: AuthUser): Promise<RiskRegisterItemResponseDto[]> {
+    this.assertGovernanceMonitor(user);
+    const rows = await this.prisma.riskRegisterItem.findMany({
+      where: { organizationId: user.organizationId },
+      orderBy: { updatedAt: 'desc' },
+      take: 200,
+    });
+    const names = await this.userNames(
+      user.organizationId,
+      rows.flatMap((r) => [r.createdBy, r.closedBy]),
+    );
+    return rows.map((r) => this.toRiskDto(r, names));
+  }
+
+  async createRisk(
+    dto: CreateRiskDto,
+    user: AuthUser,
+  ): Promise<RiskRegisterItemResponseDto> {
+    this.assertCanMutateRisk(user);
+    const referenceCode = await this.nextRiskRef(user.organizationId);
+    const row = await this.prisma.riskRegisterItem.create({
+      data: {
+        organizationId: user.organizationId,
+        referenceCode,
+        title: dto.title.trim(),
+        description: dto.description.trim(),
+        category: dto.category,
+        severity: dto.severity as RiskSeverity,
+        status: RiskStatus.OPEN,
+        regulatoryRef: dto.regulatoryRef ?? null,
+        mitigation: dto.mitigation?.trim() || null,
+        createdBy: user.id,
+      },
+    });
+    await this.audit.record({
+      organizationId: user.organizationId,
+      actorId: user.id,
+      action: 'risk.recorded',
+      resourceType: 'RiskRegisterItem',
+      resourceId: row.id,
+      after: row,
+    });
+    const names = await this.userNames(user.organizationId, [user.id]);
+    return this.toRiskDto(row, names);
+  }
+
+  async updateRisk(
+    id: string,
+    dto: UpdateRiskDto,
+    user: AuthUser,
+  ): Promise<RiskRegisterItemResponseDto> {
+    this.assertCanMutateRisk(user);
+    const existing = await this.prisma.riskRegisterItem.findFirst({
+      where: { id, organizationId: user.organizationId },
+    });
+    if (!existing) throw new NotFoundException('Risk not found');
+    if (existing.status === RiskStatus.CLOSED) {
+      throw new BadRequestException({ error: 'RISK_CLOSED_IMMUTABLE' });
+    }
+    if (dto.status && dto.status !== existing.status) {
+      const allowed = RISK_NEXT[existing.status];
+      if (!allowed.includes(dto.status as RiskStatus)) {
+        throw new BadRequestException({
+          error: 'INVALID_RISK_TRANSITION',
+          message: `Allowed next: ${allowed.join(', ') || 'none'}`,
+        });
+      }
+    }
+    const closing = dto.status === RiskStatus.CLOSED;
+    if (
+      closing &&
+      existing.createdBy === user.id &&
+      !user.roles.includes('SUPER_ADMIN')
+    ) {
+      throw new ForbiddenException({
+        error: 'CREATOR_CANNOT_CLOSE',
+        message: 'Recorder cannot close their own risk (creator ≠ closer)',
+      });
+    }
+
+    const updated = await this.prisma.riskRegisterItem.update({
+      where: { id },
+      data: {
+        ...(dto.title !== undefined ? { title: dto.title.trim() } : {}),
+        ...(dto.description !== undefined
+          ? { description: dto.description.trim() }
+          : {}),
+        ...(dto.category !== undefined ? { category: dto.category } : {}),
+        ...(dto.severity !== undefined
+          ? { severity: dto.severity as RiskSeverity }
+          : {}),
+        ...(dto.regulatoryRef !== undefined
+          ? { regulatoryRef: dto.regulatoryRef }
+          : {}),
+        ...(dto.mitigation !== undefined
+          ? { mitigation: dto.mitigation?.trim() || null }
+          : {}),
+        ...(dto.residualNotes !== undefined
+          ? { residualNotes: dto.residualNotes?.trim() || null }
+          : {}),
+        ...(dto.status !== undefined
+          ? { status: dto.status as RiskStatus }
+          : {}),
+        ...(closing ? { closedAt: new Date(), closedBy: user.id } : {}),
+      },
+    });
+    await this.audit.record({
+      organizationId: user.organizationId,
+      actorId: user.id,
+      action: closing ? 'risk.closed' : 'risk.updated',
+      resourceType: 'RiskRegisterItem',
+      resourceId: id,
+      before: existing,
+      after: updated,
+    });
+    const names = await this.userNames(user.organizationId, [
+      updated.createdBy,
+      updated.closedBy,
+    ]);
+    return this.toRiskDto(updated, names);
+  }
+
   private async refreshExpiredConsents<
     T extends {
       id: string;
@@ -740,6 +1143,63 @@ export class ComplianceService {
     const match = last?.referenceCode?.match(/(\d+)$/);
     const next = match ? Number(match[1]) + 1 : 1;
     return `CNS-${String(Number.isFinite(next) ? next : 1).padStart(5, '0')}`;
+  }
+
+  private async nextRiskRef(organizationId: string): Promise<string> {
+    const last = await this.prisma.riskRegisterItem.findFirst({
+      where: { organizationId },
+      orderBy: { referenceCode: 'desc' },
+      select: { referenceCode: true },
+    });
+    const match = last?.referenceCode?.match(/(\d+)$/);
+    const next = match ? Number(match[1]) + 1 : 1;
+    return `RISK-${String(Number.isFinite(next) ? next : 1).padStart(5, '0')}`;
+  }
+
+  private toRiskDto(
+    r: {
+      id: string;
+      organizationId: string;
+      referenceCode: string;
+      title: string;
+      description: string;
+      category: string;
+      severity: RiskSeverity;
+      status: RiskStatus;
+      regulatoryRef: string | null;
+      mitigation: string | null;
+      residualNotes: string | null;
+      ownerUserId: string | null;
+      createdBy: string;
+      closedBy: string | null;
+      closedAt: Date | null;
+      createdAt: Date;
+      updatedAt: Date;
+    },
+    names?: Map<string, string>,
+  ): RiskRegisterItemResponseDto {
+    return {
+      id: r.id,
+      organizationId: r.organizationId,
+      referenceCode: r.referenceCode,
+      title: r.title,
+      description: r.description,
+      category: r.category,
+      severity: r.severity,
+      status: r.status,
+      regulatoryRef: r.regulatoryRef,
+      mitigation: r.mitigation,
+      residualNotes: r.residualNotes,
+      ownerUserId: r.ownerUserId,
+      createdBy: r.createdBy,
+      createdByName: names?.get(r.createdBy) ?? null,
+      closedBy: r.closedBy,
+      closedByName: r.closedBy ? names?.get(r.closedBy) ?? null : null,
+      closedAt: r.closedAt,
+      allowedNextStatuses: RISK_NEXT[r.status],
+      createdAt: r.createdAt,
+      updatedAt: r.updatedAt,
+    };
   }
 
   private toPolicyDto(r: {

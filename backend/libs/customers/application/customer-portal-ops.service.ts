@@ -58,6 +58,24 @@ export type CustomerPortalAttendanceSummaryDto = {
   clockedGuards: CustomerPortalAttendanceClockedGuardDto[];
 };
 
+/** Portal 35.8 — gate IN/OUT at this customer's sites only (not org-wide entries). */
+export type CustomerPortalVisitorEntryDto = {
+  id: string;
+  siteId: string;
+  siteCode: string | null;
+  siteName: string | null;
+  gateId: string | null;
+  gateCode: string | null;
+  gateName: string | null;
+  visitorName: string;
+  result: string;
+  direction: string;
+  denyReason: string | null;
+  recordedAt: Date;
+  appointmentId: string | null;
+  referenceNumber: string | null;
+};
+
 @Injectable()
 export class CustomerPortalOpsService {
   constructor(private readonly prisma: PrismaService) {}
@@ -170,6 +188,72 @@ export class CustomerPortalOpsService {
         description: i.description,
         resolvedAt: i.resolvedAt,
         createdAt: i.createdAt,
+      };
+    });
+  }
+
+  async listVisitorEntries(
+    user: AuthUser,
+  ): Promise<CustomerPortalVisitorEntryDto[]> {
+    const sites = await this.customerSites(user);
+    if (sites.length === 0) return [];
+
+    const siteIds = sites.map((s) => s.id);
+    const siteById = new Map(sites.map((s) => [s.id, s]));
+
+    const rows = await this.prisma.visitorEntry.findMany({
+      where: {
+        organizationId: user.organizationId,
+        siteId: { in: siteIds },
+      },
+      orderBy: { recordedAt: 'desc' },
+      take: 100,
+      include: {
+        appointment: {
+          select: {
+            referenceNumber: true,
+          },
+        },
+      },
+    });
+
+    const gateIds = [
+      ...new Set(
+        rows
+          .map((r) => r.gateId)
+          .filter((id): id is string => Boolean(id)),
+      ),
+    ];
+    const gates =
+      gateIds.length === 0
+        ? []
+        : await this.prisma.gate.findMany({
+            where: {
+              organizationId: user.organizationId,
+              id: { in: gateIds },
+            },
+            select: { id: true, code: true, name: true },
+          });
+    const gateById = new Map(gates.map((g) => [g.id, g]));
+
+    return rows.map((e) => {
+      const site = siteById.get(e.siteId);
+      const gate = e.gateId ? gateById.get(e.gateId) : undefined;
+      return {
+        id: e.id,
+        siteId: e.siteId,
+        siteCode: site?.code ?? null,
+        siteName: site?.name ?? null,
+        gateId: e.gateId,
+        gateCode: gate?.code ?? null,
+        gateName: gate?.name ?? null,
+        visitorName: e.visitorName,
+        result: e.result,
+        direction: e.direction,
+        denyReason: e.denyReason,
+        recordedAt: e.recordedAt,
+        appointmentId: e.appointmentId,
+        referenceNumber: e.appointment?.referenceNumber ?? null,
       };
     });
   }

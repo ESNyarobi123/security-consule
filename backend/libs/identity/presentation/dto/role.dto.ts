@@ -67,3 +67,95 @@ export class PermissionResponseDto {
   @ApiProperty()
   module!: string;
 }
+
+export class PortalCatalogRoleLiveDto {
+  @ApiProperty()
+  code!: string;
+
+  @ApiProperty()
+  present!: boolean;
+
+  @ApiProperty()
+  isSystem!: boolean;
+
+  @ApiProperty()
+  userCount!: number;
+
+  @ApiProperty()
+  canEnter!: boolean;
+}
+
+export class PortalCatalogPortalDto {
+  @ApiProperty()
+  id!: string;
+
+  @ApiProperty()
+  name!: string;
+
+  @ApiProperty()
+  primaryUsers!: string;
+
+  @ApiProperty()
+  job!: string;
+
+  @ApiProperty()
+  entry!: string;
+
+  @ApiProperty({ type: [String] })
+  gatePermissions!: string[];
+
+  @ApiProperty({ type: [String] })
+  accountTypeCodes!: string[];
+
+  @ApiProperty({ type: [String] })
+  roleCodes!: string[];
+
+  @ApiProperty()
+  security!: string;
+
+  @ApiProperty()
+  publicAccess!: boolean;
+
+  @ApiProperty({ type: [PortalCatalogRoleLiveDto] })
+  roles!: PortalCatalogRoleLiveDto[];
+
+  @ApiProperty()
+  liveUserCount!: number;
+}
+
+export class PortalCatalogAccountDto {
+  @ApiProperty()
+  code!: string;
+
+  @ApiProperty()
+  name!: string;
+
+  @ApiProperty({ type: [String] })
+  roleCodes!: string[];
+
+  @ApiProperty({ type: [String] })
+  portalIds!: string[];
+
+  @ApiProperty()
+  liveUserCount!: number;
+
+  @ApiProperty()
+  publicOrUnbound!: boolean;
+}
+
+export class PortalCatalogResponseDto {
+  @ApiProperty()
+  organizationId!: string;
+
+  @ApiProperty({ type: [PortalCatalogPortalDto] })
+  portals!: PortalCatalogPortalDto[];
+
+  @ApiProperty({ type: [PortalCatalogAccountDto] })
+  accountTypes!: PortalCatalogAccountDto[];
+
+  @ApiProperty({
+    description: 'Seeded roles in this org that are not listed on a §36 account type',
+    type: [String],
+  })
+  unmappedRoleCodes!: string[];
+}

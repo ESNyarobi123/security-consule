@@ -27,12 +27,14 @@ import {
   CreateJobApplicationDto,
   CreateJobPostingDto,
   HireApplicantDto,
+  JobApplicationReceiptDto,
   JobApplicationPublicStatusDto,
   JobApplicationResponseDto,
   JobPostingPublicDto,
   JobPostingResponseDto,
   RecruitmentPublicConfigDto,
   UpdateApplicationStatusDto,
+  UpdateOnboardingStepDto,
 } from './dto/recruitment.dto';
 
 @ApiTags('Recruitment')
@@ -51,9 +53,14 @@ export class RecruitmentController {
   @Public()
   @Get('postings/open')
   @ApiOperation({ summary: 'List OPEN job postings (public careers)' })
+  @ApiQuery({
+    name: 'track',
+    required: false,
+    enum: ['GUARD', 'OFFICE', 'GENERAL'],
+  })
   @ApiOkResponse({ type: [JobPostingPublicDto] })
-  listOpen() {
-    return this.service.listOpenPostings();
+  listOpen(@Query('track') track?: string) {
+    return this.service.listOpenPostings(track);
   }
 
   @Public()
@@ -94,7 +101,7 @@ export class RecruitmentController {
   @ApiOperation({
     summary: 'Submit job application (public — org from OPEN posting)',
   })
-  @ApiCreatedResponse({ type: JobApplicationResponseDto })
+  @ApiCreatedResponse({ type: JobApplicationReceiptDto })
   apply(@Body() dto: CreateJobApplicationDto, @CurrentUser() user?: AuthUser) {
     return this.service.apply(dto, user?.organizationId);
   }
@@ -169,5 +176,20 @@ export class RecruitmentController {
     @CurrentUser() user: AuthUser,
   ) {
     return this.service.hireApplicant(id, dto, user);
+  }
+
+  @Patch('applications/:id/onboarding')
+  @ApiBearerAuth()
+  @RequirePermissions('recruitment.manage')
+  @ApiOperation({
+    summary: 'Toggle a hire onboarding step (Portal 35.13 · HR / panel)',
+  })
+  @ApiOkResponse({ type: JobApplicationResponseDto })
+  updateOnboarding(
+    @Param('id') id: string,
+    @Body() dto: UpdateOnboardingStepDto,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.service.updateOnboardingStep(id, dto.stepCode, dto.done, user);
   }
 }

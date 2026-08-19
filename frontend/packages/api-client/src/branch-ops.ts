@@ -939,3 +939,112 @@ export const getBranchOpsReport = (
   });
 };
 
+export type BranchDeskSummary = {
+  deployedGuards: number;
+  parkingDenies24h: number;
+  inspectionNotes: number;
+  pendingPettyCash: number;
+  generatedAt: string;
+  notes: string[];
+};
+
+export type BranchStaffRow = {
+  id: string;
+  guardId: string;
+  employeeNumber: string;
+  fullName: string;
+  guardStatus: string;
+  phone: string | null;
+  siteId: string;
+  siteCode: string | null;
+  siteName: string | null;
+  startDate: string;
+  deploymentStatus: string;
+};
+
+export type BranchInspectionRow = {
+  id: string;
+  siteId: string;
+  category: string;
+  description: string;
+  officerId: string;
+  recordedAt: string;
+  approvedBy: string | null;
+  siteCode: string | null;
+  siteName: string | null;
+  officerName: string | null;
+  approvedByName: string | null;
+};
+
+export type BranchParkingMonitor = {
+  occupancy: {
+    occupied: number;
+    spacesActive: number;
+    utilizationPct: number | null;
+  };
+  entries: {
+    id: string;
+    siteId: string;
+    plateNumber: string;
+    direction: string;
+    decision: string;
+    recordedAt: string;
+    siteCode: string | null;
+    siteName: string | null;
+  }[];
+  openViolations: {
+    id: string;
+    siteId: string;
+    plateNumber: string;
+    violationType: string;
+    status: string;
+    createdAt: string;
+    siteCode: string | null;
+    siteName: string | null;
+  }[];
+  notes: string[];
+};
+
+export const getBranchDeskSummary = (token?: string) =>
+  coreFetch<BranchDeskSummary>('/api/v1/operations/desk-summary', { token });
+
+export const getBranchStaffRoster = (token?: string) =>
+  coreFetch<{ rows: BranchStaffRow[]; notes: string[] }>(
+    '/api/v1/operations/staff',
+    { token },
+  );
+
+export const getBranchInspections = (token?: string) =>
+  coreFetch<{ rows: BranchInspectionRow[]; notes: string[] }>(
+    '/api/v1/operations/inspections',
+    { token },
+  );
+
+export const getBranchParkingMonitor = (token?: string) =>
+  coreFetch<BranchParkingMonitor>('/api/v1/operations/parking-monitor', {
+    token,
+  });
+
+export const listBranchPettyCash = (token?: string) =>
+  coreFetch<{
+    rows: import('./finance').PettyCashVoucher[];
+    branches: { id: string; code: string; name: string }[];
+    notes: string[];
+  }>('/api/v1/operations/petty-cash', { token });
+
+export const requestBranchPettyCash = (
+  body: {
+    amount: number;
+    purpose: string;
+    category: string;
+    branchId?: string;
+    department?: string;
+  },
+  token?: string,
+) =>
+  coreFetch<import('./finance').PettyCashVoucher>(
+    '/api/v1/operations/petty-cash',
+    { method: 'POST', body: JSON.stringify(body), token },
+  );
+
+

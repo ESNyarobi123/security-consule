@@ -35,10 +35,11 @@ export class AuditService {
   }
 
   async list(organizationId: string, take = 50) {
+    const capped = Math.min(Math.max(Number(take) || 50, 1), 200);
     return this.prisma.auditLog.findMany({
       where: { organizationId },
       orderBy: { createdAt: 'desc' },
-      take,
+      take: capped,
     });
   }
 }

@@ -178,6 +178,15 @@ export class CustomersController {
     return this.portalOps.listIncidents(user);
   }
 
+  @Get('me/visitor-entries')
+  @ApiOperation({
+    summary:
+      'Customer portal — gate entry/exit log at own sites only (not org-wide)',
+  })
+  meVisitorEntries(@CurrentUser() user: AuthUser) {
+    return this.portalOps.listVisitorEntries(user);
+  }
+
   @Get('me/attendance-summary')
   @ApiOperation({
     summary:

@@ -25,9 +25,11 @@ export class CreateEmployeeMovementDto {
   fromDepartment?: string;
 
   @ApiPropertyOptional({
-    description: 'Required for TRANSFER — destination department',
+    description: 'Required for TRANSFER and PROMOTION — destination department / role',
   })
-  @ValidateIf((o: CreateEmployeeMovementDto) => o.type === MovementType.TRANSFER)
+  @ValidateIf((o: CreateEmployeeMovementDto) =>
+    o.type === MovementType.TRANSFER || o.type === MovementType.PROMOTION,
+  )
   @IsString()
   @MinLength(1)
   toDepartment?: string;

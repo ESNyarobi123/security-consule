@@ -3,7 +3,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { InstallmentStatus, LoanStatus, LoanType, Prisma } from '@prisma/client';
+import { ApprovalStatus, LeaveRequestStatus, LoanStatus, LoanType, Prisma } from '@prisma/client';
 import { PrismaService, AuthUser } from '@pssms/shared';
 import { AuditService } from '@pssms/audit';
 import { ApprovalsService } from '@pssms/approvals';
@@ -18,11 +18,17 @@ import {
   EssApplyLeaveDto,
   EssApplyLoanDto,
   EssApplyPettyCashDto,
+  EssApprovalItemDto,
+  EssAttendancePackDto,
   EssEquipmentResponseDto,
+  EssLeaveBalanceDto,
+  EssLoanBalanceDto,
+  EssNoticeDto,
   EssPayslipResponseDto,
   EssPettyCashVoucherResponseDto,
   EssProfileResponseDto,
   EssRequestItemDto,
+  EssTrainingRowDto,
 } from '../presentation/dto/ess.dto';
 
 const ESS_ITEM_LOAN_TYPES: LoanType[] = [
@@ -68,6 +74,279 @@ export class EssService {
   async listMyLeave(user: AuthUser): Promise<LeaveRequestResponseDto[]> {
     const employee = await this.requireLinkedEmployee(user);
     return this.leave.listLeaveRequests(user.organizationId, employee.id);
+  }
+
+  async listLeaveBalances(user: AuthUser): Promise<EssLeaveBalanceDto[]> {
+    const employee = await this.requireLinkedEmployee(user);
+    const year = new Date().getUTCFullYear();
+    const yearStart = new Date(Date.UTC(year, 0, 1));
+    const yearEnd = new Date(Date.UTC(year + 1, 0, 1));
+    const types = await this.prisma.leaveType.findMany({
+      where: { organizationId: user.organizationId, isActive: true },
+      orderBy: { name: 'asc' },
+    });
+    const requests = await this.prisma.leaveRequest.findMany({
+      where: {
+        organizationId: user.organizationId,
+        employeeId: employee.id,
+        startDate: { gte: yearStart, lt: yearEnd },
+        status: {
+          in: [LeaveRequestStatus.PENDING, LeaveRequestStatus.APPROVED],
+        },
+      },
+    });
+    return types.map((t) => {
+      const mine = requests.filter((r) => r.leaveTypeId === t.id);
+      const usedDays = mine
+        .filter((r) => r.status === LeaveRequestStatus.APPROVED)
+        .reduce((s, r) => s + r.days, 0);
+      const pendingDays = mine
+        .filter((r) => r.status === LeaveRequestStatus.PENDING)
+        .reduce((s, r) => s + r.days, 0);
+      return {
+        leaveTypeId: t.id,
+        code: t.code,
+        name: t.name,
+        annualQuotaDays: t.annualQuotaDays,
+        usedDays,
+        pendingDays,
+        remainingDays: Math.max(0, t.annualQuotaDays - usedDays - pendingDays),
+        year,
+      };
+    });
+  }
+
+  async getLoanBalance(user: AuthUser): Promise<EssLoanBalanceDto> {
+    const employee = await this.requireLinkedEmployee(user);
+    const loans = await this.prisma.employeeLoan.findMany({
+      where: {
+        organizationId: user.organizationId,
+        employeeId: employee.id,
+      },
+      include: { installments: true },
+    });
+    let outstandingBalance = 0;
+    let activeLoanCount = 0;
+    let pendingLoanCount = 0;
+    for (const loan of loans) {
+      if (loan.status === LoanStatus.PENDING_APPROVAL) {
+        pendingLoanCount += 1;
+        continue;
+      }
+      if (
+        loan.status === LoanStatus.COMPLETED ||
+        loan.status === LoanStatus.REJECTED ||
+        loan.status === LoanStatus.CANCELLED
+      ) {
+        continue;
+      }
+      if (
+        loan.status === LoanStatus.ACTIVE ||
+        loan.status === LoanStatus.APPROVED
+      ) {
+        activeLoanCount += 1;
+        if (loan.installments.length > 0) {
+          const due = loan.installments.reduce(
+            (s, i) => s + Number(i.amountDue),
+            0,
+          );
+          const paid = loan.installments.reduce(
+            (s, i) => s + Number(i.amountPaid),
+            0,
+          );
+          outstandingBalance += Math.max(0, due - paid);
+        } else {
+          outstandingBalance += Number(loan.principalAmount);
+        }
+      }
+    }
+    return {
+      outstandingBalance: round2(outstandingBalance),
+      activeLoanCount,
+      pendingLoanCount,
+    };
+  }
+
+  async listMyAttendance(user: AuthUser): Promise<EssAttendancePackDto> {
+    const employee = await this.requireLinkedEmployee(user);
+    if (!employee.guardProfileId) {
+      return {
+        source: 'NONE',
+        note: 'Office attendance is not on this portal. Guard clock-in appears here when HR links a guard profile.',
+        rows: [],
+      };
+    }
+    const rows = await this.prisma.guardAttendance.findMany({
+      where: {
+        organizationId: user.organizationId,
+        guardId: employee.guardProfileId,
+      },
+      orderBy: { clockInAt: 'desc' },
+      take: 40,
+    });
+    const siteIds = [...new Set(rows.map((r) => r.siteId))];
+    const sites = siteIds.length
+      ? await this.prisma.site.findMany({
+          where: { organizationId: user.organizationId, id: { in: siteIds } },
+          select: { id: true, code: true, name: true },
+        })
+      : [];
+    const siteMap = new Map(sites.map((s) => [s.id, s]));
+    return {
+      source: 'GUARD',
+      note: 'Your guard clock-in / clock-out (last 40). Field punch stays on the Guard app.',
+      rows: rows.map((r) => {
+        const site = siteMap.get(r.siteId);
+        return {
+          id: r.id,
+          siteId: r.siteId,
+          siteCode: site?.code ?? null,
+          siteName: site?.name ?? null,
+          clockInAt: r.clockInAt,
+          clockOutAt: r.clockOutAt,
+          clockInMethod: r.clockInMethod,
+          supervisorApproved: r.supervisorApproved,
+        };
+      }),
+    };
+  }
+
+  async listMyTraining(user: AuthUser): Promise<EssTrainingRowDto[]> {
+    const employee = await this.requireLinkedEmployee(user);
+    const rows = await this.prisma.trainingRecord.findMany({
+      where: {
+        organizationId: user.organizationId,
+        employeeId: employee.id,
+      },
+      orderBy: { createdAt: 'desc' },
+      take: 50,
+    });
+    return rows.map((r) => ({
+      id: r.id,
+      title: r.title,
+      provider: r.provider,
+      startDate: r.startDate,
+      endDate: r.endDate,
+      status: r.status,
+      notes: r.notes,
+    }));
+  }
+
+  async listMyNotices(user: AuthUser): Promise<EssNoticeDto[]> {
+    const employee = await this.requireLinkedEmployee(user);
+    const recipients = [
+      ...new Set(
+        [user.email, employee.email, employee.phone].filter(
+          (v): v is string => Boolean(v && v.trim()),
+        ),
+      ),
+    ];
+    if (recipients.length === 0) return [];
+    const rows = await this.prisma.notification.findMany({
+      where: {
+        organizationId: user.organizationId,
+        recipient: { in: recipients },
+      },
+      orderBy: { createdAt: 'desc' },
+      take: 40,
+    });
+    return rows.map((r) => ({
+      id: r.id,
+      templateCode: r.templateCode,
+      channel: r.channel,
+      subject: r.subject,
+      body: r.body,
+      status: r.status,
+      createdAt: r.createdAt,
+    }));
+  }
+
+  async listMyApprovals(user: AuthUser): Promise<EssApprovalItemDto[]> {
+    await this.requireLinkedEmployee(user);
+    const mine = await this.prisma.approvalInstance.findMany({
+      where: {
+        organizationId: user.organizationId,
+        createdBy: user.id,
+      },
+      orderBy: { createdAt: 'desc' },
+      take: 40,
+      include: {
+        version: { include: { steps: { orderBy: { stepOrder: 'asc' } } } },
+      },
+    });
+    const items: EssApprovalItemDto[] = mine.map((i) => {
+      const step = i.version.steps.find(
+        (s) => s.stepOrder === i.currentStepOrder,
+      );
+      return {
+        id: i.id,
+        resourceType: i.resourceType,
+        resourceId: i.resourceId,
+        status: i.status,
+        mine: true,
+        currentStepName: i.status === ApprovalStatus.PENDING ? (step?.name ?? null) : null,
+        requiredRole:
+          i.status === ApprovalStatus.PENDING ? (step?.requiredRole ?? null) : null,
+        createdAt: i.createdAt,
+      };
+    });
+
+    if (user.permissions.includes('approvals.act')) {
+      const isSuperAdmin = user.roles.includes('SUPER_ADMIN');
+      const waitingWhere: Prisma.ApprovalInstanceWhereInput = {
+        organizationId: user.organizationId,
+        status: ApprovalStatus.PENDING,
+        createdBy: { not: user.id },
+      };
+      if (!isSuperAdmin) {
+        const matchingSteps = await this.prisma.workflowStep.findMany({
+          where: { requiredRole: { in: [...user.roles, '*'] } },
+          select: { versionId: true, stepOrder: true },
+        });
+        if (matchingSteps.length === 0) {
+          items.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
+          return items.slice(0, 60);
+        }
+        waitingWhere.OR = matchingSteps.map((s) => ({
+          versionId: s.versionId,
+          currentStepOrder: s.stepOrder,
+        }));
+      }
+      const waiting = await this.prisma.approvalInstance.findMany({
+        where: waitingWhere,
+        orderBy: { createdAt: 'desc' },
+        take: 40,
+        include: {
+          version: { include: { steps: { orderBy: { stepOrder: 'asc' } } } },
+        },
+      });
+      for (const i of waiting) {
+        const step = i.version.steps.find(
+          (s) => s.stepOrder === i.currentStepOrder,
+        );
+        if (
+          !step ||
+          (step.requiredRole !== '*' &&
+            !user.roles.includes(step.requiredRole) &&
+            !isSuperAdmin)
+        ) {
+          continue;
+        }
+        items.push({
+          id: i.id,
+          resourceType: i.resourceType,
+          resourceId: i.resourceId,
+          status: i.status,
+          mine: false,
+          currentStepName: step.name,
+          requiredRole: step.requiredRole,
+          createdAt: i.createdAt,
+        });
+      }
+    }
+
+    items.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
+    return items.slice(0, 60);
   }
 
   async applyLeave(
@@ -494,6 +773,56 @@ export class EssService {
     return this.toEquipmentDto(result.assignment, result.asset);
   }
 
+  async confirmMyEquipment(
+    assignmentId: string,
+    user: AuthUser,
+  ): Promise<EssEquipmentResponseDto> {
+    const employee = await this.requireLinkedEmployee(user);
+
+    const row = await this.prisma.assetAssignment.findFirst({
+      where: {
+        id: assignmentId,
+        organizationId: user.organizationId,
+        returnedAt: null,
+        OR: [
+          { assignedToEmployeeId: employee.id },
+          ...(employee.guardProfileId
+            ? [{ assignedToGuardId: employee.guardProfileId }]
+            : []),
+        ],
+      },
+      include: { asset: true },
+    });
+    if (!row) {
+      throw new NotFoundException(
+        'Active assignment not found for your profile',
+      );
+    }
+    if (row.confirmedAt) {
+      return this.toEquipmentDto(row, row.asset);
+    }
+
+    const updated = await this.prisma.assetAssignment.update({
+      where: { id: row.id },
+      data: { confirmedAt: new Date(), confirmedBy: user.id },
+      include: { asset: true },
+    });
+
+    await this.audit.record({
+      organizationId: user.organizationId,
+      actorId: user.id,
+      action: 'asset.assignment.confirmed',
+      resourceType: 'AssetAssignment',
+      resourceId: updated.id,
+      after: {
+        assetId: updated.assetId,
+        confirmedAt: updated.confirmedAt,
+      },
+    });
+
+    return this.toEquipmentDto(updated, updated.asset);
+  }
+
   private toEquipmentDto(
     a: {
       id: string;
@@ -501,6 +830,7 @@ export class EssService {
       assignedAt: Date;
       notes: string | null;
       returnRequestedAt?: Date | null;
+      confirmedAt?: Date | null;
     },
     asset: {
       assetTag: string;
@@ -509,6 +839,7 @@ export class EssService {
     },
   ): EssEquipmentResponseDto {
     const requested = !!a.returnRequestedAt;
+    const confirmed = !!a.confirmedAt;
     return {
       assignmentId: a.id,
       assetId: a.assetId,
@@ -517,8 +848,13 @@ export class EssService {
       category: asset.category,
       assignedAt: a.assignedAt,
       notes: a.notes,
-      status: requested ? 'RETURN_REQUESTED' : 'ASSIGNED',
+      status: requested
+        ? 'RETURN_REQUESTED'
+        : confirmed
+          ? 'CONFIRMED'
+          : 'ASSIGNED',
       returnRequestedAt: a.returnRequestedAt ?? null,
+      confirmedAt: a.confirmedAt ?? null,
     };
   }
 

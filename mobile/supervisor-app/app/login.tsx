@@ -38,9 +38,9 @@ export default function LoginScreen() {
   return (
     <View style={styles.root}>
       <Text style={styles.brand}>HIGHLINK</Text>
-      <Text style={styles.title}>Supervisor Ops</Text>
+      <Text style={styles.title}>Supervisor</Text>
       <Text style={styles.sub}>
-        Live site board · online-first · core-api :4001
+        Site Supervisors · Field Officers · Branch Ops · Operations Managers
       </Text>
 
       <View style={styles.form}>
@@ -63,7 +63,7 @@ export default function LoginScreen() {
           editable={!busy}
         />
         <Text style={styles.hint}>
-          Requires SUPERVISOR or SUPER_ADMIN · demo site SITE-WAREHOUSE-A
+          Demo: supervisor1@ · field1@ · bom1@ · ops1@ / ChangeMe123!
         </Text>
         {error ? <Text style={styles.error}>{error}</Text> : null}
         <Pressable

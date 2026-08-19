@@ -2,6 +2,7 @@ import {
   IsDateString,
   IsEmail,
   IsEnum,
+  IsIn,
   IsOptional,
   IsString,
   IsUUID,
@@ -16,6 +17,40 @@ import {
   VisitorEntryDirection,
   VisitorIdType,
 } from '@prisma/client';
+
+/**
+ * Portal 35.10 visit audience (design: guests, visitors, contractors,
+ * consultants, interview candidates, suppliers visiting, customer-approved).
+ * Not IAM roles — E4/E5/E6 logins stay CONTRACTOR / CONSULTANT / SERVICE_PROVIDER.
+ */
+export const VISIT_KINDS = [
+  'GUEST',
+  'VISITOR',
+  'CONTRACTOR',
+  'CONSULTANT',
+  'INTERVIEW_CANDIDATE',
+  'SUPPLIER_VISIT',
+  'CUSTOMER_APPROVED',
+] as const;
+
+export type VisitKind = (typeof VISIT_KINDS)[number];
+
+export const VISIT_KIND_LABELS: Record<VisitKind, string> = {
+  GUEST: 'Guest',
+  VISITOR: 'Visitor',
+  CONTRACTOR: 'Contractor',
+  CONSULTANT: 'Consultant',
+  INTERVIEW_CANDIDATE: 'Interview candidate',
+  SUPPLIER_VISIT: 'Supplier visiting office',
+  CUSTOMER_APPROVED: 'Customer-approved visitor',
+};
+
+export const VISIT_KIND_OPTIONS = VISIT_KINDS.map((value) => ({
+  value,
+  label: VISIT_KIND_LABELS[value],
+}));
+
+export const HOST_KINDS = ['PORTAL', 'EMPLOYEE'] as const;
 
 export class CreateVisitorAppointmentDto {
   @ApiPropertyOptional({ description: 'Required for public pre-registration' })
@@ -61,6 +96,12 @@ export class CreateVisitorAppointmentDto {
   @MinLength(3)
   purpose!: string;
 
+  /** Portal 35.10 — visit kind catalog; defaults to VISITOR when omitted. */
+  @ApiPropertyOptional({ enum: VISIT_KINDS })
+  @IsOptional()
+  @IsIn([...VISIT_KINDS], { message: 'INVALID_VISIT_KIND' })
+  visitKind?: VisitKind;
+
   @ApiPropertyOptional()
   @IsOptional()
   @IsUUID()
@@ -69,11 +110,13 @@ export class CreateVisitorAppointmentDto {
   @ApiPropertyOptional()
   @IsOptional()
   @IsString()
+  @MaxLength(120)
   hostName?: string;
 
   @ApiPropertyOptional()
   @IsOptional()
   @IsString()
+  @MaxLength(32)
   vehiclePlate?: string;
 
   /** Module 12-D — both or neither with idNumber */
@@ -210,6 +253,9 @@ export class VisitorAppointmentResponseDto {
 
   @ApiProperty()
   purpose!: string;
+
+  @ApiProperty({ enum: VISIT_KINDS })
+  visitKind!: string;
 
   /** Module 12-D */
   @ApiPropertyOptional({ enum: VisitorIdType, nullable: true })
@@ -377,6 +423,64 @@ export class GateVerifyResponseDto {
 }
 
 /** Module 12-B — successful exit punch response (no FieldAlert). */
+
+export class VisitorPublicHostDto {
+  @ApiProperty()
+  id!: string;
+
+  @ApiProperty()
+  fullName!: string;
+
+  @ApiProperty({ enum: HOST_KINDS })
+  kind!: (typeof HOST_KINDS)[number];
+}
+
+export class VisitorPublicSiteDto {
+  @ApiProperty()
+  id!: string;
+
+  @ApiProperty()
+  code!: string;
+
+  @ApiProperty()
+  name!: string;
+}
+
+export class VisitorVisitKindOptionDto {
+  @ApiProperty({ enum: VISIT_KINDS })
+  value!: VisitKind;
+
+  @ApiProperty()
+  label!: string;
+}
+
+/** Public visitor-web booking catalog (org-scoped; no emails/phones). */
+export class VisitorPublicConfigDto {
+  @ApiProperty()
+  organizationId!: string;
+
+  @ApiProperty()
+  customerId!: string;
+
+  @ApiProperty({ description: 'Default site (first / warehouse demo)' })
+  siteId!: string;
+
+  @ApiProperty()
+  customerCode!: string;
+
+  @ApiProperty()
+  siteCode!: string;
+
+  @ApiProperty({ type: [VisitorPublicSiteDto] })
+  sites!: VisitorPublicSiteDto[];
+
+  @ApiProperty({ type: [VisitorPublicHostDto] })
+  hosts!: VisitorPublicHostDto[];
+
+  @ApiProperty({ type: [VisitorVisitKindOptionDto] })
+  visitKinds!: VisitorVisitKindOptionDto[];
+}
+
 export class GateExitResponseDto {
   @ApiProperty()
   allowed!: boolean;

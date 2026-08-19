@@ -1,326 +1,304 @@
 'use client';
 
 import {
-  listContracts,
-  listCustomers,
-  listEmployees,
-  listGuards,
-  listInvoices,
-  type Contract,
-  type Customer,
-  type Employee,
-  type Guard,
-  type Invoice,
+  getOrganization,
+  listApprovalWorkflows,
+  listAuditLogs,
+  listBranches,
+  listDepartments,
+  listPermissions,
+  listRoles,
+  listUsers,
+  type ApprovalWorkflow,
+  type AuditLog,
+  type Branch,
+  type Department,
+  type OrganizationProfile,
 } from '@pssms/api-client';
-import {
-  CategorySection,
-  ConsoleSectionHeader,
-  GlassCard,
-  type GlyphName,
-  MetricStatCard,
-  QuickTile,
-  ServiceTile,
-  moduleVisual,
-} from '@pssms/ui';
+import { getSessionUser } from '@pssms/auth';
+import { can } from '@pssms/permissions';
+import { GlassCard, MetricStatCard } from '@pssms/ui';
 import {
   Building2,
-  FileText,
-  Receipt,
+  KeyRound,
+  Layers,
+  Shield,
   Users,
-  UserSquare2,
 } from 'lucide-react';
 import Link from 'next/link';
 import { useEffect, useMemo, useState } from 'react';
+import { formatApiError } from './_components/shared';
 
-// ── Azure-style quick access (top service row) ──
-const QUICK: { title: string; href: string }[] = [
-  { title: 'Users', href: '/superadmin/users' },
-  { title: 'Customers', href: '/superadmin/customers' },
-  { title: 'Contracts', href: '/superadmin/contracts' },
-  { title: 'Guards', href: '/operations/guards' },
-  { title: 'Branch Ops', href: '/branch' },
-  { title: 'Devices', href: '/devices' },
-  { title: 'HR', href: '/hr' },
-  { title: 'Finance', href: '/finance' },
-  { title: 'Operations', href: '/operations' },
-  { title: 'Approvals', href: '/approvals' },
-  { title: 'Compliance', href: '/compliance' },
-];
-
-// ── Services catalog (Azure "all services" categories) ──
-type CatalogItem = {
+const CONTROLS: {
   title: string;
   href: string;
   description: string;
-  badge?: string;
-  external?: boolean;
-  glyph?: GlyphName;
-  color?: string;
-};
-
-const CATALOG: { category: string; items: CatalogItem[] }[] = [
+  permission: string;
+}[] = [
   {
-    category: 'Customers & Contracts',
-    items: [
-      { title: 'Customers', href: '/superadmin/customers', description: 'Client organizations, sites & contacts' },
-      { title: 'Contracts', href: '/superadmin/contracts', description: 'SLAs, pricing, renewals & termination' },
-      { title: 'Marketing', href: '/marketing', description: 'Leads, campaigns & customer growth' },
-      { title: 'Call Centre', href: '/callcentre', description: 'Visitor bookings & customer service' },
-    ],
+    title: 'Users',
+    href: '/superadmin/users',
+    description: 'Accounts, roles, suspend, MFA reset, site ACL',
+    permission: 'users.manage',
   },
   {
-    category: 'People & Workforce',
-    items: [
-      { title: 'HR', href: '/hr', description: 'Employees, leave, discipline & training' },
-      { title: 'My ESS', href: '/ess', description: 'Self-service profile, leave, loans & equipment' },
-      { title: 'Payroll', href: '/payroll', description: 'Company & customer payroll snapshots' },
-      { title: 'Recruitment', href: 'http://localhost:3004', external: true, badge: 'Portal', description: 'Applicant screening & interviews', glyph: 'user-check', color: '#65a30d' },
-    ],
+    title: 'Roles & permissions',
+    href: '/superadmin/roles',
+    description: 'Custom roles and permission sets (system roles locked)',
+    permission: 'users.manage',
   },
   {
-    category: 'Operations & Field',
-    items: [
-      { title: 'Ops Console', href: '/operations', description: 'Deployment, shifts & control room' },
-      { title: 'Guards', href: '/operations/guards', description: 'Guard registry, status & deployable roster' },
-      { title: 'CCTV & AI', href: '/cctv', description: 'Monitoring wall, ANPR & AI alert metadata' },
-      { title: 'Devices', href: '/devices', description: 'Gateways, biometric/RFID/QR field devices' },
-      { title: 'Branch Ops', href: '/branch', description: 'Branch control room overview & KPIs' },
-      { title: 'Sites', href: '/branch/sites', description: 'Org sites under branch operations' },
-      { title: 'Deployments', href: '/branch/deployments', description: 'Assign guards to sites; end ACTIVE tours' },
-      { title: 'Shifts', href: '/branch/shifts', description: 'Shift templates & duty windows' },
-      { title: 'Attendance board', href: '/branch/attendance', description: 'Today clock-in, alertness & open alerts' },
-      { title: 'Field alerts', href: '/branch/alerts', description: 'Acknowledge missed alertness / field signals' },
-      { title: 'Occurrence book', href: '/branch/eob', description: 'EOB create/list, history, approve & attachments' },
-      { title: 'Patrols', href: '/branch/patrols', description: 'Checkpoints create/list & patrol scans' },
-      { title: 'Incidents', href: '/branch/incidents', description: 'Incident create/list & status escalate' },
-    ],
+    title: 'Portals & accounts',
+    href: '/superadmin/portals',
+    description: '§35 applications and §36 account types vs live IAM',
+    permission: 'users.manage',
   },
   {
-    category: 'Finance & Billing',
-    items: [
-      { title: 'Finance', href: '/finance', description: 'Invoices, receipts & reconciliation' },
-      { title: 'Petty cash', href: '/finance/petty-cash', description: 'Approve, reimburse & MinIO receipts' },
-      { title: 'Assets', href: '/assets', description: 'Register, assign equipment to staff/guards' },
-      { title: 'Equipment returns', href: '/assets/returns', description: 'Storekeeper confirm ESS return requests' },
-      { title: 'Loans', href: '/loans', description: 'Employee loans approve & schedules' },
-      { title: 'Procurement', href: '/procurement', description: 'Suppliers, POs, GRN & inventory' },
-    ],
+    title: 'Branches & departments',
+    href: '/superadmin/organization',
+    description: 'Company profile and enterprise master data',
+    permission: 'users.manage',
   },
   {
-    category: 'Governance & Platform',
-    items: [
-      { title: 'Users', href: '/superadmin/users', description: 'Create staff, assign roles, suspend / reactivate (Module 5)' },
-      { title: 'Approvals', href: '/approvals', description: 'Creator ≠ approver workflow engine' },
-      { title: 'Compliance', href: '/compliance', description: 'DPO audit overview, policies & breaches' },
-      { title: 'Policies', href: '/compliance/policies', description: 'Policy register & publish workflow' },
-      { title: 'Breach register', href: '/compliance/breaches', description: 'Data/security breach tracking' },
-      { title: 'Developer', href: '/developer', description: 'Integrations overview, health, webhooks' },
-      { title: 'Executive', href: 'http://localhost:3001', external: true, badge: 'External', description: 'CMD / CEO / GM executive dashboards', glyph: 'file-chart', color: '#0284c7' },
-    ],
+    title: 'Modules',
+    href: '/superadmin/modules',
+    description: 'Live RBAC module catalog from permission registry',
+    permission: 'users.manage',
+  },
+  {
+    title: 'Approval levels',
+    href: '/superadmin/approval-levels',
+    description: 'Workflow steps and required roles (creator ≠ approver)',
+    permission: 'users.manage',
+  },
+  {
+    title: 'Security settings',
+    href: '/superadmin/security',
+    description: 'Organization password policy (GM / Super Admin write)',
+    permission: 'users.manage',
+  },
+  {
+    title: 'System logs',
+    href: '/superadmin/audit',
+    description: 'Append-only audit trail for this organization',
+    permission: 'audit.read',
+  },
+  {
+    title: 'Integrations',
+    href: '/superadmin/integrations',
+    description: 'Adapters, webhooks, and developer health',
+    permission: 'users.manage',
+  },
+  {
+    title: 'Backups',
+    href: '/superadmin/backups',
+    description: 'Infrastructure volumes — orchestrated restore deferred',
+    permission: 'users.manage',
   },
 ];
 
 export default function SuperadminPage() {
-  const [customers, setCustomers] = useState<Customer[]>([]);
-  const [contracts, setContracts] = useState<Contract[]>([]);
-  const [guards, setGuards] = useState<Guard[]>([]);
-  const [employees, setEmployees] = useState<Employee[]>([]);
-  const [invoices, setInvoices] = useState<Invoice[]>([]);
+  const session = useMemo(() => getSessionUser(), []);
+  const [org, setOrg] = useState<OrganizationProfile | null>(null);
+  const [users, setUsers] = useState(0);
+  const [roles, setRoles] = useState(0);
+  const [branches, setBranches] = useState<Branch[]>([]);
+  const [departments, setDepartments] = useState<Department[]>([]);
+  const [workflows, setWorkflows] = useState<ApprovalWorkflow[]>([]);
+  const [audit, setAudit] = useState<AuditLog[]>([]);
+  const [modules, setModules] = useState(0);
   const [loading, setLoading] = useState(true);
-  const [filter, setFilter] = useState('');
-  const [openCats, setOpenCats] = useState<Record<string, boolean>>(
-    Object.fromEntries(CATALOG.map((c) => [c.category, true])),
-  );
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     void Promise.all([
-      listCustomers().catch(() => [] as Customer[]),
-      listContracts().catch(() => [] as Contract[]),
-      listGuards().catch(() => [] as Guard[]),
-      listEmployees().catch(() => [] as Employee[]),
-      listInvoices().catch(() => [] as Invoice[]),
-    ]).then(([c, ct, g, e, inv]) => {
-      setCustomers(c);
-      setContracts(ct);
-      setGuards(g);
-      setEmployees(e);
-      setInvoices(inv);
+      getOrganization().catch(() => null),
+      listUsers().catch(() => []),
+      listRoles().catch(() => []),
+      listBranches().catch(() => [] as Branch[]),
+      listDepartments().catch(() => [] as Department[]),
+      listApprovalWorkflows().catch(() => [] as ApprovalWorkflow[]),
+      listAuditLogs(40).catch(() => [] as AuditLog[]),
+      listPermissions().catch(() => []),
+    ]).then(([o, u, r, b, d, w, a, p]) => {
+      setOrg(o);
+      setUsers(u.length);
+      setRoles(r.length);
+      setBranches(b);
+      setDepartments(d);
+      setWorkflows(w);
+      setAudit(a);
+      setModules(new Set(p.map((x) => x.module)).size);
+      setLoading(false);
+    }).catch((err) => {
+      setError(formatApiError(err));
       setLoading(false);
     });
   }, []);
 
-  const openInvoices = useMemo(
-    () =>
-      invoices.filter((i) => i.status !== 'PAID' && i.status !== 'VOIDED')
-        .length,
-    [invoices],
-  );
-
-  const empty =
-    !loading &&
-    customers.length + contracts.length + guards.length + invoices.length === 0;
-
-  // Filtered catalog (search across all categories)
-  const q = filter.trim().toLowerCase();
-  const filteredCatalog = CATALOG.map((cat) => ({
-    ...cat,
-    items: q
-      ? cat.items.filter(
-          (it) =>
-            it.title.toLowerCase().includes(q) ||
-            it.description.toLowerCase().includes(q) ||
-            cat.category.toLowerCase().includes(q),
-        )
-      : cat.items,
-  })).filter((cat) => cat.items.length > 0);
-  const totalServices = CATALOG.reduce((s, c) => s + c.items.length, 0);
-
-  function tileVisual(it: CatalogItem): { glyph: GlyphName; color: string } {
-    if (it.glyph && it.color) return { glyph: it.glyph, color: it.color };
-    return moduleVisual(it.href);
-  }
+  const visibleControls = CONTROLS.filter((c) => can(session, c.permission));
+  const activeBranches = branches.filter((b) => b.isActive).length;
 
   return (
     <div className="mx-auto max-w-[1400px] space-y-6">
-      {/* Header strip */}
       <div className="flex flex-wrap items-end justify-between gap-4">
         <div>
           <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[#0078d4]">
-            Platform command
+            Portal 35.1 · Super Admin
           </p>
           <h1 className="mt-0.5 text-[26px] font-semibold tracking-tight text-[#1b1a19] md:text-[30px]">
-            HIGHLINK Console
+            Platform administration
           </h1>
-          <p className="mt-1 max-w-xl text-[13px] text-[#605e5c]">
-            Live snapshot across customers, contracts, field force, billing and
-            governance — plus every module in one place.
+          <p className="mt-1 max-w-2xl text-[13px] text-[#605e5c]">
+            Users, roles, permissions, branches, departments, modules, approval
+            levels, security settings, system logs, integrations, backups, and
+            audit controls — for Super Admin, ICT, CISO, and authorized senior
+            ICT staff.
+            {org ? ` Organization: ${org.name} (${org.code}).` : ''}
           </p>
         </div>
-        <div className="flex flex-wrap items-center gap-2">
-          <span className="inline-flex items-center gap-1.5 rounded-full border border-[#c7e0f4] bg-[#eff6fc] px-3 py-1 text-[11px] font-medium text-[#0067b8]">
-            <span
-              className={`h-1.5 w-1.5 rounded-full bg-[#0078d4] ${loading ? 'animate-pulse' : ''}`}
-            />
-            {loading ? 'Syncing live data…' : 'Live data'}
-          </span>
-          <Link
-            href="/superadmin/customers"
-            className="inline-flex items-center gap-1.5 rounded-md bg-[#0078d4] px-4 py-2 text-[12.5px] font-semibold text-white shadow-sm transition hover:bg-[#106ebe]"
-          >
-            + Manage customers
-          </Link>
-        </div>
+        <span className="inline-flex items-center gap-1.5 rounded-full border border-[#c7e0f4] bg-[#eff6fc] px-3 py-1 text-[11px] font-medium text-[#0067b8]">
+          <span
+            className={`h-1.5 w-1.5 rounded-full bg-[#0078d4] ${loading ? 'animate-pulse' : ''}`}
+          />
+          {loading ? 'Syncing…' : 'Live data'}
+        </span>
       </div>
 
-      {empty ? (
+      {error ? (
         <div className="rounded-md border-l-4 border-amber-400 bg-amber-50 px-4 py-3 text-sm text-amber-800">
-          No records returned from the API yet. If you were idle, your session
-          may have refreshed — reload the page. Otherwise seed data with{' '}
-          <code className="rounded bg-amber-100 px-1">npm run prisma:seed</code>.
+          {error}
         </div>
       ) : null}
 
-      {/* KPI row — the "card box" (all real counts) */}
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
-        <Link href="/superadmin/customers" className="block h-full">
-          <MetricStatCard label="Customers" value={customers.length} accent="sky" icon={<Building2 className="h-5 w-5" />} />
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <Link href="/superadmin/users" className="block h-full">
+          <MetricStatCard
+            label="Users"
+            value={users}
+            accent="sky"
+            icon={<Users className="h-5 w-5" />}
+          />
         </Link>
-        <Link href="/superadmin/contracts" className="block h-full">
-          <MetricStatCard label="Contracts" value={contracts.length} accent="violet" icon={<FileText className="h-5 w-5" />} />
+        <Link href="/superadmin/roles" className="block h-full">
+          <MetricStatCard
+            label="Roles"
+            value={roles}
+            accent="violet"
+            icon={<KeyRound className="h-5 w-5" />}
+          />
         </Link>
-        <Link href="/operations/guards" className="block h-full">
-          <MetricStatCard label="Guards" value={guards.length} accent="emerald" icon={<Users className="h-5 w-5" />} />
+        <Link href="/superadmin/organization" className="block h-full">
+          <MetricStatCard
+            label="Active branches"
+            value={activeBranches}
+            accent="emerald"
+            icon={<Building2 className="h-5 w-5" />}
+          />
         </Link>
-        <Link href="/hr" className="block h-full">
-          <MetricStatCard label="Employees" value={employees.length} accent="amber" icon={<UserSquare2 className="h-5 w-5" />} />
-        </Link>
-        <Link href="/finance" className="block h-full">
-          <MetricStatCard label="Open invoices" value={openInvoices} accent="rose" icon={<Receipt className="h-5 w-5" />} />
+        <Link href="/superadmin/modules" className="block h-full">
+          <MetricStatCard
+            label="RBAC modules"
+            value={modules}
+            accent="amber"
+            icon={<Layers className="h-5 w-5" />}
+          />
         </Link>
       </div>
 
-      {/* Quick access — Azure services row */}
-      <GlassCard glow="none">
-        <ConsoleSectionHeader title="HIGHLINK services" action={{ label: 'All services', href: '#catalog' }} />
-        <div className="no-scrollbar flex gap-1 overflow-x-auto pb-1">
-          <Link
-            href="/superadmin/customers"
-            className="group flex w-[104px] shrink-0 flex-col items-center gap-2 rounded-xl border border-dashed border-[#c7e0f4] px-2 py-3 text-center transition hover:border-[#0078d4] hover:bg-[#f3f9fd]"
-          >
-            <span className="flex h-10 w-10 items-center justify-center rounded-[10px] bg-[#eff6fc] text-[#0078d4]">
-              <svg aria-hidden viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" className="h-5 w-5"><path d="M12 5v14M5 12h14" /></svg>
-            </span>
-            <span className="text-[11.5px] font-medium leading-tight text-[#0067b8] group-hover:underline">
-              Create a resource
-            </span>
-          </Link>
-          {QUICK.map((item) => {
-            const vis = moduleVisual(item.href);
-            return <QuickTile key={item.href} title={item.title} href={item.href} glyph={vis.glyph} color={vis.color} />;
-          })}
-        </div>
-      </GlassCard>
-
-      {/* Services catalog */}
-      <GlassCard glow="none">
-        <div id="catalog" className="scroll-mt-16" />
-        <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-          <div>
-            <h2 className="text-[15px] font-semibold text-[#1b1a19]">All services</h2>
-            <p className="text-[12px] text-[#605e5c]">
-              {q ? `${filteredCatalog.reduce((s, c) => s + c.items.length, 0)} of ${totalServices}` : totalServices} modules
-            </p>
-          </div>
-          <label className="flex w-full max-w-xs items-center gap-2 rounded-md border border-[#8a8886] bg-white px-3 py-1.5 text-[13px] focus-within:border-[#0078d4] focus-within:ring-1 focus-within:ring-[#0078d4]">
-            <svg aria-hidden viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} className="h-4 w-4 text-[#605e5c]"><circle cx="11" cy="11" r="7" /><path d="m21 21-4.3-4.3" strokeLinecap="round" /></svg>
-            <input
-              value={filter}
-              onChange={(e) => setFilter(e.target.value)}
-              placeholder="Filter services"
-              aria-label="Filter services"
-              className="w-full bg-transparent text-[#323130] outline-none placeholder:text-[#605e5c]"
-            />
-          </label>
-        </div>
-
-        <div className="space-y-4">
-          {filteredCatalog.length === 0 ? (
-            <p className="py-8 text-center text-sm text-[#605e5c]">
-              No modules match “{filter}”.
-            </p>
-          ) : (
-            filteredCatalog.map((cat) => (
-              <CategorySection
-                key={cat.category}
-                title={cat.category}
-                count={cat.items.length}
-                open={q ? true : (openCats[cat.category] ?? true)}
-                onToggle={() =>
-                  setOpenCats((prev) => ({
-                    ...prev,
-                    [cat.category]: !(prev[cat.category] ?? true),
-                  }))
-                }
+      <div className="grid gap-4 lg:grid-cols-3">
+        <GlassCard glow="none" className="lg:col-span-2">
+          <h2 className="text-[15px] font-semibold text-[#1b1a19]">
+            Platform controls
+          </h2>
+          <p className="mt-1 text-xs text-[#605e5c]">
+            Design §35.1 — one portal, live APIs, least privilege per tab.
+          </p>
+          <div className="mt-4 grid gap-3 sm:grid-cols-2">
+            {visibleControls.map((item) => (
+              <Link
+                key={item.href}
+                href={item.href}
+                className="rounded-lg border border-[#e1dfdd] bg-white p-3 transition hover:border-[#0078d4] hover:bg-[#f3f9fd]"
               >
-                {cat.items.map((it) => {
-                  const vis = tileVisual(it);
-                  return (
-                    <ServiceTile
-                      key={it.title}
-                      title={it.title}
-                      description={it.description}
-                      href={it.href}
-                      glyph={vis.glyph}
-                      color={vis.color}
-                      badge={it.badge}
-                      external={it.external}
-                    />
-                  );
-                })}
-              </CategorySection>
-            ))
-          )}
+                <p className="text-sm font-semibold text-[#1b1a19]">
+                  {item.title}
+                </p>
+                <p className="mt-1 text-xs text-[#605e5c]">{item.description}</p>
+              </Link>
+            ))}
+          </div>
+        </GlassCard>
+
+        <GlassCard glow="none">
+          <h2 className="text-[15px] font-semibold text-[#1b1a19]">
+            Approval workflows
+          </h2>
+          <p className="mt-1 text-xs text-[#605e5c]">
+            {workflows.length} definitions · {departments.length} departments
+          </p>
+          <ul className="mt-3 max-h-64 space-y-2 overflow-y-auto text-sm">
+            {workflows.length === 0 ? (
+              <li className="text-[#605e5c]">No workflows in scope.</li>
+            ) : (
+              workflows.slice(0, 8).map((wf) => (
+                <li key={wf.id} className="flex justify-between gap-2">
+                  <span className="font-medium text-[#323130]">{wf.name}</span>
+                  <span className="tabular-nums text-xs text-[#605e5c]">
+                    {wf.steps.length} steps
+                  </span>
+                </li>
+              ))
+            )}
+          </ul>
+          <Link
+            href="/superadmin/approval-levels"
+            className="mt-3 inline-block text-xs font-medium text-[#0078d4]"
+          >
+            View approval levels
+          </Link>
+        </GlassCard>
+      </div>
+
+      <GlassCard glow="none">
+        <div className="mb-3 flex items-center justify-between gap-2">
+          <h2 className="text-[15px] font-semibold text-[#1b1a19]">
+            Recent audit events
+          </h2>
+          <Link
+            href="/superadmin/audit"
+            className="text-xs font-medium text-[#0078d4]"
+          >
+            Open logs
+          </Link>
         </div>
+        {audit.length === 0 ? (
+          <p className="text-sm text-[#605e5c]">No audit rows returned.</p>
+        ) : (
+          <ul className="divide-y divide-[#edebe9] text-sm">
+            {audit.slice(0, 8).map((row) => (
+              <li
+                key={row.id}
+                className="flex flex-wrap items-center justify-between gap-2 py-2"
+              >
+                <span className="font-mono text-xs text-[#323130]">
+                  {row.action}
+                </span>
+                <span className="text-xs text-[#605e5c]">
+                  {row.resourceType}
+                  {row.createdAt
+                    ? ` · ${new Date(row.createdAt).toLocaleString()}`
+                    : ''}
+                </span>
+              </li>
+            ))}
+          </ul>
+        )}
+        <p className="mt-3 flex items-center gap-1.5 text-[11px] text-[#605e5c]">
+          <Shield className="h-3.5 w-3.5" />
+          Creator ≠ approver remains on domain workflows. Backup orchestration
+          and per-org module switches are not invented here.
+        </p>
       </GlassCard>
     </div>
   );

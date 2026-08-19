@@ -1,7 +1,7 @@
 import { newClientEventId } from '@/lib/uuid';
 import { apiRequest } from '@/services/api';
 import { getFieldGps } from '@/services/location';
-import { resolveDemoSite } from '@/services/sites';
+import { resolveDutySite } from '@/services/sites';
 
 export type ParkingPatrolObservationType =
   | 'IRREGULARITY'
@@ -38,12 +38,12 @@ export type CreateParkingPatrolInput = {
 export async function submitParkingPatrolObservation(
   input: CreateParkingPatrolInput,
 ): Promise<ParkingPatrolObservation> {
-  const site = await resolveDemoSite();
+  const site = await resolveDutySite();
   const gps = await getFieldGps({ allowFallback: true }).catch(() => null);
   const clientEventId = newClientEventId();
 
   return apiRequest<ParkingPatrolObservation>(
-    '/api/v1/parking/patrol-observations',
+    '/parking/patrol-observations',
     {
       method: 'POST',
       body: {
@@ -65,6 +65,6 @@ export async function listMyParkingPatrolObservations(): Promise<
   ParkingPatrolObservation[]
 > {
   return apiRequest<ParkingPatrolObservation[]>(
-    '/api/v1/parking/patrol-observations',
+    '/parking/patrol-observations',
   );
 }

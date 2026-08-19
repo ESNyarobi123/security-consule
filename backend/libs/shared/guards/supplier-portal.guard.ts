@@ -22,6 +22,7 @@ const ALLOWED_GET_EXACT = ['/api/v1/procurement/purchase-orders'];
 const ALLOWED_POST_PATHS = [
   /^\/api\/v1\/auth\/change-password$/,
   /^\/api\/v1\/procurement\/suppliers\/me\/submissions$/,
+  /^\/api\/v1\/procurement\/suppliers\/me\/messages$/,
   /^\/api\/v1\/documents\/upload$/,
 ];
 

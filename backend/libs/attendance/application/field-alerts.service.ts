@@ -13,10 +13,17 @@ import {
 } from '@pssms/shared';
 import { AuditService } from '@pssms/audit';
 import { GuardsService } from '@pssms/workforce';
-import { FieldAlertResponseDto } from '../presentation/dto/attendance.dto';
+import { OutboxWriterService } from '@pssms/notifications';
+import { DeploymentStatus } from '@prisma/client';
+import {
+  CreateGuardEmergencyDto,
+  FieldAlertResponseDto,
+} from '../presentation/dto/attendance.dto';
 import {
   canEscalateFieldAlertStage,
   nextFieldAlertEscalationStage,
+  FIELD_ALERT_ESCALATION_INITIAL,
+  GUARD_EMERGENCY_ALERT_TYPE,
   type FieldAlertEscalationStage,
 } from '../domain/field-alert.constants';
 
@@ -49,6 +56,7 @@ export class FieldAlertsService {
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
     private readonly guards: GuardsService,
+    private readonly outbox: OutboxWriterService,
   ) {}
 
   /**
@@ -104,6 +112,112 @@ export class FieldAlertsService {
     });
 
     return rows.map((r) => this.toDto(r));
+  }
+
+  async raiseGuardEmergency(
+    dto: CreateGuardEmergencyDto,
+    user: AuthUser,
+  ): Promise<FieldAlertResponseDto> {
+    const guard = await this.guards.getByUserId(user.id, user.organizationId);
+    if (!guard) {
+      throw new BadRequestException({
+        error: 'NOT_A_GUARD',
+        message: 'No guard profile is linked to this login',
+      });
+    }
+
+    let siteId = dto.siteId?.trim() || undefined;
+    if (!siteId) {
+      const deployment = await this.prisma.guardDeployment.findFirst({
+        where: {
+          organizationId: user.organizationId,
+          guardId: guard.id,
+          status: DeploymentStatus.ACTIVE,
+        },
+        orderBy: { startDate: 'desc' },
+        select: { siteId: true },
+      });
+      siteId = deployment?.siteId;
+    }
+    if (!siteId && user.allowedSiteIds[0]) {
+      siteId = user.allowedSiteIds[0];
+    }
+    if (!siteId) {
+      throw new BadRequestException({
+        error: 'SITE_REQUIRED',
+        message: 'No assigned site for this emergency',
+      });
+    }
+
+    const site = await this.prisma.site.findFirst({
+      where: { id: siteId, organizationId: user.organizationId },
+      select: { id: true, code: true, name: true },
+    });
+    if (!site) throw new NotFoundException('Site not found');
+    assertSiteAccess(user, site.id);
+
+    const since = new Date(Date.now() - 5 * 60 * 1000);
+    const recent = await this.prisma.fieldAlert.findFirst({
+      where: {
+        organizationId: user.organizationId,
+        guardId: guard.id,
+        alertType: GUARD_EMERGENCY_ALERT_TYPE,
+        acknowledged: false,
+        createdAt: { gte: since },
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+    if (recent) return this.toDto(recent);
+
+    const gps = dto.gps
+      ? ` GPS ${dto.gps.latitude.toFixed(5)}, ${dto.gps.longitude.toFixed(5)}.`
+      : '';
+    const custom = dto.message?.trim();
+    const message =
+      custom && custom.length > 0
+        ? custom
+        : `EMERGENCY from ${guard.employeeNumber} at ${site.code}.${gps} Contact supervisor immediately.`;
+
+    const alert = await this.prisma.fieldAlert.create({
+      data: {
+        organizationId: user.organizationId,
+        siteId: site.id,
+        guardId: guard.id,
+        alertType: GUARD_EMERGENCY_ALERT_TYPE,
+        severity: 'HIGH',
+        message,
+        escalationStage: FIELD_ALERT_ESCALATION_INITIAL,
+      },
+    });
+
+    await this.outbox.write({
+      organizationId: user.organizationId,
+      eventType: 'field.alert.created',
+      aggregateType: 'FieldAlert',
+      aggregateId: alert.id,
+      payload: {
+        siteId: site.id,
+        guardId: guard.id,
+        alertType: GUARD_EMERGENCY_ALERT_TYPE,
+        severity: 'HIGH',
+      },
+    });
+
+    await this.audit.record({
+      organizationId: user.organizationId,
+      actorId: user.id,
+      action: 'field_alert.guard_emergency',
+      resourceType: 'FieldAlert',
+      resourceId: alert.id,
+      after: {
+        alertType: alert.alertType,
+        siteId: alert.siteId,
+        guardId: alert.guardId,
+        severity: alert.severity,
+      },
+    });
+
+    return this.toDto(alert);
   }
 
   async escalate(

@@ -26,6 +26,8 @@ import { InventoryService } from '../application/inventory.service';
 import {
   CreateStockItemDto,
   CreateStockMovementDto,
+  InventoryReportResponseDto,
+  StockCategoryOptionDto,
   StockItemResponseDto,
   StockMovementResponseDto,
   UpdateStockItemDto,
@@ -51,6 +53,25 @@ export class InventoryController {
   @ApiOkResponse({ type: [StockItemResponseDto] })
   listItems(@CurrentUser() user: AuthUser) {
     return this.service.listItems(user.organizationId);
+  }
+
+  @Get('category-options')
+  @ApiOperation({
+    summary:
+      'Stock category catalog (uniforms, boots, phones, radios, CCTV, parking, office)',
+  })
+  @ApiOkResponse({ type: [StockCategoryOptionDto] })
+  categoryOptions() {
+    return this.service.listCategoryOptions();
+  }
+
+  @Get('reports')
+  @ApiOperation({
+    summary: 'Live stock pack — on-hand and reorder by category (no fake KPIs)',
+  })
+  @ApiOkResponse({ type: InventoryReportResponseDto })
+  reports(@CurrentUser() user: AuthUser) {
+    return this.service.getReports(user);
   }
 
   @Get('alerts')

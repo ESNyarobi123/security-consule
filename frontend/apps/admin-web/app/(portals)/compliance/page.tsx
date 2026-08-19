@@ -1,24 +1,69 @@
 'use client';
 
-import { listAuditLogs, type AuditLog } from '@pssms/api-client';
-import { StatCard, btnSecondary } from '@pssms/ui';
+import {
+  getComplianceReports,
+  listAuditLogs,
+  type AuditLog,
+  type ComplianceReport,
+} from '@pssms/api-client';
+import { GlassCard, StatCard, btnSecondary } from '@pssms/ui';
 import {
   Activity,
   Clock,
+  FileWarning,
   Layers,
   RefreshCw,
+  Scale,
   ScrollText,
   Search,
+  ShieldAlert,
 } from 'lucide-react';
+import Link from 'next/link';
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import {
-  AuditEmpty,
-  AuditLogRoster,
-} from './_components/AuditLogRoster';
+import { AuditEmpty, AuditLogRoster } from './_components/AuditLogRoster';
 import { ComplianceShell } from './_components/ComplianceShell';
 import { formatApiError } from './_components/shared';
 
+const TOPICS = [
+  {
+    title: 'Policy compliance',
+    href: '/compliance/policies',
+    description: 'Draft → GM approve → publish (creator ≠ approver)',
+  },
+  {
+    title: 'Data protection',
+    href: '/compliance/consents',
+    description: 'Consent / lawful-basis register (DPO mutate)',
+  },
+  {
+    title: 'Breach reports',
+    href: '/compliance/breaches',
+    description: 'DPO register — distinct from ops SECURITY_BREACH',
+  },
+  {
+    title: 'Risk register',
+    href: '/compliance/risks',
+    description: 'Thin register with regulatory refs (not a DPIA engine)',
+  },
+  {
+    title: 'User access',
+    href: '/compliance/access',
+    description: 'Login history monitor — IAM mutate stays Super Admin',
+  },
+  {
+    title: 'Incident reports',
+    href: '/compliance/incidents',
+    description: 'Read-only security incidents — close stays Branch Ops',
+  },
+  {
+    title: 'Legal / contracts',
+    href: '/compliance/legal',
+    description: 'Published policies + contract inventory (Legal edits CRM)',
+  },
+] as const;
+
 export default function ComplianceOverviewPage() {
+  const [pack, setPack] = useState<ComplianceReport | null>(null);
   const [rows, setRows] = useState<AuditLog[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -29,9 +74,13 @@ export default function ComplianceOverviewPage() {
     setLoading(true);
     setError(null);
     try {
-      setRows(await listAuditLogs(40));
-    } catch (err) {
-      setError(formatApiError(err));
+      const [logs, reports] = await Promise.allSettled([
+        listAuditLogs(40),
+        getComplianceReports(),
+      ]);
+      if (logs.status === 'fulfilled') setRows(logs.value);
+      else setError(formatApiError(logs.reason));
+      if (reports.status === 'fulfilled') setPack(reports.value);
     } finally {
       setLoading(false);
     }
@@ -88,8 +137,8 @@ export default function ComplianceOverviewPage() {
 
   return (
     <ComplianceShell
-      title="Audit overview"
-      description="Append-only audit trail. Policies, consent/lawful-basis records, and the DPO breach register are under the tabs above. Risk register, DPIA, and backup/DR are deferred."
+      title="Governance desk"
+      description="Used by DPO, Compliance Officer, Legal, Internal Auditor, CISO, and authorized management (GM/CEO/CMD). IT Support stays Super Admin helpdesk. No extra DPO/LEGAL roles."
       actions={
         <button
           type="button"
@@ -105,16 +154,66 @@ export default function ComplianceOverviewPage() {
       }
     >
       <p className="mb-4 rounded border border-[#e1dfdd] bg-[#faf9f8] px-3 py-2 text-xs text-[#605e5c]">
-        Honest scope: this portal covers audit logs, policy documents (thin
-        COMPLIANCE_OFFICER → GM approval), DPO consent / lawful-basis records,
-        and the DPO data-breach register. Risk register / DPIA / backup-DR are
-        not built yet.
+        Demo:{' '}
+        <code className="text-[11px]">dpo1@</code> ·{' '}
+        <code className="text-[11px]">compliance1@</code> ·{' '}
+        <code className="text-[11px]">legal1@</code> ·{' '}
+        <code className="text-[11px]">auditor1@</code> ·{' '}
+        <code className="text-[11px]">ciso1@</code>. DPIA / backup-DR pack
+        deferred.
       </p>
 
       {error ? (
         <p className="mb-3 rounded border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
           {error}
         </p>
+      ) : null}
+
+      {pack ? (
+        <div className="mb-5 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          <StatCard
+            label="Open breaches"
+            value={pack.openBreaches}
+            hint="DPO register (not ops incidents)"
+            icon={<FileWarning className="h-5 w-5" />}
+            accent="rose"
+          />
+          <StatCard
+            label="Open risks"
+            value={pack.openRisks}
+            hint="OPEN + MITIGATING"
+            icon={<ShieldAlert className="h-5 w-5" />}
+            accent="amber"
+          />
+          <StatCard
+            label="Open incidents"
+            value={pack.openIncidents}
+            hint={`${pack.criticalIncidentsOpen} critical still open`}
+            icon={<Activity className="h-5 w-5" />}
+            accent="violet"
+          />
+          <StatCard
+            label="Active contracts"
+            value={pack.activeContracts}
+            hint={`${pack.publishedPolicies} published policies`}
+            icon={<Scale className="h-5 w-5" />}
+            accent="blue"
+          />
+        </div>
+      ) : null}
+
+      <div className="mb-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        {TOPICS.map((t) => (
+          <Link key={t.href} href={t.href}>
+            <GlassCard className="h-full p-3 transition hover:ring-1 hover:ring-[#0078d4]/30">
+              <p className="text-sm font-semibold text-[#1b1a19]">{t.title}</p>
+              <p className="mt-1 text-[11px] text-[#605e5c]">{t.description}</p>
+            </GlassCard>
+          </Link>
+        ))}
+      </div>
+      {pack?.notes?.length ? (
+        <p className="mb-4 text-[11px] text-[#605e5c]">{pack.notes.join(' ')}</p>
       ) : null}
 
       <div className="mb-5 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
@@ -133,9 +232,9 @@ export default function ComplianceOverviewPage() {
           accent="violet"
         />
         <StatCard
-          label="Action types"
-          value={stats.actions}
-          hint="Distinct operations recorded"
+          label="Audit (30d)"
+          value={pack?.auditEvents30d ?? '—'}
+          hint={`${pack?.loginFailed30d ?? 0} failed logins`}
           icon={<Activity className="h-5 w-5" />}
           accent="emerald"
         />
@@ -160,7 +259,7 @@ export default function ComplianceOverviewPage() {
             </span>
           </div>
           <p className="mt-0.5 text-[11px] text-[#605e5c]">
-            Append-only trail · policies & breaches under tabs above
+            Append-only trail · IT helpdesk can read this strip only
           </p>
         </div>
       </div>

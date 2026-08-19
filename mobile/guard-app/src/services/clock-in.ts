@@ -5,25 +5,28 @@ import {
 import { newClientEventId } from '@/lib/uuid';
 import { enqueueClockIn } from '@/offline/outbox';
 import type { OutboxRow } from '@/offline/types';
+import { getMyDuty } from '@/services/duty';
 import {
   formatGpsLabel,
   getFieldGps,
   type FieldGps,
 } from '@/services/location';
-import { resolveDemoSite } from '@/services/sites';
+import { resolveDutySite } from '@/services/sites';
 
 /**
  * Enqueue a CLOCK_IN for offline-first sync.
- * deviceTime is local clock for audit — not payroll truth.
- * GPS prefers live fix; may use cached or warehouse fallback.
+ * Uses assigned duty site + shift (not a hardcoded warehouse code).
  */
 export async function enqueueDemoClockIn(): Promise<{
   row: OutboxRow;
   gps: FieldGps;
   disclaimer: string;
 }> {
-  const site = await resolveDemoSite();
-  const gps = await getFieldGps({ allowFallback: true });
+  const [site, duty, gps] = await Promise.all([
+    resolveDutySite(),
+    getMyDuty().catch(() => null),
+    getFieldGps({ allowFallback: true }),
+  ]);
   const clientEventId = newClientEventId();
   const deviceTime = new Date().toISOString();
 
@@ -31,6 +34,7 @@ export async function enqueueDemoClockIn(): Promise<{
     clientEventId,
     deviceTime,
     siteId: site.id,
+    shiftId: duty?.shift?.id,
     latitude: gps.latitude,
     longitude: gps.longitude,
   });

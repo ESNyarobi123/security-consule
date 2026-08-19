@@ -193,7 +193,7 @@ export default function DeveloperOverviewPage() {
   return (
     <DeveloperShell
       title="Integrations overview"
-      description="All sections expanded. Use tabs for a focused page."
+      description="APIs, adapters, webhooks, environments, logs, and device systems. Console SMS/payment until vendors. WhatsApp, banks, mobile money, MQTT Nest client, and bulk import are deferred. ICT stays Super Admin — IT Support cannot open this portal."
       actions={
         <button
           type="button"

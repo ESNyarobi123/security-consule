@@ -36,6 +36,7 @@ import {
   RejectAppointmentDto,
   VisitorAppointmentResponseDto,
   VisitorEntryResponseDto,
+  VisitorPublicConfigDto,
 } from './dto/visitor.dto';
 
 @ApiTags('Visitors')
@@ -67,6 +68,22 @@ export class VisitorsController {
     return this.service.listContractorAppointments(user);
   }
 
+  @Post('me/appointments')
+  @ApiBearerAuth()
+  @UseGuards(PermissionsGuard)
+  @RequireAnyPermissions('visitors.self', 'consultants.self', 'providers.self')
+  @ApiOperation({
+    summary:
+      'Request an appointment as contractor / consultant / provider (Portal 35.10 · binds userId; no gate code)',
+  })
+  @ApiCreatedResponse({ type: VisitorAppointmentResponseDto })
+  createOwnAppointment(
+    @Body() dto: CreateVisitorAppointmentDto,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.service.createOwnAppointment(dto, user);
+  }
+
   @Get('me/entries')
   @ApiBearerAuth()
   @UseGuards(PermissionsGuard)
@@ -82,7 +99,7 @@ export class VisitorsController {
   @ApiOperation({
     summary: 'Demo public visitor booking config (org/customer/site UUIDs)',
   })
-  @ApiOkResponse({ description: 'IDs for visitor-web pre-registration form' })
+  @ApiOkResponse({ type: VisitorPublicConfigDto })
   publicConfig() {
     return this.service.publicConfig();
   }

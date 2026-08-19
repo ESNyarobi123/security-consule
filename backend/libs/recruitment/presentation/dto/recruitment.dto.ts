@@ -9,12 +9,17 @@ import {
   IsDateString,
   IsEmail,
   IsEnum,
+  IsIn,
   IsOptional,
   IsString,
   IsUUID,
   MaxLength,
   MinLength,
 } from 'class-validator';
+import {
+  APPLICANT_TRACKS,
+  type ApplicantTrack,
+} from '../../domain/applicant-catalog';
 
 export class CreateJobPostingDto {
   @ApiProperty()
@@ -41,6 +46,11 @@ export class CreateJobPostingDto {
   @IsString()
   requirements?: string;
 
+  @ApiPropertyOptional({ enum: APPLICANT_TRACKS })
+  @IsOptional()
+  @IsIn([...APPLICANT_TRACKS], { message: 'INVALID_APPLICANT_TRACK' })
+  applicantTrack?: ApplicantTrack;
+
   @ApiPropertyOptional()
   @IsOptional()
   @IsBoolean()
@@ -60,6 +70,7 @@ export class JobPostingResponseDto {
   @ApiPropertyOptional() location?: string | null;
   @ApiProperty() description!: string;
   @ApiPropertyOptional() requirements?: string | null;
+  @ApiProperty({ enum: APPLICANT_TRACKS }) applicantTrack!: string;
   @ApiProperty({ enum: JobPostingStatus }) status!: JobPostingStatus;
   @ApiPropertyOptional() publishedAt?: Date | null;
   @ApiPropertyOptional() closesAt?: Date | null;
@@ -74,13 +85,22 @@ export class JobPostingPublicDto {
   @ApiPropertyOptional() location?: string | null;
   @ApiProperty() description!: string;
   @ApiPropertyOptional() requirements?: string | null;
+  @ApiProperty({ enum: APPLICANT_TRACKS }) applicantTrack!: string;
   @ApiPropertyOptional() publishedAt?: Date | null;
   @ApiPropertyOptional() closesAt?: Date | null;
+}
+
+export class ApplicantTrackOptionDto {
+  @ApiProperty() value!: string;
+  @ApiProperty() label!: string;
+  @ApiProperty() hint!: string;
 }
 
 export class RecruitmentPublicConfigDto {
   @ApiProperty() organizationId!: string;
   @ApiPropertyOptional() seedPostingId?: string | null;
+  @ApiProperty({ type: [ApplicantTrackOptionDto] })
+  applicantTracks!: ApplicantTrackOptionDto[];
 }
 
 export class CreateJobApplicationDto {
@@ -120,6 +140,13 @@ export class CreateJobApplicationDto {
   coverLetter?: string;
 }
 
+export class JobApplicationReceiptDto {
+  @ApiProperty() id!: string;
+  @ApiProperty() postingId!: string;
+  @ApiProperty() referenceNumber!: string;
+  @ApiProperty({ enum: ApplicationStatus }) status!: ApplicationStatus;
+}
+
 export class JobApplicationResponseDto {
   @ApiProperty() id!: string;
   @ApiProperty() organizationId!: string;
@@ -147,6 +174,22 @@ export class JobApplicationResponseDto {
 
   @ApiPropertyOptional({ description: 'True when status is OFFERED' })
   canHire?: boolean;
+
+  @ApiPropertyOptional({ enum: APPLICANT_TRACKS })
+  applicantTrack?: string | null;
+
+  @ApiPropertyOptional({ type: 'array' })
+  onboardingSteps?: Array<{
+    code: string;
+    label: string;
+    done: boolean;
+    completedAt?: string | null;
+  }>;
+
+  @ApiPropertyOptional({
+    description: 'Set when advancing to INTERVIEW',
+  })
+  interviewNotification?: { email: boolean } | null;
 }
 
 export class JobApplicationPublicStatusDto {
@@ -177,6 +220,29 @@ export class JobApplicationPublicStatusDto {
     label: string;
     state: 'done' | 'current' | 'upcoming' | 'skipped';
   }>;
+
+  @ApiProperty({ enum: APPLICANT_TRACKS })
+  applicantTrack!: string;
+
+  @ApiPropertyOptional({
+    description: 'Hire checklist (HIRED only; no officer names)',
+    type: 'array',
+  })
+  onboardingSteps?: Array<{
+    code: string;
+    label: string;
+    done: boolean;
+  }>;
+}
+
+export class UpdateOnboardingStepDto {
+  @ApiProperty()
+  @IsString()
+  stepCode!: string;
+
+  @ApiProperty()
+  @IsBoolean()
+  done!: boolean;
 }
 
 export class HireApplicantDto {

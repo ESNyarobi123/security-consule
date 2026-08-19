@@ -9,6 +9,7 @@ export type FieldAlert = {
   message: string;
   acknowledged: boolean;
   acknowledgedBy?: string | null;
+  escalationStage?: string;
   createdAt: string;
 };
 
@@ -29,6 +30,13 @@ export async function listFieldAlerts(
 export async function acknowledgeAlert(id: string): Promise<FieldAlert> {
   return apiRequest<FieldAlert>(
     `/attendance/field-alerts/${id}/acknowledge`,
+    { method: 'POST' },
+  );
+}
+
+export async function escalateAlert(id: string): Promise<FieldAlert> {
+  return apiRequest<FieldAlert>(
+    `/attendance/field-alerts/${id}/escalate`,
     { method: 'POST' },
   );
 }

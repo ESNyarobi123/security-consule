@@ -25,6 +25,7 @@ type Filter = 'ALL' | 'OPEN' | 'CLOSED';
 function isOpenStatus(status: string) {
   const s = status.toUpperCase();
   return (
+    s.includes('ORDER') ||
     s.includes('PENDING') ||
     s.includes('APPROVED') ||
     s.includes('ISSUED') ||

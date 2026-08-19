@@ -177,3 +177,30 @@ export const createMySupplierSubmission = (
       token,
     },
   );
+
+export type SupplierPortalMessage = {
+  id: string;
+  organizationId: string;
+  supplierId: string;
+  authorType: 'SUPPLIER' | 'PROCUREMENT' | string;
+  body: string;
+  createdBy: string;
+  authorName?: string | null;
+  createdAt: string;
+};
+
+export const listMySupplierMessages = (token?: string) =>
+  supplierFetch<SupplierPortalMessage[]>(
+    '/api/v1/procurement/suppliers/me/messages',
+    { token },
+  );
+
+export const createMySupplierMessage = (body: string, token?: string) =>
+  supplierFetch<SupplierPortalMessage>(
+    '/api/v1/procurement/suppliers/me/messages',
+    {
+      method: 'POST',
+      body: JSON.stringify({ body }),
+      token,
+    },
+  );

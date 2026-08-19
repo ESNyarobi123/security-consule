@@ -329,3 +329,124 @@ export const withdrawConsent = (
     body: JSON.stringify({ reason }),
     token,
   });
+
+export type ComplianceReport = {
+  publishedPolicies: number;
+  policiesByStatus: Record<string, number>;
+  openBreaches: number;
+  activeConsents: number;
+  consentsByStatus: Record<string, number>;
+  openRisks: number;
+  risksByStatus: Record<string, number>;
+  auditEvents30d: number;
+  loginSuccess30d: number;
+  loginFailed30d: number;
+  openIncidents: number;
+  criticalIncidentsOpen: number;
+  contractsByStatus: Record<string, number>;
+  activeContracts: number;
+  generatedAt: string;
+  notes: string[];
+};
+
+export type AccessReviewRow = {
+  id: string;
+  email: string;
+  fullName: string;
+  isActive: boolean;
+  success: boolean;
+  ipAddress: string | null;
+  userAgent: string | null;
+  createdAt: string;
+};
+
+export type GovernanceIncidentRow = {
+  id: string;
+  incidentNumber: string;
+  category: string;
+  severity: string;
+  status: string;
+  title: string;
+  occurredAt: string;
+  createdAt: string;
+};
+
+export type RiskRegisterItem = {
+  id: string;
+  referenceCode: string;
+  title: string;
+  description: string;
+  category: string;
+  severity: string;
+  status: string;
+  regulatoryRef?: string | null;
+  mitigation?: string | null;
+  residualNotes?: string | null;
+  createdByName?: string | null;
+  allowedNextStatuses: string[];
+  createdAt: string;
+  updatedAt: string;
+};
+
+export const getComplianceReports = (token?: string) =>
+  coreFetch<ComplianceReport>('/api/v1/compliance/reports', { token });
+
+export const getComplianceAccessReview = (token?: string) =>
+  coreFetch<{ rows: AccessReviewRow[]; notes: string[] }>(
+    '/api/v1/compliance/access-review',
+    { token },
+  );
+
+export const getComplianceIncidentMonitor = (token?: string) =>
+  coreFetch<{ rows: GovernanceIncidentRow[]; notes: string[] }>(
+    '/api/v1/compliance/incident-monitor',
+    { token },
+  );
+
+export const getRiskOptions = (token?: string) =>
+  coreFetch<{
+    categories: CatalogOption[];
+    frameworks: CatalogOption[];
+    severities: CatalogOption[];
+    statuses: CatalogOption[];
+  }>('/api/v1/compliance/risk-options', { token });
+
+export const listRisks = (token?: string) =>
+  coreFetch<RiskRegisterItem[]>('/api/v1/compliance/risks', { token });
+
+export const createRisk = (
+  body: {
+    title: string;
+    description: string;
+    category: string;
+    severity: string;
+    regulatoryRef?: string;
+    mitigation?: string;
+  },
+  token?: string,
+) =>
+  coreFetch<RiskRegisterItem>('/api/v1/compliance/risks', {
+    method: 'POST',
+    body: JSON.stringify(body),
+    token,
+  });
+
+export const updateRisk = (
+  id: string,
+  body: {
+    status?: string;
+    title?: string;
+    description?: string;
+    category?: string;
+    severity?: string;
+    regulatoryRef?: string | null;
+    mitigation?: string | null;
+    residualNotes?: string | null;
+  },
+  token?: string,
+) =>
+  coreFetch<RiskRegisterItem>(`/api/v1/compliance/risks/${id}`, {
+    method: 'PATCH',
+    body: JSON.stringify(body),
+    token,
+  });

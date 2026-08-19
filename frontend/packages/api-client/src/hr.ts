@@ -443,9 +443,9 @@ export const updateDisciplineCase = (
     token,
   });
 
-// ── Movements (transfer / exit) ──
+// ── Movements (transfer / promotion / exit / redundancy) ──
 
-export type MovementType = 'TRANSFER' | 'EXIT';
+export type MovementType = 'TRANSFER' | 'EXIT' | 'PROMOTION' | 'REDUNDANCY';
 export type MovementStatus =
   | 'PENDING'
   | 'APPROVED'

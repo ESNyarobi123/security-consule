@@ -19,7 +19,18 @@ type LoginResponse = {
   };
 };
 
-const SUPERVISOR_APP_ROLES = new Set(['SUPERVISOR', 'SUPER_ADMIN']);
+/** Portal 35.7 — Site Supervisor, Field Officer, BOM, Operations Manager. */
+export const SUPERVISOR_APP_ROLES = new Set([
+  'SUPERVISOR',
+  'FIELD_OFFICER',
+  'BRANCH_MANAGER',
+  'OPERATIONS_MANAGER',
+  'SUPER_ADMIN',
+]);
+
+export function isSupervisorAppUser(roles: string[] | undefined): boolean {
+  return (roles ?? []).some((r) => SUPERVISOR_APP_ROLES.has(r));
+}
 
 export async function login(
   email: string,
@@ -32,10 +43,12 @@ export async function login(
   });
 
   const roles = data.user.roles ?? [];
-  const allowed = roles.some((r) => SUPERVISOR_APP_ROLES.has(r));
+  const allowed = isSupervisorAppUser(roles);
   if (!allowed) {
     await clearSession();
-    throw new Error('This app requires SUPERVISOR or SUPER_ADMIN role');
+    throw new Error(
+      'This app is for Site Supervisors, Field Officers, Branch Operations Managers, and Operations Managers',
+    );
   }
 
   const user: SupervisorUser = {
@@ -44,6 +57,7 @@ export async function login(
     fullName: data.user.fullName,
     organizationId: data.user.organizationId,
     roles,
+    allowedSiteIds: data.user.allowedSiteIds ?? [],
   };
 
   await setSession({

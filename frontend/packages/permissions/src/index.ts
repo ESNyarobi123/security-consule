@@ -8,19 +8,35 @@ export type NavItem = {
 };
 
 export const ADMIN_PORTALS: NavItem[] = [
-  { href: '/superadmin', label: 'Administration', permission: 'customers.manage', group: 'Platform' },
+  { href: '/superadmin', label: 'Super Admin', permission: 'users.manage', group: 'Platform' },
   {
-    href: '/superadmin/users',
-    label: 'Users',
-    permission: 'users.manage',
+    href: '/administration',
+    label: 'Administration',
+    permission: 'enterprise.manage',
     group: 'Platform',
   },
-  { href: '/hr', label: 'HR', permission: 'hr.manage', group: 'People' },
+  {
+    href: '/superadmin/customers',
+    label: 'Customers',
+    permission: 'customers.manage',
+    group: 'Service',
+  },
+  {
+    href: '/superadmin/contracts',
+    label: 'Contracts',
+    permission: 'contracts.manage',
+    group: 'Service',
+  },
+  { href: '/hr', label: 'HR & Employees', permission: 'hr.manage', group: 'People' },
   { href: '/ess', label: 'My ESS', permission: 'ess.access', group: 'People' },
   { href: '/payroll', label: 'Payroll', permission: 'payroll.manage', group: 'People' },
+  { href: '/payroll/cycles', label: 'Payroll cycles', permission: 'payroll.manage', group: 'People' },
   { href: '/loans', label: 'Loans', permission: 'loans.manage', group: 'People' },
   { href: '/finance', label: 'Finance', permission: 'finance.manage', group: 'Money' },
+  { href: '/finance/invoices', label: 'Invoices', permission: 'finance.manage', group: 'Money' },
   { href: '/finance/petty-cash', label: 'Petty cash', permission: 'finance.manage', group: 'Money' },
+  { href: '/finance/vouchers', label: 'Payment vouchers', permission: 'finance.manage', group: 'Money' },
+  { href: '/finance/reports', label: 'Finance reports', permission: 'finance.manage', group: 'Money' },
   { href: '/procurement', label: 'Procurement', permission: 'procurement.manage', group: 'Money' },
   { href: '/procurement/inventory', label: 'Inventory', permission: 'inventory.manage', group: 'Money' },
   { href: '/assets', label: 'Assets', permission: 'assets.manage', group: 'Money' },
@@ -28,6 +44,12 @@ export const ADMIN_PORTALS: NavItem[] = [
   { href: '/operations', label: 'Ops Console', permission: 'operations.manage', group: 'Field' },
   { href: '/operations/guards', label: 'Guards', permission: 'guards.manage', group: 'Field' },
   { href: '/cctv', label: 'CCTV', permission: 'cctv.manage', group: 'Field' },
+  { href: '/cctv/alerts', label: 'CCTV alerts', permission: 'cctv.manage', group: 'Field' },
+  { href: '/cctv/parking', label: 'CCTV parking', permission: 'cctv.manage', group: 'Field' },
+  { href: '/cctv/access', label: 'CCTV access', permission: 'cctv.manage', group: 'Field' },
+  { href: '/cctv/patrols', label: 'CCTV patrols', permission: 'cctv.manage', group: 'Field' },
+  { href: '/cctv/alarms', label: 'CCTV alarms', permission: 'cctv.manage', group: 'Field' },
+  { href: '/cctv/incidents', label: 'CCTV incidents', permission: 'cctv.manage', group: 'Field' },
   { href: '/devices', label: 'Devices', permission: 'operations.manage', group: 'Field' },
   { href: '/branch', label: 'Branch Ops', permission: 'operations.manage', group: 'Field' },
   { href: '/branch/sites', label: 'Sites', permission: 'operations.manage', group: 'Field' },
@@ -71,7 +93,31 @@ export const ADMIN_PORTALS: NavItem[] = [
   },
   {
     href: '/branch/reports',
-    label: 'Reports',
+    label: 'Field reports',
+    permission: 'operations.manage',
+    group: 'Field',
+  },
+  {
+    href: '/branch/staff',
+    label: 'Branch staff',
+    permission: 'operations.manage',
+    group: 'Field',
+  },
+  {
+    href: '/branch/inspections',
+    label: 'Inspections',
+    permission: 'operations.manage',
+    group: 'Field',
+  },
+  {
+    href: '/branch/parking',
+    label: 'Branch parking',
+    permission: 'operations.manage',
+    group: 'Field',
+  },
+  {
+    href: '/branch/petty-cash',
+    label: 'Branch petty cash',
     permission: 'operations.manage',
     group: 'Field',
   },
@@ -97,10 +143,63 @@ export const ADMIN_PORTALS: NavItem[] = [
     permission: 'audit.read',
     group: 'Governance',
   },
+  {
+    href: '/compliance/risks',
+    label: 'Risk register',
+    permission: 'audit.read',
+    group: 'Governance',
+  },
+  {
+    href: '/compliance/access',
+    label: 'Access review',
+    permission: 'audit.read',
+    group: 'Governance',
+  },
+  {
+    href: '/compliance/incidents',
+    label: 'Incident reports',
+    permission: 'audit.read',
+    group: 'Governance',
+  },
+  {
+    href: '/compliance/legal',
+    label: 'Legal / contracts',
+    permission: 'audit.read',
+    group: 'Governance',
+  },
   { href: '/approvals', label: 'Approvals', permission: 'approvals.act', group: 'Governance' },
   { href: '/callcentre', label: 'Call Centre', permission: 'visitors.manage', group: 'Service' },
-  { href: '/marketing', label: 'Marketing', permission: 'customers.manage', group: 'Service' },
+  {
+    href: '/callcentre/visitors',
+    label: 'Visitor support',
+    permission: 'visitors.manage',
+    group: 'Service',
+  },
+  {
+    href: '/callcentre/complaints',
+    label: 'Complaints',
+    permission: 'visitors.manage',
+    group: 'Service',
+  },
+  {
+    href: '/callcentre/tickets',
+    label: 'Support tickets',
+    permission: 'visitors.manage',
+    group: 'Service',
+  },
+  { href: '/marketing', label: 'Marketing', permission: 'marketing.manage', group: 'Service' },
+  { href: '/marketing/pipeline', label: 'Pipeline', permission: 'marketing.manage', group: 'Service' },
+  { href: '/marketing/campaigns', label: 'Campaigns', permission: 'marketing.manage', group: 'Service' },
+  {
+    href: '/marketing/commissions',
+    label: 'Commissions',
+    permission: 'marketing.manage',
+    group: 'Service',
+  },
   { href: '/developer', label: 'Developer', permission: 'integrations.manage', group: 'Platform' },
+  { href: '/developer/apis', label: 'APIs', permission: 'integrations.manage', group: 'Platform' },
+  { href: '/developer/systems', label: 'Systems', permission: 'integrations.manage', group: 'Platform' },
+  { href: '/developer/export', label: 'Export', permission: 'integrations.manage', group: 'Platform' },
   /** Bottom of sidebar — portal URLs, ports/subdomains, demo logins */
   {
     href: '/portal-directory',
@@ -111,8 +210,25 @@ export const ADMIN_PORTALS: NavItem[] = [
 ];
 
 export const SUPERADMIN_LINKS: NavItem[] = [
-  { href: '/superadmin', label: 'Overview', permission: 'customers.manage' },
+  { href: '/superadmin', label: 'Overview', permission: 'users.manage' },
   { href: '/superadmin/users', label: 'Users', permission: 'users.manage' },
+  { href: '/superadmin/roles', label: 'Roles', permission: 'users.manage' },
+  { href: '/superadmin/portals', label: 'Portals', permission: 'users.manage' },
+  { href: '/superadmin/organization', label: 'Organization', permission: 'users.manage' },
+  { href: '/superadmin/modules', label: 'Modules', permission: 'users.manage' },
+  {
+    href: '/superadmin/approval-levels',
+    label: 'Approval levels',
+    permission: 'users.manage',
+  },
+  { href: '/superadmin/security', label: 'Security', permission: 'users.manage' },
+  { href: '/superadmin/audit', label: 'Audit logs', permission: 'audit.read' },
+  {
+    href: '/superadmin/integrations',
+    label: 'Integrations',
+    permission: 'users.manage',
+  },
+  { href: '/superadmin/backups', label: 'Backups', permission: 'users.manage' },
   { href: '/superadmin/customers', label: 'Customers', permission: 'customers.manage' },
   { href: '/superadmin/contracts', label: 'Contracts', permission: 'contracts.manage' },
 ];
@@ -128,14 +244,14 @@ export const CUSTOMER_NAV: NavItem[] = [
     permission: 'contracts.manage',
     group: 'Services',
   },
-  { href: '/access', label: 'Staff access', permission: 'access.manage', group: 'Site ops' },
+  { href: '/access', label: 'Employee attendance', permission: 'access.manage', group: 'Site ops' },
   {
     href: '/my-access',
     label: 'My access',
     permission: 'access.self',
     group: 'Site ops',
   },
-  { href: '/visitors', label: 'Visitors', permission: 'visitors.manage', group: 'Site ops' },
+  { href: '/visitors', label: 'Visitors & gate logs', permission: 'visitors.manage', group: 'Site ops' },
   { href: '/parking', label: 'Parking', permission: 'parking.manage', group: 'Site ops' },
   {
     href: '/incidents',
@@ -202,6 +318,12 @@ export const SUPPLIER_NAV: NavItem[] = [
   {
     href: '/submissions',
     label: 'Quotes & invoices',
+    permission: 'procurement.manage',
+    group: 'Commerce',
+  },
+  {
+    href: '/messages',
+    label: 'Procurement',
     permission: 'procurement.manage',
     group: 'Commerce',
   },
@@ -324,8 +446,9 @@ export function permissionForPath(pathname: string): string | null {
     .sort((a, b) => b.href.length - a.href.length)
     .find((p) => pathname === p.href || pathname.startsWith(`${p.href}/`));
   if (nested) return nested.permission;
-  // Nested Super Admin routes not listed above (legacy fallback).
   if (pathname.startsWith('/superadmin/users')) return 'users.manage';
-  if (pathname.startsWith('/superadmin')) return 'customers.manage';
+  if (pathname.startsWith('/superadmin/customers')) return 'customers.manage';
+  if (pathname.startsWith('/superadmin/contracts')) return 'contracts.manage';
+  if (pathname.startsWith('/superadmin')) return 'users.manage';
   return null;
 }

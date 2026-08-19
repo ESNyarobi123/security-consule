@@ -142,8 +142,8 @@ export default function DeveloperConfigPage() {
 
   return (
     <DeveloperShell
-      title="Integration config"
-      description="Read-only non-secret settings. Secrets never appear here."
+      title="Environments"
+      description="Non-secret broker and gateway flags. Tokens and passwords are never returned. MQTT env ≠ Nest MQTT client."
       actions={
         <button
           type="button"

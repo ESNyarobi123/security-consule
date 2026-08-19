@@ -36,10 +36,14 @@ export default function AppLayout() {
         }}
       >
         <Stack.Screen name="index" options={{ title: 'Live board' }} />
-        <Stack.Screen name="alerts" options={{ title: 'Field alerts' }} />
         <Stack.Screen name="attendance" options={{ title: 'Attendance' }} />
+        <Stack.Screen name="shifts" options={{ title: 'Shifts' }} />
+        <Stack.Screen name="eob" options={{ title: 'Inspect / EOB' }} />
+        <Stack.Screen name="alertness" options={{ title: 'Alertness' }} />
         <Stack.Screen name="incidents" options={{ title: 'Incidents' }} />
-        <Stack.Screen name="eob" options={{ title: 'Occurrence book' }} />
+        <Stack.Screen name="patrols" options={{ title: 'Patrols' }} />
+        <Stack.Screen name="supervise" options={{ title: 'Guards' }} />
+        <Stack.Screen name="alerts" options={{ title: 'Field alerts' }} />
       </Stack>
     </SiteDutyProvider>
   );

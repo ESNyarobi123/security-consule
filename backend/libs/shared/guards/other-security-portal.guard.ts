@@ -13,6 +13,7 @@ const ALLOWED_GET_EXACT = [
   '/api/v1/auth/me',
   '/api/v1/recruitment/b2b/partners/me',
   '/api/v1/recruitment/b2b/requests',
+  '/api/v1/recruitment/b2b/request-options',
 ];
 
 const ALLOWED_GET_PREFIXES = ['/api/v1/recruitment/b2b/requests/'];

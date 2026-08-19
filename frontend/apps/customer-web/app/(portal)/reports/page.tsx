@@ -24,6 +24,10 @@ function toLocalInput(d: Date) {
 
 function downloadCsv(report: CustomerPortalReport) {
   const s = report.summary;
+  const ea = report.customerEmployeeAttendance;
+  const p = report.parkingReport;
+  const pay = report.payrollReport;
+  const sla = report.slaPerformance;
   const lines = [
     ['Metric', 'Value'],
     ['Customer', `${report.code} · ${report.name}`],
@@ -44,6 +48,45 @@ function downloadCsv(report: CustomerPortalReport) {
     ['Invoices issued', String(s.invoicesIssued)],
     ['Invoice outstanding', String(s.invoiceOutstandingAmount)],
     ['Currency', s.currency],
+    [],
+    ['Employee attendance', ''],
+    ['Total employees', String(ea.totalEmployees)],
+    ['Active employees', String(ea.activeEmployees)],
+    ['Check-ins', String(ea.checkIns)],
+    ['Check-outs', String(ea.checkOuts)],
+    ['Unique employees seen', String(ea.uniqueEmployeesSeen)],
+    [],
+    ['Parking', ''],
+    ['Registered vehicles', String(p.registeredVehicles)],
+    ['Active permits', String(p.activePermits)],
+    ['Pending permits', String(p.pendingPermits)],
+    ['Entries', String(p.entries)],
+    ['Exits', String(p.exits)],
+    ['Denied entries', String(p.deniedEntries)],
+    ['Violations', String(p.violations)],
+    ['Blacklisted vehicles', String(p.blacklistedVehicles)],
+    [],
+    ['Payroll (customer-managed)', ''],
+    ['Available', String(pay.available)],
+    ['Cycles in period', String(pay.cyclesInPeriod)],
+    ['Paid cycles', String(pay.paidCycles)],
+    ['Pending cycles', String(pay.pendingCycles)],
+    ['Latest cycle', pay.latestCycleCode ?? ''],
+    ['Latest status', pay.latestCycleStatus ?? ''],
+    ['Gross latest', String(pay.grossPayInLatestCycle)],
+    ['Net latest', String(pay.netPayInLatestCycle)],
+    ...(sla
+      ? [
+          [] as string[],
+          ['SLA performance (live vs contract)', ''],
+          ['Active contracts', String(sla.activeContracts)],
+          ['Expiring contracts', String(sla.expiringContracts)],
+          ['Contracts with SLA terms', String(sla.contractsWithSlaTerms)],
+          ['SLA levels', sla.slaLevels.join('; ')],
+          ['Committed guards', String(sla.committedGuards)],
+          ['Deployed guards', String(sla.deployedGuards)],
+        ]
+      : []),
     [],
     [
       'Site code',
@@ -118,7 +161,7 @@ export default function ReportsPage() {
       <PortalHero
         eyebrow="Module 6 · Reports"
         title="Operational reports"
-        subtitle="Live period counts for your sites — attendance, incidents, access, visitors, parking, complaints, and billing."
+        subtitle="Live period counts for your organisation only — contracts, guards, attendance, employee access, visitors, parking, payroll, complaints, and billing."
         actions={
           <div className="flex flex-wrap gap-2">
             <button
@@ -222,6 +265,133 @@ export default function ReportsPage() {
             />
           </div>
 
+          <PortalPanel title="Customer employee attendance">
+            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+              <PortalStat
+                label="Employees"
+                value={report.customerEmployeeAttendance.totalEmployees}
+                hint={`${report.customerEmployeeAttendance.activeEmployees} active`}
+              />
+              <PortalStat
+                label="Check-ins"
+                value={report.customerEmployeeAttendance.checkIns}
+                tone="teal"
+              />
+              <PortalStat
+                label="Check-outs"
+                value={report.customerEmployeeAttendance.checkOuts}
+                tone="sky"
+              />
+              <PortalStat
+                label="Seen in period"
+                value={report.customerEmployeeAttendance.uniqueEmployeesSeen}
+                tone="violet"
+              />
+            </div>
+          </PortalPanel>
+
+          <PortalPanel title="Parking reports">
+            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+              <PortalStat
+                label="Vehicles"
+                value={report.parkingReport.registeredVehicles}
+              />
+              <PortalStat
+                label="Active permits"
+                value={report.parkingReport.activePermits}
+                hint={`${report.parkingReport.pendingPermits} pending`}
+                tone="teal"
+              />
+              <PortalStat
+                label="Entries / exits"
+                value={`${report.parkingReport.entries} / ${report.parkingReport.exits}`}
+                hint={`${report.parkingReport.deniedEntries} denied`}
+              />
+              <PortalStat
+                label="Violations"
+                value={report.parkingReport.violations}
+                hint={`${report.parkingReport.blacklistedVehicles} blacklisted`}
+                tone="amber"
+              />
+            </div>
+          </PortalPanel>
+
+          <PortalPanel title="Payroll reports">
+            {report.payrollReport.available ? (
+              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                <PortalStat
+                  label="Cycles in period"
+                  value={report.payrollReport.cyclesInPeriod}
+                  hint={`${report.payrollReport.paidCycles} paid · ${report.payrollReport.pendingCycles} pending`}
+                />
+                <PortalStat
+                  label="Latest cycle"
+                  value={report.payrollReport.latestCycleCode ?? '—'}
+                  hint={report.payrollReport.latestCycleStatus ?? undefined}
+                  tone="sky"
+                />
+                <PortalStat
+                  label="Gross (latest)"
+                  value={money(
+                    report.payrollReport.grossPayInLatestCycle,
+                    s!.currency,
+                  )}
+                />
+                <PortalStat
+                  label="Net (latest)"
+                  value={money(
+                    report.payrollReport.netPayInLatestCycle,
+                    s!.currency,
+                  )}
+                  tone="teal"
+                  hint={`${report.payrollReport.payslipsInLatestCycle} payslips`}
+                />
+              </div>
+            ) : (
+              <p className="text-sm text-[#605e5c]">
+                No customer-managed payroll cycle is linked to this organisation
+                yet. Guard payroll stays inside HIGHLINK.
+              </p>
+            )}
+          </PortalPanel>
+
+          {report.slaPerformance ? (
+            <PortalPanel title="SLA performance (live vs contract)">
+              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                <PortalStat
+                  label="Active contracts"
+                  value={report.slaPerformance.activeContracts}
+                  hint={`${report.slaPerformance.expiringContracts} expiring · ${report.slaPerformance.contractsWithSlaTerms} with SLA terms`}
+                  tone="sky"
+                />
+                <PortalStat
+                  label="Guards deployed"
+                  value={report.slaPerformance.deployedGuards}
+                  hint={`${report.slaPerformance.committedGuards} committed on ACTIVE/EXPIRING contracts`}
+                  tone="teal"
+                />
+                <PortalStat
+                  label="Incidents (period)"
+                  value={report.slaPerformance.incidentsOpened}
+                  hint={`${report.slaPerformance.incidentsStillOpen} still open`}
+                  tone="amber"
+                />
+                <PortalStat
+                  label="Complaints (period)"
+                  value={report.slaPerformance.complaintsOpened}
+                  hint={`${report.slaPerformance.complaintsStillOpen} still open`}
+                  tone="rose"
+                />
+              </div>
+              {report.slaPerformance.slaLevels.length > 0 ? (
+                <p className="mt-3 text-xs text-[#605e5c]">
+                  SLA levels:{' '}
+                  {report.slaPerformance.slaLevels.join(', ')}
+                </p>
+              ) : null}
+            </PortalPanel>
+          ) : null}
+
           <PortalPanel title="By site">
             {report.bySite.length === 0 ? (
               <p className="text-sm text-[#605e5c]">No sites linked.</p>
@@ -272,7 +442,7 @@ export default function ReportsPage() {
         </>
       )}
 
-      <PortalDeferral note="Charts, PDF pack, and SLA performance analytics beyond contract terms remain deferred. Counts are live from operational tables for the selected window." />
+      <PortalDeferral note="Charts, PDF pack, and percentile response-time SLA remain deferred. Counts are live from your organisation’s operational tables for the selected window — not synthetic scores." />
     </div>
   );
 }

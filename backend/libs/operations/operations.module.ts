@@ -1,6 +1,8 @@
 import { Module } from '@nestjs/common';
 import { AuditModule } from '@pssms/audit';
+import { FinanceModule } from '@pssms/finance';
 import { NotificationsModule } from '@pssms/notifications';
+import { BranchDeskService } from './application/branch-desk.service';
 import { OperationsReportsService } from './application/operations-reports.service';
 import { ShiftsService } from './application/shifts.service';
 import { CheckpointsService } from './application/checkpoints.service';
@@ -13,7 +15,7 @@ import { PatrolRoutesController } from './presentation/patrol-routes.controller'
 import { DeploymentsController } from './presentation/deployments.controller';
 
 @Module({
-  imports: [AuditModule, NotificationsModule],
+  imports: [AuditModule, NotificationsModule, FinanceModule],
   controllers: [
     OperationsController,
     ShiftsController,
@@ -22,6 +24,7 @@ import { DeploymentsController } from './presentation/deployments.controller';
     DeploymentsController,
   ],
   providers: [
+    BranchDeskService,
     OperationsReportsService,
     ShiftsService,
     CheckpointsService,

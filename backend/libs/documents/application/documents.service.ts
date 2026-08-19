@@ -43,6 +43,10 @@ const PARENT_PERMISSION_BY_RESOURCE: Record<string, string> = {
   SupplierSubmission: 'procurement.manage',
   /** Module 31-A — incident evidence */
   Incident: 'incidents.manage',
+  /** Portal 35.4 / Module 16-A — employee staff file scans */
+  Employee: 'hr.manage',
+  /** Portal 35.13 — applicant CV / certificates (staff MinIO; public apply still resumeUrl) */
+  JobApplication: 'recruitment.manage',
 };
 
 const SUPPORTED_RESOURCE_TYPES = new Set(
@@ -170,6 +174,29 @@ async function assertResourceOwned(
     if (!incident) {
       throw new BadRequestException('Incident not found in your organization');
     }
+    return;
+  }
+  if (resourceType === 'Employee') {
+    const employee = await prisma.employee.findFirst({
+      where: { id: resourceId, organizationId },
+      select: { id: true },
+    });
+    if (!employee) {
+      throw new BadRequestException('Employee not found in your organization');
+    }
+    return;
+  }
+  if (resourceType === 'JobApplication') {
+    const app = await prisma.jobApplication.findFirst({
+      where: { id: resourceId, organizationId },
+      select: { id: true },
+    });
+    if (!app) {
+      throw new BadRequestException(
+        'Job application not found in your organization',
+      );
+    }
+    return;
   }
 }
 

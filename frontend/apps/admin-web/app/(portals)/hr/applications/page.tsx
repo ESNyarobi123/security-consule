@@ -8,8 +8,10 @@ import {
   type StaffJobApplication,
 } from '@pssms/api-client';
 import { getSessionUser } from '@pssms/auth';
+import { can } from '@pssms/permissions';
 import { RefreshCw, UserPlus } from 'lucide-react';
 import { FormEvent, useCallback, useEffect, useMemo, useState } from 'react';
+import { FileCabinet } from '../../administration/_components/FileCabinet';
 import { HrShell } from '../_components/HrShell';
 
 const STATUSES: Array<'all' | ApplicationStatusValue> = [
@@ -48,6 +50,7 @@ export default function HrApplicationsPage() {
   const canManage =
     session?.roles?.includes('SUPER_ADMIN') ||
     session?.permissions?.includes('recruitment.manage');
+  const canDocs = can(session, 'documents.manage');
 
   const [rows, setRows] = useState<StaffJobApplication[]>([]);
   const [loading, setLoading] = useState(true);
@@ -64,6 +67,7 @@ export default function HrApplicationsPage() {
   const [employmentType, setEmploymentType] = useState<
     'GUARD' | 'SUPERVISOR' | 'ADMIN' | 'OTHER'
   >('GUARD');
+  const [notice, setNotice] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
     if (!canManage) {
@@ -94,12 +98,18 @@ export default function HrApplicationsPage() {
   ) {
     setBusyId(row.id);
     setError(null);
+    setNotice(null);
     try {
       const note = notes[row.id]?.trim();
-      await updateJobApplicationStatus(row.id, {
+      const updated = await updateJobApplicationStatus(row.id, {
         status: next,
         notes: note || undefined,
       });
+      if (next === 'INTERVIEW' && updated.interviewNotification?.email) {
+        setNotice(
+          `Interview notice queued to ${updated.email} for ${updated.applicantName}.`,
+        );
+      }
       await refresh();
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
@@ -140,7 +150,7 @@ export default function HrApplicationsPage() {
   return (
     <HrShell
       title="Applications"
-      description="Module 14-A — internal recruitment inbox: screen → interview → offer → hire (Employee). GuardProfile convert deferred."
+      description="Portal 35.13 / Module 14-A — HR Officers, Recruitment Officers, and interview panels share this inbox (HR_OFFICER + recruitment.manage). Screen → interview (email notice) → offer → hire. No extra INTERVIEW_PANEL role."
       actions={
         <button
           type="button"
@@ -179,6 +189,12 @@ export default function HrApplicationsPage() {
             ))}
           </div>
 
+          {notice ? (
+            <p className="mb-3 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-800">
+              {notice}
+            </p>
+          ) : null}
+
           {error ? (
             <p className="mb-3 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">
               {error}
@@ -216,7 +232,7 @@ export default function HrApplicationsPage() {
                         </p>
                         <p className="mt-0.5 text-xs text-[#605e5c]">
                           {row.postingTitle ?? row.postingId.slice(0, 8)} ·{' '}
-                          {row.email}
+                          {row.applicantTrack ?? 'GENERAL'} · {row.email}
                           {row.phone ? ` · ${row.phone}` : ''}
                         </p>
                         <p className="mt-1 text-[11px] text-[#8a8886]">
@@ -297,6 +313,13 @@ export default function HrApplicationsPage() {
                                 setHireTarget(row);
                                 setDepartment('');
                                 setEmployeeNumber('');
+                                setEmploymentType(
+                                  row.applicantTrack === 'OFFICE'
+                                    ? 'ADMIN'
+                                    : row.applicantTrack === 'GUARD'
+                                      ? 'GUARD'
+                                      : 'OTHER',
+                                );
                               }}
                               className="inline-flex items-center gap-1 rounded-md bg-emerald-700 px-2.5 py-1 text-xs font-semibold text-white hover:bg-emerald-600 disabled:opacity-50"
                             >
@@ -323,6 +346,29 @@ export default function HrApplicationsPage() {
               })}
             </ul>
           )}
+
+          <section className="mt-8">
+            <h2 className="mb-2 text-sm font-semibold text-[#1b1a19]">
+              Applicant documents
+            </h2>
+            <p className="mb-3 text-[11px] text-[#605e5c]">
+              Public apply stores an optional CV on the application. Additional
+              scans (certificates, ID) attach here via MinIO — requires
+              documents.manage + recruitment.manage. Public MinIO at apply time
+              stays deferred.
+            </p>
+            <FileCabinet
+              resourceType="JobApplication"
+              records={rows.map((r) => ({
+                id: r.id,
+                title: r.applicantName,
+                subtitle: `${r.referenceNumber}${r.postingTitle ? ` · ${r.postingTitle}` : ''}`,
+              }))}
+              recordsLoading={loading}
+              canUpload={Boolean(canManage && canDocs)}
+              emptyHint="No applications in this filter."
+            />
+          </section>
         </>
       )}
 

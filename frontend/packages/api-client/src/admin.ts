@@ -1242,13 +1242,81 @@ export const recordInvoicePayment = (
 // ── Enterprise ──
 export type Branch = {
   id: string;
+  organizationId?: string;
+  code: string;
+  name: string;
+  region?: string | null;
+  isActive: boolean;
+  createdAt?: string;
+};
+
+export const listBranches = (token?: string) =>
+  coreFetch<Branch[]>('/api/v1/enterprise/branches', { token });
+
+export const createBranch = (
+  body: { code: string; name: string; region?: string },
+  token?: string,
+) =>
+  coreFetch<Branch>('/api/v1/enterprise/branches', {
+    method: 'POST',
+    body: JSON.stringify(body),
+    token,
+  });
+
+export const updateBranch = (
+  id: string,
+  body: { name?: string; region?: string; isActive?: boolean },
+  token?: string,
+) =>
+  coreFetch<Branch>(`/api/v1/enterprise/branches/${id}`, {
+    method: 'PATCH',
+    body: JSON.stringify(body),
+    token,
+  });
+
+export type Department = {
+  id: string;
+  organizationId: string;
+  branchId?: string | null;
   code: string;
   name: string;
   isActive: boolean;
 };
 
-export const listBranches = (token?: string) =>
-  coreFetch<Branch[]>('/api/v1/enterprise/branches', { token });
+export const listDepartments = (token?: string) =>
+  coreFetch<Department[]>('/api/v1/enterprise/departments', { token });
+
+export const createDepartment = (
+  body: { code: string; name: string; branchId?: string },
+  token?: string,
+) =>
+  coreFetch<Department>('/api/v1/enterprise/departments', {
+    method: 'POST',
+    body: JSON.stringify(body),
+    token,
+  });
+
+export const updateDepartment = (
+  id: string,
+  body: { name?: string; isActive?: boolean },
+  token?: string,
+) =>
+  coreFetch<Department>(`/api/v1/enterprise/departments/${id}`, {
+    method: 'PATCH',
+    body: JSON.stringify(body),
+    token,
+  });
+
+export type OrganizationProfile = {
+  id: string;
+  name: string;
+  code: string;
+  tin?: string | null;
+  isActive: boolean;
+};
+
+export const getOrganization = (token?: string) =>
+  coreFetch<OrganizationProfile>('/api/v1/enterprise/organization', { token });
 
 // ── Identity / Users (Module 5 · Super Admin) ──
 export type AdminUser = {
@@ -1446,6 +1514,83 @@ export const submitUserReactivate = (
 export const listRoles = (token?: string) =>
   coreFetch<AdminRole[]>('/api/v1/roles', { token });
 
+export type PermissionCatalogItem = {
+  code: string;
+  name: string;
+  module: string;
+};
+
+export const listPermissions = (token?: string) =>
+  coreFetch<PermissionCatalogItem[]>('/api/v1/roles/permissions', { token });
+
+export type PortalCatalogRoleLive = {
+  code: string;
+  present: boolean;
+  isSystem: boolean;
+  userCount: number;
+  canEnter: boolean;
+};
+
+export type PortalCatalogPortal = {
+  id: string;
+  name: string;
+  primaryUsers: string;
+  job: string;
+  entry: string;
+  gatePermissions: string[];
+  accountTypeCodes: string[];
+  roleCodes: string[];
+  security: string;
+  publicAccess: boolean;
+  roles: PortalCatalogRoleLive[];
+  liveUserCount: number;
+};
+
+export type PortalCatalogAccount = {
+  code: string;
+  name: string;
+  roleCodes: string[];
+  portalIds: string[];
+  liveUserCount: number;
+  publicOrUnbound: boolean;
+};
+
+export type PortalCatalog = {
+  organizationId: string;
+  portals: PortalCatalogPortal[];
+  accountTypes: PortalCatalogAccount[];
+  unmappedRoleCodes: string[];
+};
+
+export const getPortalCatalog = (token?: string) =>
+  coreFetch<PortalCatalog>('/api/v1/roles/portal-catalog', { token });
+
+export const createRole = (
+  body: {
+    code: string;
+    name: string;
+    description?: string;
+    permissionCodes?: string[];
+  },
+  token?: string,
+) =>
+  coreFetch<AdminRole>('/api/v1/roles', {
+    method: 'POST',
+    body: JSON.stringify(body),
+    token,
+  });
+
+export const setRolePermissions = (
+  id: string,
+  permissionCodes: string[],
+  token?: string,
+) =>
+  coreFetch<AdminRole>(`/api/v1/roles/${id}/permissions`, {
+    method: 'PUT',
+    body: JSON.stringify({ permissionCodes }),
+    token,
+  });
+
 export type LoginHistoryEntry = {
   id: string;
   userId: string;
@@ -1593,6 +1738,27 @@ export type ApprovalInstance = {
 export const listApprovalInstances = (token?: string) =>
   coreFetch<ApprovalInstance[]>('/api/v1/approvals/instances', { token });
 
+export type ApprovalWorkflowStep = {
+  stepOrder: number;
+  name: string;
+  requiredRole: string;
+  minApprovers: number;
+  amountThreshold?: number | null;
+};
+
+export type ApprovalWorkflow = {
+  id: string;
+  code: string;
+  name: string;
+  description?: string | null;
+  isActive: boolean;
+  version: number;
+  steps: ApprovalWorkflowStep[];
+};
+
+export const listApprovalWorkflows = (token?: string) =>
+  coreFetch<ApprovalWorkflow[]>('/api/v1/approvals/workflows', { token });
+
 export const actOnApproval = (
   id: string,
   body: { decision: 'APPROVE' | 'REJECT'; remarks?: string },
@@ -1696,6 +1862,51 @@ export const listPayrollCycles = (
     { token: opts?.token },
   );
 };
+
+export type PayrollPortalTenantPack = {
+  cycles: number;
+  payslipSnapshots: number;
+  grossPay: number;
+  netPay: number;
+  overtime: { count: number; amount: number };
+  allowances: { count: number; amount: number };
+  loanDeductions: { count: number; amount: number };
+  statutoryNssf: number;
+  statutoryPaye: number;
+  alertnessBonus: number;
+  alertnessPenalty: number;
+  alertnessMissed: number;
+};
+
+export type PayrollPortalReport = {
+  from: string;
+  to: string;
+  company: PayrollPortalTenantPack;
+  customer: PayrollPortalTenantPack;
+  approvedNetPay: number;
+  unapprovedSnapshots: number;
+  dueAlertsOpen: number;
+  notes: string[];
+};
+
+export const getPayrollPortalReport = (
+  opts?: { from?: string; to?: string; token?: string },
+) => {
+  const qs = new URLSearchParams();
+  if (opts?.from) qs.set('from', opts.from);
+  if (opts?.to) qs.set('to', opts.to);
+  const q = qs.toString();
+  return coreFetch<PayrollPortalReport>(
+    `/api/v1/payroll/reports${q ? `?${q}` : ''}`,
+    { token: opts?.token },
+  );
+};
+
+export const listPayrollCustomerOptions = (token?: string) =>
+  coreFetch<Array<{ id: string; code: string; name: string }>>(
+    '/api/v1/payroll/customer-options',
+    { token },
+  );
 
 export const createPayrollCycle = (
   body: {
@@ -2054,6 +2265,37 @@ export const rejectSupplierSubmission = (
     },
   );
 
+export type SupplierMessage = {
+  id: string;
+  organizationId: string;
+  supplierId: string;
+  authorType: string;
+  body: string;
+  createdBy: string;
+  authorName?: string | null;
+  createdAt: string;
+};
+
+export const listSupplierMessages = (supplierId: string, token?: string) =>
+  coreFetch<SupplierMessage[]>(
+    `/api/v1/procurement/suppliers/${supplierId}/messages`,
+    { token },
+  );
+
+export const createSupplierMessage = (
+  supplierId: string,
+  body: string,
+  token?: string,
+) =>
+  coreFetch<SupplierMessage>(
+    `/api/v1/procurement/suppliers/${supplierId}/messages`,
+    {
+      method: 'POST',
+      body: JSON.stringify({ body }),
+      token,
+    },
+  );
+
 export const markSupplierSubmissionPaid = (id: string, token?: string) =>
   coreFetch<SupplierSubmission>(
     `/api/v1/procurement/supplier-submissions/${id}/mark-paid`,
@@ -2241,6 +2483,44 @@ export const listStockItems = (token?: string) =>
 export const listStockAlerts = (token?: string) =>
   coreFetch<StockItem[]>('/api/v1/inventory/alerts', { token });
 
+export type StockCategoryOption = { code: string; label: string };
+
+export const listStockCategoryOptions = (token?: string) =>
+  coreFetch<StockCategoryOption[]>('/api/v1/inventory/category-options', {
+    token,
+  });
+
+export type InventoryReport = {
+  itemsTotal: number;
+  itemsActive: number;
+  belowReorder: number;
+  onHandUnits: number;
+  byCategory: { category: string; items: number; onHand: number }[];
+  notes: string[];
+};
+
+export const getInventoryReports = (token?: string) =>
+  coreFetch<InventoryReport>('/api/v1/inventory/reports', { token });
+
+export type ProcurementReport = {
+  suppliersTotal: number;
+  suppliersPending: number;
+  suppliersApproved: number;
+  purchaseRequestsTotal: number;
+  purchaseRequestsPendingApproval: number;
+  purchaseRequestsApproved: number;
+  purchaseOrdersOpen: number;
+  purchaseOrdersReceived: number;
+  goodsReceiptsTotal: number;
+  submissionsUnpaid: number;
+  purchaseRequestsByStatus: { status: string; count: number }[];
+  purchaseOrdersByStatus: { status: string; count: number }[];
+  notes: string[];
+};
+
+export const getProcurementReports = (token?: string) =>
+  coreFetch<ProcurementReport>('/api/v1/procurement/reports', { token });
+
 export const createStockItem = (
   body: {
     sku: string;
@@ -2295,8 +2575,12 @@ export type VisitorAppointment = {
   id: string;
   referenceNumber: string;
   visitorName: string;
+  visitorEmail?: string | null;
+  companyName?: string | null;
   hostName?: string | null;
   purpose: string;
+  visitKind?: string | null;
+  vehiclePlate?: string | null;
   /** Module 12-D */
   idType?: VisitorIdType | null;
   idNumber?: string | null;
@@ -2656,6 +2940,8 @@ export type StaffServiceRequest = {
   createdAt: string;
   customerCode?: string | null;
   customerName?: string | null;
+  incidentId?: string | null;
+  incidentNumber?: string | null;
 };
 
 /** GET /customers/service-requests — call centre / commercial */
@@ -2727,3 +3013,471 @@ export const createStaffComplaint = (
     body: JSON.stringify(body),
     token,
   });
+
+/** Portal 35.19 — marketing / BD pipeline (`marketing.manage`). */
+export type MarketingReport = {
+  byStage: Record<string, number>;
+  openPipeline: number;
+  won: number;
+  lost: number;
+  activeCampaigns: number;
+  surveysScheduled: number;
+  quotesSent: number;
+  pendingCommissions: number;
+  pendingCommissionAmount: number;
+  generatedAt: string;
+  notes: string[];
+};
+
+export type MarketingCampaign = {
+  id: string;
+  code: string;
+  name: string;
+  channel: string;
+  startsAt?: string | null;
+  endsAt?: string | null;
+  isActive: boolean;
+  notes?: string | null;
+  createdAt: string;
+};
+
+export type MarketingLead = {
+  id: string;
+  code: string;
+  companyName: string;
+  contactName: string;
+  contactEmail?: string | null;
+  contactPhone?: string | null;
+  source: string;
+  stage: string;
+  campaignId?: string | null;
+  campaignCode?: string | null;
+  campaignName?: string | null;
+  referrerName?: string | null;
+  referrerType?: string | null;
+  ownerName?: string | null;
+  estimatedValue?: number | null;
+  currency: string;
+  notes?: string | null;
+  lostReason?: string | null;
+  customerId?: string | null;
+  customerCode?: string | null;
+  contractId?: string | null;
+  contractNumber?: string | null;
+  createdAt: string;
+  allowedNextStages: string[];
+};
+
+export type MarketingSurvey = {
+  id: string;
+  siteAddress: string;
+  scheduledAt: string;
+  completedAt?: string | null;
+  status: string;
+  outcome?: string | null;
+  officerName?: string | null;
+};
+
+export type MarketingQuote = {
+  id: string;
+  quoteNumber: string;
+  kind: string;
+  status: string;
+  amount: number;
+  currency: string;
+  allowedNextStatuses: string[];
+};
+
+export type MarketingCommission = {
+  id: string;
+  leadId: string;
+  beneficiary: string;
+  amount: number;
+  currency: string;
+  status: string;
+  leadCode?: string;
+  companyName?: string;
+};
+
+export type MarketingLeadDetail = MarketingLead & {
+  surveys: MarketingSurvey[];
+  quotes: MarketingQuote[];
+  commissions: MarketingCommission[];
+};
+
+export const getMarketingReports = (token?: string) =>
+  coreFetch<MarketingReport>('/api/v1/marketing/reports', { token });
+
+export const getMarketingOptions = (token?: string) =>
+  coreFetch<{
+    channels: string[];
+    sources: string[];
+    stages: string[];
+    referrerTypes: string[];
+    quoteKinds: string[];
+  }>('/api/v1/marketing/options', { token });
+
+export const listMarketingCampaigns = (token?: string) =>
+  coreFetch<MarketingCampaign[]>('/api/v1/marketing/campaigns', { token });
+
+export const createMarketingCampaign = (
+  body: { name: string; channel?: string; notes?: string; code?: string },
+  token?: string,
+) =>
+  coreFetch<MarketingCampaign>('/api/v1/marketing/campaigns', {
+    method: 'POST',
+    body: JSON.stringify(body),
+    token,
+  });
+
+export const updateMarketingCampaign = (
+  id: string,
+  body: { isActive?: boolean; name?: string },
+  token?: string,
+) =>
+  coreFetch<MarketingCampaign>(`/api/v1/marketing/campaigns/${id}`, {
+    method: 'PATCH',
+    body: JSON.stringify(body),
+    token,
+  });
+
+export const listMarketingLeads = (
+  opts?: { stage?: string; source?: string; token?: string },
+) => {
+  const qs = new URLSearchParams();
+  if (opts?.stage) qs.set('stage', opts.stage);
+  if (opts?.source) qs.set('source', opts.source);
+  const q = qs.toString();
+  return coreFetch<MarketingLead[]>(
+    `/api/v1/marketing/leads${q ? `?${q}` : ''}`,
+    { token: opts?.token },
+  );
+};
+
+export const getMarketingLead = (id: string, token?: string) =>
+  coreFetch<MarketingLeadDetail>(`/api/v1/marketing/leads/${id}`, { token });
+
+export const createMarketingLead = (
+  body: {
+    companyName: string;
+    contactName: string;
+    contactEmail?: string;
+    contactPhone?: string;
+    source?: string;
+    campaignId?: string;
+    referrerName?: string;
+    referrerType?: string;
+    estimatedValue?: number;
+    notes?: string;
+  },
+  token?: string,
+) =>
+  coreFetch<MarketingLeadDetail>('/api/v1/marketing/leads', {
+    method: 'POST',
+    body: JSON.stringify(body),
+    token,
+  });
+
+export const patchMarketingLead = (
+  id: string,
+  body: { stage?: string; notes?: string },
+  token?: string,
+) =>
+  coreFetch<MarketingLeadDetail>(`/api/v1/marketing/leads/${id}`, {
+    method: 'PATCH',
+    body: JSON.stringify(body),
+    token,
+  });
+
+export const winMarketingLead = (
+  id: string,
+  body?: { commissionAmount?: number; commissionBeneficiary?: string },
+  token?: string,
+) =>
+  coreFetch<MarketingLeadDetail>(`/api/v1/marketing/leads/${id}/win`, {
+    method: 'POST',
+    body: JSON.stringify(body ?? {}),
+    token,
+  });
+
+export const loseMarketingLead = (
+  id: string,
+  reason: string,
+  token?: string,
+) =>
+  coreFetch<MarketingLeadDetail>(`/api/v1/marketing/leads/${id}/lose`, {
+    method: 'POST',
+    body: JSON.stringify({ reason }),
+    token,
+  });
+
+export const createMarketingSurvey = (
+  leadId: string,
+  body: { siteAddress: string; scheduledAt: string; officerName?: string },
+  token?: string,
+) =>
+  coreFetch<MarketingSurvey>(`/api/v1/marketing/leads/${leadId}/surveys`, {
+    method: 'POST',
+    body: JSON.stringify(body),
+    token,
+  });
+
+export const completeMarketingSurvey = (
+  leadId: string,
+  surveyId: string,
+  outcome: string,
+  token?: string,
+) =>
+  coreFetch<MarketingSurvey>(
+    `/api/v1/marketing/leads/${leadId}/surveys/${surveyId}/complete`,
+    { method: 'POST', body: JSON.stringify({ outcome }), token },
+  );
+
+export const createMarketingQuote = (
+  leadId: string,
+  body: {
+    kind: string;
+    amount: number;
+    validUntil?: string;
+    serviceTypes?: string[];
+  },
+  token?: string,
+) =>
+  coreFetch<MarketingQuote>(`/api/v1/marketing/leads/${leadId}/quotes`, {
+    method: 'POST',
+    body: JSON.stringify(body),
+    token,
+  });
+
+export const patchMarketingQuote = (
+  leadId: string,
+  quoteId: string,
+  status: string,
+  token?: string,
+) =>
+  coreFetch<MarketingQuote>(
+    `/api/v1/marketing/leads/${leadId}/quotes/${quoteId}`,
+    { method: 'PATCH', body: JSON.stringify({ status }), token },
+  );
+
+export const convertMarketingCustomer = (leadId: string, token?: string) =>
+  coreFetch<MarketingLeadDetail>(
+    `/api/v1/marketing/leads/${leadId}/convert-customer`,
+    { method: 'POST', body: JSON.stringify({}), token },
+  );
+
+export const convertMarketingContract = (
+  leadId: string,
+  body: {
+    startDate: string;
+    endDate: string;
+    monthlyFee: number;
+    serviceTypes: string[];
+    title?: string;
+  },
+  token?: string,
+) =>
+  coreFetch<MarketingLeadDetail>(
+    `/api/v1/marketing/leads/${leadId}/convert-contract`,
+    { method: 'POST', body: JSON.stringify(body), token },
+  );
+
+export const listMarketingCommissions = (token?: string) =>
+  coreFetch<MarketingCommission[]>('/api/v1/marketing/commissions', { token });
+
+export const accrueMarketingCommission = (id: string, token?: string) =>
+  coreFetch<MarketingCommission>(`/api/v1/marketing/commissions/${id}/accrue`, {
+    method: 'POST',
+    body: JSON.stringify({}),
+    token,
+  });
+
+export type CallCentreReport = {
+  openTickets: number;
+  openComplaints: number;
+  pendingVisitorAppointments: number;
+  gateEntriesToday: number;
+  ticketsByCategory: Record<string, number>;
+  parkingInquiries: number;
+  supplierInquiries: number;
+  payrollInquiries: number;
+  generatedAt: string;
+  notes: string[];
+};
+
+export type SupportCustomerOption = { id: string; code: string; name: string };
+
+export const getCallCentreReports = (token?: string) =>
+  coreFetch<CallCentreReport>('/api/v1/callcentre/reports', { token });
+
+export const getCallCentreTicketOptions = (token?: string) =>
+  coreFetch<{ categories: string[]; notes: string[] }>(
+    '/api/v1/callcentre/ticket-options',
+    { token },
+  );
+
+export const listCallCentreCustomerOptions = (token?: string) =>
+  coreFetch<SupportCustomerOption[]>('/api/v1/callcentre/customer-options', {
+    token,
+  });
+
+export const createCallCentreTicket = (
+  body: {
+    customerId: string;
+    category: string;
+    title: string;
+    description: string;
+    urgency?: string;
+    siteId?: string;
+    callbackPhone?: string;
+  },
+  token?: string,
+) =>
+  coreFetch<StaffServiceRequest>('/api/v1/callcentre/tickets', {
+    method: 'POST',
+    body: JSON.stringify(body),
+    token,
+  });
+
+export const escalateCallCentreTicket = (id: string, token?: string) =>
+  coreFetch<{ incidentId: string; incidentNumber: string }>(
+    `/api/v1/callcentre/tickets/${id}/escalate-incident`,
+    { method: 'POST', body: JSON.stringify({}), token },
+  );
+
+export type CctvReport = {
+  camerasTotal: number;
+  camerasOnline: number;
+  openAiAlerts: number;
+  anprToday: number;
+  parkingDenies24h: number;
+  visitorDenies24h: number;
+  openHighFieldAlerts: number;
+  openCctvAlertIncidents: number;
+  generatedAt: string;
+  notes: string[];
+};
+
+export type CctvSiteRow = {
+  id: string;
+  siteId: string | null;
+  siteCode?: string | null;
+  siteName?: string | null;
+};
+
+export type CctvParkingMonitor = {
+  occupancy: {
+    occupied: number;
+    spacesActive: number;
+    utilizationPct: number | null;
+  };
+  entries: (CctvSiteRow & {
+    plateNumber: string;
+    direction: string;
+    decision: string;
+    recordedAt: string;
+  })[];
+  openViolations: (CctvSiteRow & {
+    plateNumber: string;
+    violationType: string;
+    status: string;
+    createdAt: string;
+  })[];
+  patrolObservations: (CctvSiteRow & {
+    parkingArea: string;
+    observationType: string;
+    plateNumber: string | null;
+    inspectedAt: string;
+  })[];
+  notes: string[];
+};
+
+export type CctvAccessMonitor = {
+  checkIns24h: number;
+  checkOuts24h: number;
+  visitorDenies24h: number;
+  accessEntries: (CctvSiteRow & {
+    employeeId: string;
+    entryType: string;
+    accessMethod: string;
+    recordedAt: string;
+  })[];
+  visitorDenies: (CctvSiteRow & {
+    visitorName: string;
+    result: string;
+    denyReason: string | null;
+    direction: string;
+    recordedAt: string;
+  })[];
+  notes: string[];
+};
+
+export type CctvPatrolMonitor = {
+  scans: (CctvSiteRow & {
+    guardId: string;
+    checkpointId: string;
+    method: string;
+    scannedAt: string;
+    remarks: string | null;
+  })[];
+  missedPatrols: (CctvSiteRow & {
+    alertType: string;
+    severity: string;
+    message: string;
+    escalationStage: string;
+    createdAt: string;
+  })[];
+  notes: string[];
+};
+
+export type CctvAlarmMonitor = {
+  fieldAlarms: (CctvSiteRow & {
+    alertType: string;
+    severity: string;
+    message: string;
+    escalationStage: string;
+    createdAt: string;
+  })[];
+  failedCameraEvents: {
+    id: string;
+    deviceId: string;
+    status: string;
+    error: string | null;
+    receivedAt: string;
+  }[];
+  notes: string[];
+};
+
+export type CctvIncidentMonitor = {
+  rows: (CctvSiteRow & {
+    incidentNumber: string;
+    category: string;
+    severity: string;
+    status: string;
+    title: string;
+    occurredAt: string;
+    createdAt: string;
+  })[];
+  notes: string[];
+};
+
+export const getCctvReports = (token?: string) =>
+  coreFetch<CctvReport>('/api/v1/cctv/reports', { token });
+
+export const getCctvParkingMonitor = (token?: string) =>
+  coreFetch<CctvParkingMonitor>('/api/v1/cctv/parking-monitor', { token });
+
+export const getCctvAccessMonitor = (token?: string) =>
+  coreFetch<CctvAccessMonitor>('/api/v1/cctv/access-monitor', { token });
+
+export const getCctvPatrolMonitor = (token?: string) =>
+  coreFetch<CctvPatrolMonitor>('/api/v1/cctv/patrol-monitor', { token });
+
+export const getCctvAlarmMonitor = (token?: string) =>
+  coreFetch<CctvAlarmMonitor>('/api/v1/cctv/alarm-monitor', { token });
+
+export const getCctvIncidentMonitor = (token?: string) =>
+  coreFetch<CctvIncidentMonitor>('/api/v1/cctv/incident-monitor', { token });
+
+
+

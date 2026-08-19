@@ -28,11 +28,14 @@ import {
   CreateBreachDto,
   CreateConsentDto,
   CreatePolicyDto,
+  CreateRiskDto,
   DataBreachCaseResponseDto,
   PolicyDocumentResponseDto,
   RejectPolicyDto,
+  RiskRegisterItemResponseDto,
   UpdateBreachDto,
   UpdatePolicyDto,
+  UpdateRiskDto,
   WithdrawConsentDto,
 } from './dto/compliance.dto';
 
@@ -171,6 +174,61 @@ export class ComplianceController {
     @CurrentUser() user: AuthUser,
   ) {
     return this.service.withdrawConsent(id, dto, user);
+  }
+
+  // ── Portal 35.21 governance pack ──
+
+  @Get('reports')
+  @RequireAnyPermissions('dpo.manage', 'compliance.manage', 'audit.read')
+  @ApiOperation({ summary: 'Live Compliance / DPO / Audit desk pack' })
+  reports(@CurrentUser() user: AuthUser) {
+    return this.service.reports(user);
+  }
+
+  @Get('access-review')
+  @RequireAnyPermissions('dpo.manage', 'compliance.manage', 'audit.read')
+  @ApiOperation({ summary: 'Org login history (read-only; IAM mutate stays Super Admin)' })
+  accessReview(@CurrentUser() user: AuthUser) {
+    return this.service.accessReview(user);
+  }
+
+  @Get('incident-monitor')
+  @RequireAnyPermissions('dpo.manage', 'compliance.manage', 'audit.read')
+  @ApiOperation({ summary: 'Read-only security incident reports for governance' })
+  incidentMonitor(@CurrentUser() user: AuthUser) {
+    return this.service.incidentMonitor(user);
+  }
+
+  @Get('risk-options')
+  @RequireAnyPermissions('dpo.manage', 'compliance.manage', 'audit.read')
+  @ApiOperation({ summary: 'Risk category / regulatory framework catalogs' })
+  riskOptions() {
+    return this.service.riskCatalogOptions();
+  }
+
+  @Get('risks')
+  @RequireAnyPermissions('dpo.manage', 'compliance.manage', 'audit.read')
+  @ApiOkResponse({ type: [RiskRegisterItemResponseDto] })
+  listRisks(@CurrentUser() user: AuthUser) {
+    return this.service.listRisks(user);
+  }
+
+  @Post('risks')
+  @RequireAnyPermissions('compliance.manage', 'dpo.manage')
+  @ApiCreatedResponse({ type: RiskRegisterItemResponseDto })
+  createRisk(@Body() dto: CreateRiskDto, @CurrentUser() user: AuthUser) {
+    return this.service.createRisk(dto, user);
+  }
+
+  @Patch('risks/:id')
+  @RequireAnyPermissions('compliance.manage', 'dpo.manage')
+  @ApiOkResponse({ type: RiskRegisterItemResponseDto })
+  updateRisk(
+    @Param('id') id: string,
+    @Body() dto: UpdateRiskDto,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.service.updateRisk(id, dto, user);
   }
 
   // ── Breaches ──

@@ -1655,6 +1655,22 @@ export async function seedDemoVolume(
   }
 
   // ── Job postings + applications (~20 real-looking OPEN roles) ──────────
+  const inferCareerApplicantTrack = (
+    department: string,
+    title: string,
+  ): 'GUARD' | 'OFFICE' | 'GENERAL' => {
+    const hay = `${department} ${title}`.toLowerCase();
+    if (
+      /human resources|payroll|procurement|finance|accounts|ict|customer support|compliance|administration|intern/.test(
+        hay,
+      )
+    ) {
+      return 'OFFICE';
+    }
+    if (/training instructor/.test(hay)) return 'OFFICE';
+    return 'GUARD';
+  };
+
   const careerRoles: Array<{
     title: string;
     department: string;
@@ -1851,6 +1867,10 @@ export async function seedDemoVolume(
     const role = careerRoles[i - 1]!;
     const id = `00000000-0000-4000-8000-0000000003${pad(i)}`;
     const closesAt = daysFromNow(30 + i);
+    const applicantTrack = inferCareerApplicantTrack(
+      role.department,
+      role.title,
+    );
     const row = await prisma.jobPosting.upsert({
       where: { id },
       update: {
@@ -1860,6 +1880,7 @@ export async function seedDemoVolume(
         location: role.location,
         description: role.description,
         requirements: role.requirements,
+        applicantTrack,
         publishedAt: new Date(),
         closesAt,
       },
@@ -1871,6 +1892,7 @@ export async function seedDemoVolume(
         location: role.location,
         description: role.description,
         requirements: role.requirements,
+        applicantTrack,
         status: 'OPEN',
         publishedAt: new Date(),
         closesAt,
@@ -1889,6 +1911,7 @@ export async function seedDemoVolume(
         location: 'Dar es Salaam',
         description: 'Protect client sites under HIGHLINK deployment.',
         requirements: 'Valid guard licence',
+        applicantTrack: 'GUARD',
         status: 'OPEN',
         publishedAt: new Date(),
         createdBy: ctx.adminUserId,

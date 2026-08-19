@@ -40,11 +40,12 @@ export default function PortalsLayout({
     );
     setNav(navForUser(user));
     const required = permissionForPath(pathname);
-    if (required && !can(user, required)) {
-      setDenied(true);
-    } else {
-      setDenied(false);
-    }
+    const overview35_18 =
+      pathname === '/procurement' || pathname === '/procurement/';
+    const allowed = overview35_18
+      ? can(user, 'procurement.manage') || can(user, 'inventory.manage')
+      : !required || can(user, required);
+    setDenied(!allowed);
   }, [pathname, router]);
 
   function logout() {

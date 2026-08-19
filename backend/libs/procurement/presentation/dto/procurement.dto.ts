@@ -16,6 +16,7 @@ import {
   IsOptional,
   IsString,
   IsUUID,
+  MaxLength,
   Min,
   MinLength,
   ValidateNested,
@@ -307,6 +308,25 @@ export class RejectSupplierSubmissionDto {
   reason!: string;
 }
 
+export class CreateSupplierMessageDto {
+  @ApiProperty({ example: 'Please confirm delivery window for PO-DEMO-UNIFORM-001.' })
+  @IsString()
+  @MinLength(1)
+  @MaxLength(2000)
+  body!: string;
+}
+
+export class SupplierMessageResponseDto {
+  @ApiProperty() id!: string;
+  @ApiProperty() organizationId!: string;
+  @ApiProperty() supplierId!: string;
+  @ApiProperty({ enum: ['SUPPLIER', 'PROCUREMENT'] }) authorType!: string;
+  @ApiProperty() body!: string;
+  @ApiProperty() createdBy!: string;
+  @ApiPropertyOptional() authorName?: string | null;
+  @ApiProperty() createdAt!: Date;
+}
+
 export class SupplierSubmissionResponseDto {
   @ApiProperty() id!: string;
   @ApiProperty() organizationId!: string;
@@ -531,4 +551,27 @@ export class RejectPurchaseRequestDto {
   @IsString()
   @MinLength(3)
   reason!: string;
+}
+
+export class ProcurementStatusCountDto {
+  @ApiProperty() status!: string;
+  @ApiProperty() count!: number;
+}
+
+export class ProcurementReportResponseDto {
+  @ApiProperty() suppliersTotal!: number;
+  @ApiProperty() suppliersPending!: number;
+  @ApiProperty() suppliersApproved!: number;
+  @ApiProperty() purchaseRequestsTotal!: number;
+  @ApiProperty() purchaseRequestsPendingApproval!: number;
+  @ApiProperty() purchaseRequestsApproved!: number;
+  @ApiProperty() purchaseOrdersOpen!: number;
+  @ApiProperty() purchaseOrdersReceived!: number;
+  @ApiProperty() goodsReceiptsTotal!: number;
+  @ApiProperty() submissionsUnpaid!: number;
+  @ApiProperty({ type: [ProcurementStatusCountDto] })
+  purchaseRequestsByStatus!: ProcurementStatusCountDto[];
+  @ApiProperty({ type: [ProcurementStatusCountDto] })
+  purchaseOrdersByStatus!: ProcurementStatusCountDto[];
+  @ApiProperty({ type: [String] }) notes!: string[];
 }

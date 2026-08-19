@@ -8,13 +8,17 @@ import { AzureGlyph } from '@pssms/ui';
 export const ESS_TABS = [
   { href: '/ess', label: 'Overview', exact: true },
   { href: '/ess/profile', label: 'Profile' },
-  { href: '/ess/security', label: 'Security' },
+  { href: '/ess/attendance', label: 'Attendance' },
   { href: '/ess/leave', label: 'Leave' },
-  { href: '/ess/requests', label: 'Requests' },
   { href: '/ess/payslips', label: 'Payslips' },
   { href: '/ess/loans', label: 'Loans' },
-  { href: '/ess/petty-cash', label: 'Petty cash' },
   { href: '/ess/equipment', label: 'Equipment' },
+  { href: '/ess/training', label: 'Training' },
+  { href: '/ess/notices', label: 'Notices' },
+  { href: '/ess/requests', label: 'Requests' },
+  { href: '/ess/approvals', label: 'Approvals' },
+  { href: '/ess/petty-cash', label: 'Petty cash' },
+  { href: '/ess/security', label: 'Security' },
 ] as const;
 
 export function EssShell({
@@ -39,7 +43,7 @@ export function EssShell({
           </span>
           <div className="min-w-0">
             <p className="text-[11px] font-medium uppercase tracking-[0.14em] text-[#605e5c]">
-              ESS / Self-Service
+              Portal 35.5 · Employee Self-Service
             </p>
             <h1 className="text-lg font-semibold leading-tight text-[#1b1a19]">
               {title}

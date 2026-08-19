@@ -12,6 +12,7 @@ import {
   ReceivingController,
   SupplierSubmissionsController,
   SuppliersController,
+  ProcurementReportsController,
 } from './presentation/procurement.controller';
 
 @Module({
@@ -22,6 +23,7 @@ import {
     PurchaseOrdersController,
     PurchaseRequestsController,
     ReceivingController,
+    ProcurementReportsController,
   ],
   providers: [SuppliersService, PurchaseOrdersService, PurchaseRequestsService],
   exports: [SuppliersService, PurchaseOrdersService, PurchaseRequestsService],

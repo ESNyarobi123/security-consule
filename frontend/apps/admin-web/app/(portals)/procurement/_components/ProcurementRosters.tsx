@@ -193,6 +193,7 @@ export function SupplierRoster({
   onReject,
   onSuspend,
   onDocs,
+  onMessages,
   toolbar,
   empty,
 }: {
@@ -205,6 +206,7 @@ export function SupplierRoster({
   onReject?: (s: Supplier) => void;
   onSuspend?: (s: Supplier) => void;
   onDocs?: (s: Supplier) => void;
+  onMessages?: (s: Supplier) => void;
   toolbar?: ReactNode;
   empty?: ReactNode;
 }) {
@@ -252,6 +254,15 @@ export function SupplierRoster({
                   onClick={() => onDocs(r)}
                 >
                   Docs
+                </button>
+              ) : null}
+              {onMessages ? (
+                <button
+                  type="button"
+                  className={btnSecondary}
+                  onClick={() => onMessages(r)}
+                >
+                  Messages
                 </button>
               ) : null}
               {canReject ? (

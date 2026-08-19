@@ -394,6 +394,7 @@ export class PaymentVoucherResponseDto {
   @ApiPropertyOptional() approvedBy?: string | null;
   @ApiPropertyOptional() paidAt?: Date | null;
   @ApiPropertyOptional() paymentReference?: string | null;
+  @ApiProperty() createdBy!: string;
   @ApiProperty() createdAt!: Date;
 }
 
@@ -401,4 +402,25 @@ export class PayVoucherDto {
   @ApiProperty()
   @IsString()
   paymentReference!: string;
+}
+
+export class FinanceMoneyCountDto {
+  @ApiProperty() count!: number;
+  @ApiProperty() amount!: number;
+}
+
+export class FinanceReportResponseDto {
+  @ApiProperty() from!: string;
+  @ApiProperty() to!: string;
+  @ApiProperty() invoicesIssued!: FinanceMoneyCountDto;
+  @ApiProperty() customerReceipts!: FinanceMoneyCountDto;
+  @ApiProperty() outstanding!: FinanceMoneyCountDto;
+  @ApiProperty() parkingBilled!: FinanceMoneyCountDto;
+  @ApiProperty() parkingReceipts!: FinanceMoneyCountDto;
+  @ApiProperty() pettyCashIssued!: FinanceMoneyCountDto;
+  @ApiProperty() pettyCashRetired!: FinanceMoneyCountDto;
+  @ApiProperty() supplierPayments!: FinanceMoneyCountDto;
+  @ApiProperty() paymentVouchersPaid!: FinanceMoneyCountDto;
+  @ApiProperty() bankReconciliationImplemented!: boolean;
+  @ApiProperty({ type: [String] }) notes!: string[];
 }

@@ -10,6 +10,7 @@ export type SupervisorUser = {
   fullName: string;
   organizationId: string;
   roles: string[];
+  allowedSiteIds: string[];
 };
 
 export async function getAccessToken(): Promise<string | null> {
@@ -30,7 +31,13 @@ export async function getStoredUser(): Promise<SupervisorUser | null> {
   const raw = await SecureStore.getItemAsync(USER_JSON_KEY);
   if (!raw) return null;
   try {
-    return JSON.parse(raw) as SupervisorUser;
+    const parsed = JSON.parse(raw) as SupervisorUser;
+    return {
+      ...parsed,
+      allowedSiteIds: Array.isArray(parsed.allowedSiteIds)
+        ? parsed.allowedSiteIds
+        : [],
+    };
   } catch {
     return null;
   }

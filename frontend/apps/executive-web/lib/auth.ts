@@ -10,7 +10,31 @@ export function clearExecutiveSession() {
   sessionStorage.removeItem(USER_KEY);
 }
 
+export function hasReportingRead(user: {
+  permissions?: string[];
+} | null): boolean {
+  return Boolean(user?.permissions?.includes('reporting.read'));
+}
+
 export function isUnauthorizedError(err: unknown): boolean {
+  if (!(err instanceof Error)) return false;
+  const e = err as Error & { status?: number; code?: string };
+  if (e.status === 401 || e.code === 'UNAUTHORIZED') return true;
+  const m = e.message.toLowerCase();
+  return m.includes('unauthorized') || m.includes('"code":"unauthorized"');
+}
+
+export function isForbiddenError(err: unknown): boolean {
+  if (!(err instanceof Error)) return false;
+  const e = err as Error & { status?: number; code?: string };
+  if (e.status === 403 || e.code === 'FORBIDDEN') return true;
+  const m = e.message.toLowerCase();
+  return (
+    m.includes('forbidden') ||
+    m.includes('reporting.read') ||
+    m.includes('"code":"forbidden"')
+  );
+}
   if (!(err instanceof Error)) return false;
   const e = err as Error & { status?: number; code?: string };
   if (e.status === 401 || e.code === 'UNAUTHORIZED') return true;

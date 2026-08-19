@@ -2,6 +2,7 @@
 
 import {
   getCustomerPortalAttendanceSummary,
+  getCustomerPortalReport,
   type PortalAttendanceSummary,
 } from '@pssms/api-client';
 import {
@@ -43,13 +44,19 @@ export default function AttendancePage() {
   const [search, setSearch] = useState('');
   const [lastSynced, setLastSynced] = useState<Date | null>(null);
   const [autoRefresh, setAutoRefresh] = useState(true);
+  const [periodClockIns, setPeriodClockIns] = useState<number | null>(null);
 
   const load = useCallback(async (silent = false) => {
     if (!silent) setLoading(true);
     setError(null);
     try {
-      setRows(await getCustomerPortalAttendanceSummary());
+      const summary = await getCustomerPortalAttendanceSummary();
+      setRows(summary);
       setLastSynced(new Date());
+      if (!silent) {
+        const pack = await getCustomerPortalReport();
+        setPeriodClockIns(pack.summary.attendanceClockIns);
+      }
     } catch (err) {
       setError(
         err instanceof Error
@@ -105,7 +112,7 @@ export default function AttendancePage() {
       <PortalHero
         eyebrow="Services · Portal 35.8"
         title="Guard attendance"
-        subtitle="Live site coverage for officers serving your premises — refreshes every 30 seconds while this page is open."
+        subtitle="Live site coverage for officers serving your premises, plus period clock-ins on your reports pack. Refreshes every 30 seconds while this page is open."
         actions={
           <div className="flex flex-wrap items-center gap-2">
             <button
@@ -147,7 +154,7 @@ export default function AttendancePage() {
         </p>
       </div>
 
-      <div className="mb-4 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+      <div className="mb-4 grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
         <PortalStat label="Sites" value={loading ? '—' : rows.length} tone="sky" />
         <PortalStat
           label="Clocked in today"
@@ -163,6 +170,12 @@ export default function AttendancePage() {
           label="Active deployments"
           value={loading ? '—' : totals.deployed}
           tone="violet"
+        />
+        <PortalStat
+          label="Clock-ins (30d)"
+          value={periodClockIns ?? '—'}
+          hint="Period report"
+          href="/reports"
         />
       </div>
 
@@ -314,7 +327,7 @@ export default function AttendancePage() {
         </div>
       )}
 
-      <PortalDeferral note="Near-live via 30s poll (not SSE yet). Alertness, GPS tracks and device logs stay inside HIGHLINK operations." />
+      <PortalDeferral note="Near-live via 30s poll (not SSE yet). Period clock-ins come from the customer reports pack. Alertness, GPS tracks and device logs stay inside HIGHLINK operations." />
     </div>
   );
 }

@@ -19,6 +19,9 @@ import {
   generateVerificationCode,
   hashVerificationCode,
   getOrgContext,
+  isContractorSelfScoped,
+  isConsultantSelfScoped,
+  isServiceProviderSelfScoped,
 } from '@pssms/shared';
 import { AuditService } from '@pssms/audit';
 import {
@@ -34,9 +37,14 @@ import {
   GateVerifyResponseDto,
   IssueCodeResponseDto,
   RejectAppointmentDto,
+  VISIT_KIND_OPTIONS,
+  VisitKind,
   VisitorAppointmentResponseDto,
   VisitorEntryResponseDto,
+  VisitorPublicConfigDto,
 } from '../presentation/dto/visitor.dto';
+
+const HOST_ROLE_CODES = ['CUSTOMER_PORTAL', 'CUSTOMER_EMPLOYEE'] as const;
 
 /** Light in-memory gate-verify rate limit: max attempts per user+site window. */
 const GATE_VERIFY_RATE_LIMIT = 30;
@@ -57,13 +65,7 @@ export class VisitorsService {
     private readonly outbox: OutboxWriterService,
   ) {}
 
-  async publicConfig(): Promise<{
-    organizationId: string;
-    customerId: string;
-    siteId: string;
-    customerCode: string;
-    siteCode: string;
-  }> {
+  async publicConfig(): Promise<VisitorPublicConfigDto> {
     // Organization lookup is outside RLS tenant tables; customer/site need org
     // context (same pattern as public createAppointment — fail-closed RLS).
     const org = await this.prisma.organization.findFirst({
@@ -77,19 +79,79 @@ export class VisitorsService {
       });
       if (!customer) throw new NotFoundException('Demo customer not found');
 
-      const site = await this.prisma.site.findFirst({
-        where: { organizationId: org.id, code: 'SITE-WAREHOUSE-A' },
+      const sites = await this.prisma.site.findMany({
+        where: {
+          organizationId: org.id,
+          isActive: true,
+          customerId: customer.id,
+        },
+        select: { id: true, code: true, name: true },
+        orderBy: { name: 'asc' },
+        take: 40,
       });
-      if (!site) throw new NotFoundException('Demo site not found');
+      const warehouse = sites.find((s) => s.code === 'SITE-WAREHOUSE-A') ?? sites[0];
+      if (!warehouse) throw new NotFoundException('Demo site not found');
+
+      const hostUsers = await this.prisma.user.findMany({
+        where: {
+          organizationId: org.id,
+          customerId: customer.id,
+          isActive: true,
+          roles: { some: { role: { code: { in: [...HOST_ROLE_CODES] } } } },
+        },
+        select: {
+          id: true,
+          fullName: true,
+          roles: { select: { role: { select: { code: true } } } },
+        },
+        orderBy: { fullName: 'asc' },
+        take: 50,
+      });
+
+      const hosts = hostUsers.map((u) => {
+        const codes = u.roles.map((r) => r.role.code);
+        return {
+          id: u.id,
+          fullName: u.fullName,
+          kind: codes.includes('CUSTOMER_PORTAL')
+            ? ('PORTAL' as const)
+            : ('EMPLOYEE' as const),
+        };
+      });
 
       return {
         organizationId: org.id,
         customerId: customer.id,
-        siteId: site.id,
+        siteId: warehouse.id,
         customerCode: customer.code,
-        siteCode: site.code,
+        siteCode: warehouse.code,
+        sites,
+        hosts,
+        visitKinds: VISIT_KIND_OPTIONS,
       };
     });
+  }
+
+  async createOwnAppointment(
+    dto: CreateVisitorAppointmentDto,
+    user: AuthUser,
+  ): Promise<VisitorAppointmentResponseDto> {
+    if (dto.hostUserId && dto.hostUserId === user.id) {
+      throw new BadRequestException({
+        error: 'INVALID_HOST',
+        message: 'You cannot name yourself as the host',
+      });
+    }
+    return this.createAppointment(
+      {
+        ...dto,
+        organizationId: user.organizationId,
+        visitorName: dto.visitorName?.trim() || user.fullName,
+        visitorEmail: dto.visitorEmail?.trim() || user.email,
+        visitKind: dto.visitKind ?? this.defaultVisitKind(user),
+      },
+      user,
+    );
   }
 
   async createAppointment(
@@ -119,8 +181,53 @@ export class VisitorsService {
     user?: AuthUser,
   ): Promise<VisitorAppointmentResponseDto> {
     await this.assertCustomerInOrg(dto.customerId, organizationId);
+    const laneSelf = this.isVisitorLaneSelf(user);
+    const requireGuestFields = !user || laneSelf;
+    await this.assertVisitSite(
+      dto.siteId,
+      dto.customerId,
+      organizationId,
+      requireGuestFields,
+    );
+
+    const from = new Date(dto.validFrom);
+    const until = new Date(dto.validUntil);
+    if (!(until.getTime() > from.getTime())) {
+      throw new BadRequestException({
+        error: 'INVALID_VISIT_WINDOW',
+        message: 'validUntil must be after validFrom',
+      });
+    }
+
+    if (requireGuestFields) {
+      const email = dto.visitorEmail?.trim();
+      const phone = dto.visitorPhone?.trim();
+      if (!email && !phone) {
+        throw new BadRequestException({
+          error: 'VISITOR_CONTACT_REQUIRED',
+          message: 'Provide email or phone so the gate code can be delivered after approval',
+        });
+      }
+    }
+
+    if (laneSelf && user && dto.hostUserId === user.id) {
+      throw new BadRequestException({
+        error: 'INVALID_HOST',
+        message: 'You cannot name yourself as the host',
+      });
+    }
+
+    const host = await this.resolveHost({
+      organizationId,
+      customerId: dto.customerId,
+      hostUserId: dto.hostUserId,
+      hostName: dto.hostName,
+      requireSelectableHost: requireGuestFields,
+    });
 
     const idFields = this.resolveVisitorIdFields(dto.idType, dto.idNumber);
+    const visitKind = dto.visitKind ?? (user && laneSelf ? this.defaultVisitKind(user) : 'VISITOR');
+    const plate = dto.vehiclePlate?.trim() || null;
 
     const referenceNumber = await this.nextReferenceNumber(organizationId);
     const appointment = await this.prisma.visitorAppointment.create({
@@ -130,19 +237,21 @@ export class VisitorsService {
         siteId: dto.siteId,
         gateId: dto.gateId,
         referenceNumber,
-        visitorName: dto.visitorName,
-        visitorEmail: dto.visitorEmail,
-        visitorPhone: dto.visitorPhone,
-        companyName: dto.companyName,
-        purpose: dto.purpose,
+        visitorName: dto.visitorName.trim(),
+        visitorEmail: dto.visitorEmail?.trim() || null,
+        visitorPhone: dto.visitorPhone?.trim() || null,
+        companyName: dto.companyName?.trim() || null,
+        purpose: dto.purpose.trim(),
+        visitKind,
         idType: idFields.idType,
         idNumber: idFields.idNumber,
-        hostUserId: dto.hostUserId ?? user?.id,
-        hostName: dto.hostName,
-        vehiclePlate: dto.vehiclePlate,
-        validFrom: new Date(dto.validFrom),
-        validUntil: new Date(dto.validUntil),
+        hostUserId: host.hostUserId,
+        hostName: host.hostName,
+        vehiclePlate: plate,
+        validFrom: from,
+        validUntil: until,
         createdBy: user?.id,
+        ...(laneSelf && user ? { userId: user.id } : {}),
       },
     });
 
@@ -1119,6 +1228,88 @@ export class VisitorsService {
     return appointment;
   }
 
+  private isVisitorLaneSelf(user?: AuthUser): boolean {
+    if (!user) return false;
+    return (
+      isContractorSelfScoped(user) ||
+      isConsultantSelfScoped(user) ||
+      isServiceProviderSelfScoped(user)
+    );
+  }
+
+  private defaultVisitKind(user: AuthUser): VisitKind {
+    if (isContractorSelfScoped(user)) return 'CONTRACTOR';
+    if (isConsultantSelfScoped(user)) return 'CONSULTANT';
+    if (isServiceProviderSelfScoped(user)) return 'SUPPLIER_VISIT';
+    return 'VISITOR';
+  }
+
+  private async assertVisitSite(
+    siteId: string,
+    customerId: string,
+    organizationId: string,
+    requireCustomerSite: boolean,
+  ): Promise<void> {
+    const site = await this.prisma.site.findFirst({
+      where: { id: siteId, organizationId, isActive: true },
+    });
+    if (!site) {
+      throw new BadRequestException({
+        error: 'INVALID_SITE',
+        message: 'Site not found in this organisation',
+      });
+    }
+    if (requireCustomerSite) {
+      if (site.customerId !== customerId) {
+        throw new BadRequestException({
+          error: 'INVALID_SITE',
+          message: 'Site does not belong to this customer',
+        });
+      }
+    } else if (site.customerId && site.customerId !== customerId) {
+      throw new BadRequestException({
+        error: 'INVALID_SITE',
+        message: 'Site does not belong to this customer',
+      });
+    }
+  }
+
+  private async resolveHost(params: {
+    organizationId: string;
+    customerId: string;
+    hostUserId?: string;
+    hostName?: string;
+    requireSelectableHost: boolean;
+  }): Promise<{ hostUserId: string | null; hostName: string | null }> {
+    if (params.requireSelectableHost && !params.hostUserId) {
+      throw new BadRequestException({
+        error: 'HOST_REQUIRED',
+        message: 'Select the host you are visiting',
+      });
+    }
+    const trimmedName = params.hostName?.trim() || null;
+    if (params.hostUserId) {
+      const host = await this.prisma.user.findFirst({
+        where: {
+          id: params.hostUserId,
+          organizationId: params.organizationId,
+          customerId: params.customerId,
+          isActive: true,
+          roles: { some: { role: { code: { in: [...HOST_ROLE_CODES] } } } },
+        },
+        select: { id: true, fullName: true },
+      });
+      if (!host) {
+        throw new BadRequestException({
+          error: 'INVALID_HOST',
+          message: 'Host is not a selectable contact for this customer',
+        });
+      }
+      return { hostUserId: host.id, hostName: host.fullName };
+    }
+    return { hostUserId: null, hostName: trimmedName };
+  }
+
   private async assertCustomerInOrg(
     customerId: string,
     organizationId: string,
@@ -1170,6 +1361,7 @@ export class VisitorsService {
       visitorPhone: string | null;
       companyName: string | null;
       purpose: string;
+      visitKind?: string;
       idType?: VisitorIdType | null;
       idNumber?: string | null;
       hostUserId: string | null;
@@ -1197,6 +1389,7 @@ export class VisitorsService {
       visitorPhone: a.visitorPhone,
       companyName: a.companyName,
       purpose: a.purpose,
+      visitKind: a.visitKind ?? 'VISITOR',
       idType: a.idType ?? null,
       idNumber: a.idNumber ?? null,
       hostUserId: a.hostUserId,

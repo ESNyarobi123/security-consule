@@ -256,6 +256,16 @@ export function movementTypeTone(type: string): {
       label: 'Transfer',
       className: 'bg-sky-50 text-sky-800 ring-sky-200/80',
     };
+  if (t === 'PROMOTION')
+    return {
+      label: 'Promotion',
+      className: 'bg-violet-50 text-violet-800 ring-violet-200/80',
+    };
+  if (t === 'REDUNDANCY')
+    return {
+      label: 'Redundancy',
+      className: 'bg-orange-50 text-orange-800 ring-orange-200/80',
+    };
   return {
     label: type.replace(/_/g, ' '),
     className: 'bg-slate-50 text-slate-700 ring-slate-200/80',

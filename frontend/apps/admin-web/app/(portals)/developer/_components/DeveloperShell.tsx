@@ -7,13 +7,16 @@ import { AzureGlyph } from '@pssms/ui';
 
 export const DEVELOPER_TABS = [
   { href: '/developer', label: 'Overview', exact: true },
+  { href: '/developer/apis', label: 'APIs' },
   { href: '/developer/health', label: 'Health' },
   { href: '/developer/adapters', label: 'Adapters' },
+  { href: '/developer/systems', label: 'Systems' },
   { href: '/developer/webhooks', label: 'Webhooks' },
   { href: '/developer/outbox', label: 'Outbox' },
   { href: '/developer/notifications', label: 'Notifications' },
   { href: '/developer/logs', label: 'Logs' },
-  { href: '/developer/config', label: 'Config' },
+  { href: '/developer/config', label: 'Environments' },
+  { href: '/developer/export', label: 'Export' },
 ] as const;
 
 export function DeveloperShell({
@@ -38,7 +41,7 @@ export function DeveloperShell({
           </span>
           <div className="min-w-0">
             <p className="text-[11px] font-medium uppercase tracking-[0.14em] text-[#605e5c]">
-              Developer
+              Portal 35.24 · Developer
             </p>
             <h1 className="text-lg font-semibold leading-tight text-[#1b1a19]">
               {title}

@@ -1,5 +1,5 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { DEMO_SITE_CODE, SITE_CACHE_KEY } from '@/constants/config';
+import { SELECTED_SITE_KEY } from '@/constants/config';
 import { apiRequest } from '@/services/api';
 
 export type SiteSummary = {
@@ -9,38 +9,16 @@ export type SiteSummary = {
   isActive: boolean;
 };
 
-export async function getCachedDemoSite(): Promise<SiteSummary | null> {
-  const raw = await AsyncStorage.getItem(SITE_CACHE_KEY);
-  if (!raw) return null;
-  try {
-    return JSON.parse(raw) as SiteSummary;
-  } catch {
-    return null;
-  }
+export async function listSites(): Promise<SiteSummary[]> {
+  const rows = await apiRequest<SiteSummary[]>('/enterprise/sites');
+  const list = Array.isArray(rows) ? rows : [];
+  return list.filter((s) => s.isActive !== false);
 }
 
-/** Resolve site by code via GET /enterprise/sites */
-export async function resolveSiteByCode(
-  code: string = DEMO_SITE_CODE,
-  forceRefresh = false,
-): Promise<SiteSummary> {
-  if (!forceRefresh) {
-    const cached = await getCachedDemoSite();
-    if (cached?.id && cached.code === code) return cached;
-  }
+export async function getSelectedSiteId(): Promise<string | null> {
+  return AsyncStorage.getItem(SELECTED_SITE_KEY);
+}
 
-  const sites = await apiRequest<SiteSummary[]>('/enterprise/sites');
-  const site = sites.find((s) => s.code === code);
-  if (!site) {
-    throw new Error(`Site ${code} not found — run seed data`);
-  }
-
-  const summary: SiteSummary = {
-    id: site.id,
-    code: site.code,
-    name: site.name,
-    isActive: site.isActive,
-  };
-  await AsyncStorage.setItem(SITE_CACHE_KEY, JSON.stringify(summary));
-  return summary;
+export async function setSelectedSiteId(id: string): Promise<void> {
+  await AsyncStorage.setItem(SELECTED_SITE_KEY, id);
 }

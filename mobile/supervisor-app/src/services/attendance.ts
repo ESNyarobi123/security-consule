@@ -30,3 +30,15 @@ export async function approveAttendance(
     method: 'POST',
   });
 }
+
+export async function supervisorClockIn(body: {
+  guardId: string;
+  siteId: string;
+  shiftId?: string;
+  remarks?: string;
+}): Promise<AttendanceRecord> {
+  return apiRequest<AttendanceRecord>('/attendance/supervisor-clock-in', {
+    method: 'POST',
+    body,
+  });
+}

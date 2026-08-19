@@ -195,7 +195,8 @@ export default function ApplyPage() {
               </h2>
               <p className="mt-1 text-sm text-slate-500">
                 HIGHLINK recruitment will use this information to screen the
-                application.
+                application. Attach a CV here; HR may add further documents
+                after you apply. Interview notices use this email.
               </p>
             </div>
 

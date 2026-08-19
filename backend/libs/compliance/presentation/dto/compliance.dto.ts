@@ -328,3 +328,156 @@ export class ConsentRecordResponseDto {
   @ApiProperty() createdAt!: Date;
   @ApiProperty() updatedAt!: Date;
 }
+
+/** Portal 35.21 risk / regulatory catalogs (string columns + IsIn). */
+export const RISK_CATEGORIES = [
+  'OPERATIONAL',
+  'DATA_PROTECTION',
+  'CYBER',
+  'FINANCIAL',
+  'LEGAL_REGULATORY',
+  'PEOPLE',
+  'PHYSICAL_SECURITY',
+  'OTHER',
+] as const;
+
+export const RISK_CATEGORY_LABELS: Record<(typeof RISK_CATEGORIES)[number], string> =
+  {
+    OPERATIONAL: 'Operational',
+    DATA_PROTECTION: 'Data protection',
+    CYBER: 'Cybersecurity',
+    FINANCIAL: 'Financial',
+    LEGAL_REGULATORY: 'Legal / regulatory',
+    PEOPLE: 'People / HR',
+    PHYSICAL_SECURITY: 'Physical security',
+    OTHER: 'Other',
+  };
+
+export const REGULATORY_FRAMEWORKS = [
+  'PDPA_TANZANIA',
+  'CYBERCRIME_ACT',
+  'EMPLOYMENT_LAW',
+  'TRA_TAX',
+  'CONTRACT_SLA',
+  'ISO_27001',
+  'INTERNAL_POLICY',
+  'OTHER',
+] as const;
+
+export const REGULATORY_FRAMEWORK_LABELS: Record<
+  (typeof REGULATORY_FRAMEWORKS)[number],
+  string
+> = {
+  PDPA_TANZANIA: 'Personal Data Protection Act (TZ)',
+  CYBERCRIME_ACT: 'Cybercrime Act',
+  EMPLOYMENT_LAW: 'Employment / labour law',
+  TRA_TAX: 'TRA / tax requirements',
+  CONTRACT_SLA: 'Customer contract / SLA',
+  ISO_27001: 'ISO 27001 (reference)',
+  INTERNAL_POLICY: 'Internal published policy',
+  OTHER: 'Other',
+};
+
+export class CreateRiskDto {
+  @ApiProperty()
+  @IsString()
+  @MinLength(3)
+  @MaxLength(160)
+  title!: string;
+
+  @ApiProperty()
+  @IsString()
+  @MinLength(10)
+  @MaxLength(4000)
+  description!: string;
+
+  @ApiProperty({ enum: RISK_CATEGORIES })
+  @IsIn([...RISK_CATEGORIES], { message: 'INVALID_RISK_CATEGORY' })
+  category!: string;
+
+  @ApiProperty({ enum: ['LOW', 'MEDIUM', 'HIGH', 'CRITICAL'] })
+  @IsIn(['LOW', 'MEDIUM', 'HIGH', 'CRITICAL'])
+  severity!: 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL';
+
+  @ApiPropertyOptional({ enum: REGULATORY_FRAMEWORKS })
+  @IsOptional()
+  @IsIn([...REGULATORY_FRAMEWORKS], { message: 'INVALID_REGULATORY_REF' })
+  regulatoryRef?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  @MaxLength(2000)
+  mitigation?: string;
+}
+
+export class UpdateRiskDto {
+  @ApiPropertyOptional({ enum: ['OPEN', 'MITIGATING', 'ACCEPTED', 'CLOSED'] })
+  @IsOptional()
+  @IsIn(['OPEN', 'MITIGATING', 'ACCEPTED', 'CLOSED'])
+  status?: 'OPEN' | 'MITIGATING' | 'ACCEPTED' | 'CLOSED';
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  @MinLength(3)
+  @MaxLength(160)
+  title?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  @MinLength(10)
+  @MaxLength(4000)
+  description?: string;
+
+  @ApiPropertyOptional({ enum: RISK_CATEGORIES })
+  @IsOptional()
+  @IsIn([...RISK_CATEGORIES], { message: 'INVALID_RISK_CATEGORY' })
+  category?: string;
+
+  @ApiPropertyOptional({ enum: ['LOW', 'MEDIUM', 'HIGH', 'CRITICAL'] })
+  @IsOptional()
+  @IsIn(['LOW', 'MEDIUM', 'HIGH', 'CRITICAL'])
+  severity?: 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL';
+
+  @ApiPropertyOptional({ enum: REGULATORY_FRAMEWORKS })
+  @IsOptional()
+  @IsIn([...REGULATORY_FRAMEWORKS], { message: 'INVALID_REGULATORY_REF' })
+  regulatoryRef?: string | null;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  @MaxLength(2000)
+  mitigation?: string | null;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  @MaxLength(2000)
+  residualNotes?: string | null;
+}
+
+export class RiskRegisterItemResponseDto {
+  @ApiProperty() id!: string;
+  @ApiProperty() organizationId!: string;
+  @ApiProperty() referenceCode!: string;
+  @ApiProperty() title!: string;
+  @ApiProperty() description!: string;
+  @ApiProperty() category!: string;
+  @ApiProperty() severity!: string;
+  @ApiProperty() status!: string;
+  @ApiPropertyOptional() regulatoryRef?: string | null;
+  @ApiPropertyOptional() mitigation?: string | null;
+  @ApiPropertyOptional() residualNotes?: string | null;
+  @ApiPropertyOptional() ownerUserId?: string | null;
+  @ApiProperty() createdBy!: string;
+  @ApiPropertyOptional() createdByName?: string | null;
+  @ApiPropertyOptional() closedBy?: string | null;
+  @ApiPropertyOptional() closedByName?: string | null;
+  @ApiPropertyOptional() closedAt?: Date | null;
+  @ApiProperty() allowedNextStatuses!: string[];
+  @ApiProperty() createdAt!: Date;
+  @ApiProperty() updatedAt!: Date;
+}

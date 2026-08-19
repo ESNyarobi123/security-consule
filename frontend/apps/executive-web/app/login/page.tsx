@@ -2,7 +2,7 @@
 
 import { login } from '@pssms/api-client';
 import { AZURE } from '@pssms/ui';
-import { REFRESH_KEY, TOKEN_KEY, USER_KEY } from '@/lib/auth';
+import { REFRESH_KEY, TOKEN_KEY, USER_KEY, hasReportingRead } from '@/lib/auth';
 import {
   AlertTriangle,
   BarChart3,
@@ -22,23 +22,23 @@ import { FormEvent, Suspense, useState } from 'react';
 const HIGHLIGHTS = [
   {
     Icon: BarChart3,
-    title: 'Company-wide KPIs',
-    body: 'Ops, finance, payroll, and safety in one board view.',
-  },
-  {
-    Icon: Building2,
-    title: 'Branches & sites',
-    body: 'Nationwide footprint performance at a glance.',
+    title: 'Company-wide performance',
+    body: 'Duty coverage, branches, customers, contracts, and revenue in one board.',
   },
   {
     Icon: Briefcase,
-    title: 'Customers & contracts',
-    body: 'Commercial health, MRR, and outstanding invoices.',
+    title: 'Deployment, payroll, invoices',
+    body: 'Guard posts, snapshot payroll, and unpaid invoices — no live recompute.',
   },
   {
     Icon: Shield,
-    title: 'Risk & compliance',
-    body: 'Incidents, alerts, and audit-ready signals.',
+    title: 'Incidents, risk & compliance',
+    body: 'Open cases, CRITICAL incident risk proxy, and DPO breach reports.',
+  },
+  {
+    Icon: Building2,
+    title: 'Recruitment & parking',
+    body: 'Hiring pipeline and parking occupancy with portal deep-links.',
   },
 ] as const;
 
@@ -59,6 +59,12 @@ function LoginForm() {
     setError(null);
     try {
       const result = await login(email, password);
+      if (!hasReportingRead(result.user)) {
+        setError(
+          'This account cannot open the Executive Dashboard (reporting.read required). Use ceo@, gm@, cmd@, depthead1@, or legal1@.',
+        );
+        return;
+      }
       sessionStorage.setItem(TOKEN_KEY, result.tokens.accessToken);
       sessionStorage.setItem(REFRESH_KEY, result.tokens.refreshToken);
       sessionStorage.setItem(USER_KEY, JSON.stringify(result.user));
@@ -122,8 +128,9 @@ function LoginForm() {
             <span className="text-sky-300">one command view</span>
           </h1>
           <p className="mt-4 max-w-md text-sm leading-relaxed text-slate-300 sm:text-base">
-            Sign in for CMD, CEO, GM, and Department Heads — live KPIs across
-            operations, commercial, finance, and risk.
+            For Chairman, Managing Director, CEO, General Manager, Department
+            Heads, Directors, and senior management — live company-wide
+            performance, not estimates.
           </p>
 
           <ul className="mt-10 grid gap-3 sm:grid-cols-2">
@@ -147,7 +154,7 @@ function LoginForm() {
         <div className="relative z-10 mt-12 flex flex-wrap items-center gap-4 border-t border-white/10 pt-6 text-xs text-slate-400">
           <span className="inline-flex items-center gap-1.5">
             <Users className="h-3.5 w-3.5 text-sky-300" />
-            ceo@ · gm@ · cmd@
+            ceo@ · gm@ · cmd@ · depthead1@ · legal1@
           </span>
           <span className="hidden h-3 w-px bg-white/20 sm:block" />
           <span>Private Security Services Management System</span>
@@ -188,13 +195,17 @@ function LoginForm() {
             </div>
 
             <form onSubmit={onSubmit} className="space-y-5 px-7 py-7">
-              {reason === 'session_expired' || reason === 'required' ? (
+              {reason === 'session_expired' ||
+              reason === 'required' ||
+              reason === 'forbidden' ? (
                 <div className="flex gap-3 rounded-xl border border-amber-200 bg-amber-50 px-3.5 py-3 text-xs text-amber-950">
                   <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-600" />
                   <p>
                     {reason === 'session_expired'
                       ? 'Session expired (access token ~15 min). Sign in again to continue.'
-                      : 'Please sign in to open the Executive Dashboard.'}
+                      : reason === 'forbidden'
+                        ? 'This account does not have reporting.read. Sign in as CEO, GM, CMD, Department Head, or Legal.'
+                        : 'Please sign in to open the Executive Dashboard.'}
                   </p>
                 </div>
               ) : null}

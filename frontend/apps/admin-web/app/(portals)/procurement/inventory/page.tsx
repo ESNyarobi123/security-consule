@@ -5,10 +5,12 @@ import {
   createStockItem,
   listReceivingQueue,
   listStockAlerts,
+  listStockCategoryOptions,
   listStockItems,
   recordStockMovement,
   updateStockItem,
   type PurchaseOrder,
+  type StockCategoryOption,
   type StockItem,
 } from '@pssms/api-client';
 import {
@@ -28,14 +30,16 @@ import {
 } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 
-const CATEGORIES = [
-  'UNIFORMS',
-  'BOOTS',
-  'RADIOS',
-  'CCTV',
-  'ACCESS_DEVICES',
-  'STATIONERY',
-  'OTHER',
+const FALLBACK_CATEGORIES: StockCategoryOption[] = [
+  { code: 'UNIFORMS', label: 'UNIFORMS' },
+  { code: 'SECURITY_BOOTS', label: 'SECURITY BOOTS' },
+  { code: 'SMARTPHONES', label: 'SMARTPHONES' },
+  { code: 'RADIOS', label: 'RADIOS' },
+  { code: 'CCTV', label: 'CCTV' },
+  { code: 'PARKING', label: 'PARKING' },
+  { code: 'OFFICE', label: 'OFFICE' },
+  { code: 'ACCESS_DEVICES', label: 'ACCESS DEVICES' },
+  { code: 'OTHER', label: 'OTHER' },
 ];
 
 const money = (n: number) =>
@@ -64,19 +68,23 @@ export default function InventoryPage() {
   const [adjustItem, setAdjustItem] = useState<StockItem | null>(null);
   const [adjustQty, setAdjustQty] = useState('1');
   const [adjustType, setAdjustType] = useState<'IN' | 'OUT' | 'ADJUST'>('IN');
+  const [categories, setCategories] =
+    useState<StockCategoryOption[]>(FALLBACK_CATEGORIES);
 
   const load = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
-      const [i, a, q] = await Promise.all([
+      const [i, a, q, cats] = await Promise.all([
         listStockItems(),
         listStockAlerts(),
         listReceivingQueue(),
+        listStockCategoryOptions().catch(() => FALLBACK_CATEGORIES),
       ]);
       setItems(i);
       setAlerts(a);
       setQueue(q);
+      if (cats.length) setCategories(cats);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Load failed');
     } finally {
@@ -181,7 +189,7 @@ export default function InventoryPage() {
     <div className="space-y-6">
       <PageHeader
         title="Inventory"
-        description="Stock levels, reorder alerts, and goods received notes for uniforms, boots, radios and devices."
+        description="GRNs and bulk stock: uniforms, security boots, smartphones, radios, CCTV, parking, and office supplies. Issued serialized kit is on Assets."
         actions={
           <>
             <button
@@ -390,9 +398,9 @@ export default function InventoryPage() {
                 setForm((f) => ({ ...f, category: e.target.value }))
               }
             >
-              {CATEGORIES.map((c) => (
-                <option key={c} value={c}>
-                  {c.replace(/_/g, ' ')}
+              {categories.map((c) => (
+                <option key={c.code} value={c.code}>
+                  {c.label}
                 </option>
               ))}
             </select>

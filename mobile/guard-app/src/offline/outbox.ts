@@ -3,6 +3,7 @@ import type {
   EnqueueAlertnessConfirmInput,
   EnqueueClockInInput,
   EnqueueClockOutInput,
+  EnqueueIncidentInput,
   EnqueuePatrolIssueInput,
   EnqueuePatrolScanInput,
   OutboxRow,
@@ -71,6 +72,7 @@ export async function enqueueClockIn(
 ): Promise<OutboxRow> {
   return insertEvent(input.clientEventId, 'CLOCK_IN', input.deviceTime, {
     siteId: input.siteId,
+    shiftId: input.shiftId,
     method: 'MOBILE_GPS',
     gps: {
       latitude: input.latitude,
@@ -120,6 +122,22 @@ export async function enqueuePatrolIssue(
     siteId: input.siteId,
     routeId: input.routeId,
     checkpointId: input.checkpointId,
+    title: input.title,
+    description: input.description,
+    severity: input.severity,
+    gps: {
+      latitude: input.latitude,
+      longitude: input.longitude,
+    },
+  });
+}
+
+export async function enqueueIncident(
+  input: EnqueueIncidentInput,
+): Promise<OutboxRow> {
+  return insertEvent(input.clientEventId, 'INCIDENT', input.deviceTime, {
+    siteId: input.siteId,
+    category: input.category,
     title: input.title,
     description: input.description,
     severity: input.severity,

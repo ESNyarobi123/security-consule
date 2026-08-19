@@ -7,14 +7,24 @@ import {
   ApplicationStatus,
   EmploymentType,
   JobPostingStatus,
+  Prisma,
 } from '@prisma/client';
 import { AuthUser, getOrgContext, PrismaService } from '@pssms/shared';
 import { AuditService } from '@pssms/audit';
+import { NotificationsService } from '@pssms/notifications';
 import { EmployeesService } from '@pssms/workforce';
+import {
+  APPLICANT_TRACK_OPTIONS,
+  initialOnboarding,
+  normalizeApplicantTrack,
+  parseOnboardingProgress,
+  type OnboardingStepState,
+} from '../domain/applicant-catalog';
 import {
   CreateJobApplicationDto,
   CreateJobPostingDto,
   HireApplicantDto,
+  JobApplicationReceiptDto,
   JobApplicationPublicStatusDto,
   JobApplicationResponseDto,
   JobPostingPublicDto,
@@ -22,7 +32,6 @@ import {
   RecruitmentPublicConfigDto,
 } from '../presentation/dto/recruitment.dto';
 
-/** Module 14-A — forward pipeline + terminal reject/withdraw (not HIRED via PATCH). */
 const STATUS_TRANSITIONS: Record<ApplicationStatus, ApplicationStatus[]> = {
   SUBMITTED: [
     ApplicationStatus.SCREENING,
@@ -48,12 +57,19 @@ const STATUS_TRANSITIONS: Record<ApplicationStatus, ApplicationStatus[]> = {
   WITHDRAWN: [],
 };
 
+function defaultEmploymentType(track: string): EmploymentType {
+  if (track === 'GUARD') return EmploymentType.GUARD;
+  if (track === 'OFFICE') return EmploymentType.ADMIN;
+  return EmploymentType.OTHER;
+}
+
 @Injectable()
 export class RecruitmentService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
     private readonly employees: EmployeesService,
+    private readonly notifications: NotificationsService,
   ) {}
 
   /** Public careers routes have no JWT — bind HIGHLINK RLS org (never bypass). */
@@ -84,17 +100,29 @@ export class RecruitmentService {
       return {
         organizationId: org.id,
         seedPostingId: posting?.id ?? null,
+        applicantTracks: [...APPLICANT_TRACK_OPTIONS],
       };
     });
   }
 
-  async listOpenPostings(): Promise<JobPostingPublicDto[]> {
+  async listOpenPostings(track?: string): Promise<JobPostingPublicDto[]> {
+    const raw = track?.trim().toUpperCase();
+    const applicantTrack = raw
+      ? normalizeApplicantTrack(raw)
+      : undefined;
+    if (raw && raw !== applicantTrack) {
+      throw new BadRequestException({
+        error: 'INVALID_APPLICANT_TRACK',
+        message: 'Applicant track must be GUARD, OFFICE, or GENERAL',
+      });
+    }
     return this.withPublicOrg(async () => {
       const now = new Date();
       const rows = await this.prisma.jobPosting.findMany({
         where: {
           status: JobPostingStatus.OPEN,
           OR: [{ closesAt: null }, { closesAt: { gt: now } }],
+          ...(applicantTrack ? { applicantTrack } : {}),
         },
         orderBy: { publishedAt: 'desc' },
         take: 100,
@@ -130,6 +158,7 @@ export class RecruitmentService {
         location: dto.location,
         description: dto.description,
         requirements: dto.requirements,
+        applicantTrack: normalizeApplicantTrack(dto.applicantTrack),
         status: dto.publish ? JobPostingStatus.OPEN : JobPostingStatus.DRAFT,
         publishedAt: dto.publish ? new Date() : undefined,
         closesAt: dto.closesAt ? new Date(dto.closesAt) : undefined,
@@ -166,7 +195,7 @@ export class RecruitmentService {
   async apply(
     dto: CreateJobApplicationDto,
     actorOrganizationId?: string,
-  ): Promise<JobApplicationResponseDto> {
+  ): Promise<JobApplicationReceiptDto> {
     const run = async () => {
       const now = new Date();
       const posting = await this.prisma.jobPosting.findFirst({
@@ -212,7 +241,12 @@ export class RecruitmentService {
         },
       });
 
-      return this.toApplicationDto(app);
+      return {
+        id: app.id,
+        postingId: app.postingId,
+        referenceNumber: app.referenceNumber,
+        status: app.status,
+      };
     };
 
     return actorOrganizationId || getOrgContext()?.organizationId
@@ -251,6 +285,17 @@ export class RecruitmentService {
       }
 
       const view = publicApplicationStatusView(app.status);
+      const track = normalizeApplicantTrack(app.posting.applicantTrack);
+      const onboarding =
+        app.status === ApplicationStatus.HIRED
+          ? parseOnboardingProgress(app.onboardingProgress, track).map(
+              (s) => ({
+                code: s.code,
+                label: s.label,
+                done: s.done,
+              }),
+            )
+          : undefined;
       return {
         referenceNumber: app.referenceNumber,
         status: app.status,
@@ -261,6 +306,8 @@ export class RecruitmentService {
         location: app.posting.location,
         submittedAt: app.createdAt,
         stages: view.stages,
+        applicantTrack: track,
+        onboardingSteps: onboarding,
       };
     });
   }
@@ -311,7 +358,7 @@ export class RecruitmentService {
         notes: notes !== undefined ? notes : app.notes,
         screenedBy: user.id,
       },
-      include: { posting: { select: { title: true } } },
+      include: { posting: { select: { title: true, applicantTrack: true } } },
     });
 
     await this.audit.record({
@@ -323,7 +370,34 @@ export class RecruitmentService {
       after: updated,
     });
 
-    return this.toApplicationDto(updated, updated.posting.title);
+    let interviewNotification: { email: boolean } | null = null;
+    if (status === ApplicationStatus.INTERVIEW) {
+      interviewNotification = await this.notifications.enqueueRecruitmentInterview(
+        {
+          organizationId: user.organizationId,
+          applicationId: updated.id,
+          applicantEmail: updated.email,
+          applicantName: updated.applicantName,
+          postingTitle: updated.posting.title,
+          actorId: user.id,
+        },
+      );
+      await this.audit.record({
+        organizationId: user.organizationId,
+        actorId: user.id,
+        action: 'recruitment.application.interview_notified',
+        resourceType: 'JobApplication',
+        resourceId: id,
+        after: interviewNotification,
+      });
+    }
+
+    return this.toApplicationDto(
+      updated,
+      updated.posting.title,
+      updated.posting.applicantTrack,
+      interviewNotification,
+    );
   }
 
   async hireApplicant(
@@ -333,7 +407,7 @@ export class RecruitmentService {
   ): Promise<JobApplicationResponseDto> {
     const app = await this.prisma.jobApplication.findFirst({
       where: { id, organizationId: user.organizationId },
-      include: { posting: { select: { title: true } } },
+      include: { posting: { select: { title: true, applicantTrack: true } } },
     });
     if (!app) throw new NotFoundException('Application not found');
     if (app.status === ApplicationStatus.HIRED) {
@@ -349,6 +423,7 @@ export class RecruitmentService {
       });
     }
 
+    const track = normalizeApplicantTrack(app.posting.applicantTrack);
     const employee = await this.employees.create(
       {
         employeeNumber: dto.employeeNumber,
@@ -356,20 +431,23 @@ export class RecruitmentService {
         email: app.email,
         phone: app.phone ?? undefined,
         department: dto.department,
-        employmentType: dto.employmentType ?? EmploymentType.GUARD,
+        employmentType:
+          dto.employmentType ?? defaultEmploymentType(track),
         hireDate: new Date().toISOString(),
       },
       user,
     );
 
+    const onboarding = initialOnboarding(track);
     const updated = await this.prisma.jobApplication.update({
       where: { id },
       data: {
         status: ApplicationStatus.HIRED,
         employeeId: employee.id,
         screenedBy: user.id,
+        onboardingProgress: onboarding as unknown as Prisma.InputJsonValue,
       },
-      include: { posting: { select: { title: true } } },
+      include: { posting: { select: { title: true, applicantTrack: true } } },
     });
 
     await this.audit.record({
@@ -381,7 +459,73 @@ export class RecruitmentService {
       after: { application: updated, employeeId: employee.id },
     });
 
-    return this.toApplicationDto(updated, updated.posting.title);
+    return this.toApplicationDto(
+      updated,
+      updated.posting.title,
+      updated.posting.applicantTrack,
+    );
+  }
+
+  async updateOnboardingStep(
+    id: string,
+    stepCode: string,
+    done: boolean,
+    user: AuthUser,
+  ): Promise<JobApplicationResponseDto> {
+    const app = await this.prisma.jobApplication.findFirst({
+      where: { id, organizationId: user.organizationId },
+      include: { posting: { select: { title: true, applicantTrack: true } } },
+    });
+    if (!app) throw new NotFoundException('Application not found');
+    if (app.status !== ApplicationStatus.HIRED) {
+      throw new BadRequestException({
+        error: 'ONBOARDING_NOT_HIRED',
+        message: 'Onboarding steps apply only after hire',
+      });
+    }
+
+    const track = normalizeApplicantTrack(app.posting.applicantTrack);
+    const steps = parseOnboardingProgress(app.onboardingProgress, track);
+    const idx = steps.findIndex((s) => s.code === stepCode.trim());
+    if (idx < 0) {
+      throw new BadRequestException({
+        error: 'INVALID_ONBOARDING_STEP',
+        message: 'Unknown onboarding step for this applicant track',
+      });
+    }
+    const next: OnboardingStepState[] = steps.map((s, i) =>
+      i === idx
+        ? {
+            ...s,
+            done,
+            completedAt: done ? new Date().toISOString() : null,
+          }
+        : s,
+    );
+
+    const updated = await this.prisma.jobApplication.update({
+      where: { id },
+      data: {
+        onboardingProgress: next as unknown as Prisma.InputJsonValue,
+        screenedBy: user.id,
+      },
+      include: { posting: { select: { title: true, applicantTrack: true } } },
+    });
+
+    await this.audit.record({
+      organizationId: user.organizationId,
+      actorId: user.id,
+      action: 'recruitment.application.onboarding_updated',
+      resourceType: 'JobApplication',
+      resourceId: id,
+      after: { stepCode, done },
+    });
+
+    return this.toApplicationDto(
+      updated,
+      updated.posting.title,
+      updated.posting.applicantTrack,
+    );
   }
 
   async listApplications(
@@ -395,11 +539,13 @@ export class RecruitmentService {
         ...(postingId ? { postingId } : {}),
         ...(status ? { status } : {}),
       },
-      include: { posting: { select: { title: true } } },
+      include: { posting: { select: { title: true, applicantTrack: true } } },
       orderBy: { createdAt: 'desc' },
       take: 200,
     });
-    return rows.map((a) => this.toApplicationDto(a, a.posting.title));
+    return rows.map((a) =>
+      this.toApplicationDto(a, a.posting.title, a.posting.applicantTrack),
+    );
   }
 
   private async nextReferenceNumber(organizationId: string): Promise<string> {
@@ -428,6 +574,7 @@ export class RecruitmentService {
     location: string | null;
     description: string;
     requirements: string | null;
+    applicantTrack?: string | null;
     publishedAt: Date | null;
     closesAt: Date | null;
   }): JobPostingPublicDto {
@@ -438,6 +585,7 @@ export class RecruitmentService {
       location: p.location,
       description: p.description,
       requirements: p.requirements,
+      applicantTrack: normalizeApplicantTrack(p.applicantTrack),
       publishedAt: p.publishedAt,
       closesAt: p.closesAt,
     };
@@ -451,6 +599,7 @@ export class RecruitmentService {
     location: string | null;
     description: string;
     requirements: string | null;
+    applicantTrack?: string | null;
     status: JobPostingStatus;
     publishedAt: Date | null;
     closesAt: Date | null;
@@ -464,6 +613,7 @@ export class RecruitmentService {
       location: p.location,
       description: p.description,
       requirements: p.requirements,
+      applicantTrack: normalizeApplicantTrack(p.applicantTrack),
       status: p.status,
       publishedAt: p.publishedAt,
       closesAt: p.closesAt,
@@ -486,9 +636,17 @@ export class RecruitmentService {
       notes: string | null;
       employeeId: string | null;
       createdAt: Date;
+      onboardingProgress?: unknown;
     },
     postingTitle?: string | null,
+    applicantTrack?: string | null,
+    interviewNotification?: { email: boolean } | null,
   ): JobApplicationResponseDto {
+    const track = normalizeApplicantTrack(applicantTrack);
+    const onboardingSteps =
+      a.status === ApplicationStatus.HIRED
+        ? parseOnboardingProgress(a.onboardingProgress, track)
+        : undefined;
     return {
       id: a.id,
       organizationId: a.organizationId,
@@ -506,6 +664,9 @@ export class RecruitmentService {
       postingTitle: postingTitle ?? null,
       allowedNextStatuses: STATUS_TRANSITIONS[a.status] ?? [],
       canHire: a.status === ApplicationStatus.OFFERED,
+      applicantTrack: track,
+      onboardingSteps,
+      interviewNotification: interviewNotification ?? null,
     };
   }
 }
@@ -532,7 +693,7 @@ const STATUS_COPY: Record<
   },
   INTERVIEW: {
     label: 'Interview',
-    hint: 'You have been shortlisted. HIGHLINK will contact you on this email.',
+    hint: 'You have been shortlisted. An interview notice was queued to this email — HIGHLINK will follow up with time and location.',
   },
   OFFERED: {
     label: 'Offer',
@@ -540,7 +701,7 @@ const STATUS_COPY: Record<
   },
   HIRED: {
     label: 'Hired',
-    hint: 'This application is marked hired. Welcome to HIGHLINK.',
+    hint: 'You have been hired. Complete the onboarding steps shown below with HIGHLINK HR.',
   },
   REJECTED: {
     label: 'Not taken forward',

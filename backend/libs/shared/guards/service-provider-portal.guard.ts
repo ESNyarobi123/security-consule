@@ -17,7 +17,10 @@ const ALLOWED_GET_EXACT = [
   '/api/v1/visitors/me/entries',
 ];
 
-const ALLOWED_POST_EXACT = ['/api/v1/auth/change-password'];
+const ALLOWED_POST_EXACT = [
+  '/api/v1/auth/change-password',
+  '/api/v1/visitors/me/appointments',
+];
 
 @Injectable()
 export class ServiceProviderPortalGuard implements CanActivate {

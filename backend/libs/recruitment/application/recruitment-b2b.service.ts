@@ -26,6 +26,7 @@ import {
 import {
   B2bCustomerOptionDto,
   B2bPartnerProfileDto,
+  B2bRequestOptionsDto,
   CreateGuardSupplyRequestDto,
   GuardSupplyRequestResponseDto,
   RegisterB2bPartnerDto,
@@ -34,6 +35,10 @@ import {
   UpdateGuardSupplyRequestChargesDto,
   UpdateGuardSupplyRequestStatusDto,
 } from '../presentation/dto/recruitment-b2b.dto';
+import {
+  GUARD_SUPPLY_REQUIRED_FIELDS,
+  GUARD_SUPPLY_URGENCY_OPTIONS,
+} from '../domain/b2b-request-catalog';
 
 const STAFF_STATUSES: GuardSupplyRequestStatus[] = [
   GuardSupplyRequestStatus.UNDER_REVIEW,
@@ -611,6 +616,13 @@ export class RecruitmentB2bService {
     return this.toPartnerDto(partner);
   }
 
+  requestOptions(): B2bRequestOptionsDto {
+    return {
+      urgencies: [...GUARD_SUPPLY_URGENCY_OPTIONS],
+      requiredFields: [...GUARD_SUPPLY_REQUIRED_FIELDS],
+    };
+  }
+
   async createRequest(
     dto: CreateGuardSupplyRequestDto,
     user: AuthUser,
@@ -620,6 +632,23 @@ export class RecruitmentB2bService {
       throw new ForbiddenException({
         error: 'B2B_PARTNER_NOT_APPROVED',
         message: 'Partner must be APPROVED before submitting requests',
+      });
+    }
+
+    const siteLocation = dto.siteLocation.trim();
+    const qualifications = dto.qualifications.trim();
+    const trainingNeeds = dto.trainingNeeds.trim();
+    const serviceTerms = dto.serviceTerms.trim();
+    if (
+      siteLocation.length < 2 ||
+      qualifications.length < 2 ||
+      trainingNeeds.length < 2 ||
+      serviceTerms.length < 2
+    ) {
+      throw new BadRequestException({
+        error: 'B2B_CRITERIA_REQUIRED',
+        message:
+          'Specify location, qualifications, training needs, and service terms',
       });
     }
 
@@ -657,13 +686,13 @@ export class RecruitmentB2bService {
             partnerId: partner.id,
             referenceNumber,
             guardCount: dto.guardCount,
-            siteLocation: dto.siteLocation.trim(),
+            siteLocation,
             startDate: dto.startDate ? new Date(dto.startDate) : null,
             endDate: dto.endDate ? new Date(dto.endDate) : null,
-            qualifications: dto.qualifications?.trim() || null,
-            trainingNeeds: dto.trainingNeeds?.trim() || null,
-            urgency: dto.urgency ?? GuardSupplyUrgency.STANDARD,
-            serviceTerms: dto.serviceTerms?.trim() || null,
+            qualifications,
+            trainingNeeds,
+            urgency: dto.urgency,
+            serviceTerms,
             criteriaNotes: dto.criteriaNotes?.trim() || null,
             experienceYearsMin: dto.experienceYearsMin ?? null,
             ageMin: dto.ageMin ?? null,

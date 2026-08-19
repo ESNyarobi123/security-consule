@@ -55,9 +55,14 @@ export class AlertnessController {
       'List pending alertness checks (org-wide for ops/attendance managers; self for guards)',
   })
   @ApiQuery({ name: 'guardId', required: false })
+  @ApiQuery({ name: 'siteId', required: false })
   @ApiOkResponse({ description: 'Pending AlertnessCheck[]' })
-  pending(@CurrentUser() user: AuthUser, @Query('guardId') guardId?: string) {
-    return this.service.listPending(user, guardId);
+  pending(
+    @CurrentUser() user: AuthUser,
+    @Query('guardId') guardId?: string,
+    @Query('siteId') siteId?: string,
+  ) {
+    return this.service.listPending(user, guardId, siteId);
   }
 
   @Get('history')

@@ -120,9 +120,10 @@ export const EXTERNAL_PORTALS: PortalEntry[] = [
     id: 'supplier',
     name: 'Supplier Portal',
     designRef: 'Portal 35.17',
-    summary: 'Vendors view own POs / delivery status — read-scoped to their supplier record.',
+    summary:
+      'Registered suppliers/vendors: register, documents, quotes, issued POs, invoices, DNs, payment status, message procurement. Own supplier only.',
     howItWorks:
-      'Supplier login binds supplierId. Cannot mutate staff procurement routes. Demo: uniforms supplier.',
+      'Public register → PENDING until procurement approves (creator ≠ approver). Login binds JWT supplierId. Procurement officers stay on admin /procurement (35.18). Site contractors/providers use visitor-web, not this app. Demo: uniforms supplier.',
     path: '/login',
     localPort: 3003,
     prodHost: 'supplier.hisgc.co.tz',
@@ -296,9 +297,17 @@ export type InternalModule = {
 export const INTERNAL_MODULES: InternalModule[] = [
   {
     href: '/superadmin',
-    label: 'Administration overview',
-    description: 'Platform home, customers/contracts shortcuts, KPI tiles.',
-    typicalLogins: 'admin@ · marketing1@ · gm@',
+    label: 'Super Admin',
+    description:
+      'Portal 35.1 platform: users, roles, modules, security, audit, backups.',
+    typicalLogins: 'admin@ · it1@ · gm@',
+  },
+  {
+    href: '/administration',
+    label: 'Administration',
+    description:
+      'Portal 35.3 office records: company, branches, departments, customer/staff/contract files, internal requests, document approvals.',
+    typicalLogins: 'gm@ · depthead1@ · bom1@',
   },
   {
     href: '/superadmin/users',
@@ -320,21 +329,24 @@ export const INTERNAL_MODULES: InternalModule[] = [
   },
   {
     href: '/hr',
-    label: 'HR',
-    description: 'Employees, leave, training, discipline, transfer/exit.',
+    label: 'HR & Employee Management',
+    description:
+      'Portal 35.4: profiles, salary/contract scans, leave, discipline, training, transfer/promotion/exit/redundancy, recruitment, onboarding.',
     typicalLogins: 'hr1@ · depthead1@',
   },
   {
     href: '/ess',
     label: 'Employee Self-Service',
-    description: 'Own profile, leave, payslips, loans, petty cash, equipment, MFA security.',
-    typicalLogins: 'Any staff with ess.access (e.g. supervisor1@)',
+    description:
+      'Portal 35.5: own profile, attendance, leave/loan balances, payslips, equipment, notices, training, requests; apply boots/phone/cash/uniform/advance loans. Approvals act on /approvals.',
+    typicalLogins: 'Any staff with ess.access (e.g. supervisor1@ · guard1@)',
   },
   {
     href: '/payroll',
     label: 'Payroll',
-    description: 'Company payroll cycles / snapshots (approval before pay).',
-    typicalLogins: 'payroll1@',
+    description:
+      'Portal 35.16: company + customer cycles, snapshot reports, e-payroll alerts. payroll1@ · hr1@ · accounts1@ (re-seed payroll.manage).',
+    typicalLogins: 'payroll1@ · hr1@ · accounts1@ · gm@',
   },
   {
     href: '/loans',
@@ -344,8 +356,15 @@ export const INTERNAL_MODULES: InternalModule[] = [
   },
   {
     href: '/finance',
-    label: 'Finance / Invoices',
-    description: 'Invoices send/pay/void, overdue scan; linked parking bills.',
+    label: 'Finance & Accounts',
+    description:
+      'Portal 35.15: invoices/receipts, petty cash, AP vouchers, live reports. accounts1@ (no extra cashier role).',
+    typicalLogins: 'accounts1@ · gm@',
+  },
+  {
+    href: '/finance/invoices',
+    label: 'Invoices',
+    description: 'Issue/pay/void, overdue scan, parking service type filter.',
     typicalLogins: 'accounts1@',
   },
   {
@@ -355,10 +374,23 @@ export const INTERNAL_MODULES: InternalModule[] = [
     typicalLogins: 'accounts1@ · gm@',
   },
   {
+    href: '/finance/vouchers',
+    label: 'Payment vouchers',
+    description: 'AP create/approve/pay — creator ≠ approver/payer.',
+    typicalLogins: 'accounts1@ · gm@',
+  },
+  {
+    href: '/finance/reports',
+    label: 'Finance reports',
+    description: 'Live AR/receipts/petty/AP pack (bank recon deferred).',
+    typicalLogins: 'accounts1@',
+  },
+  {
     href: '/procurement',
-    label: 'Procurement',
-    description: 'Suppliers, POs, inventory bridge.',
-    typicalLogins: 'procurement1@',
+    label: 'Procurement & inventory',
+    description:
+      'Portal 35.18 overview — PRs/POs/suppliers (Buying), GRN/stock, issued assets.',
+    typicalLogins: 'procurement1@ · store1@ (overview + inventory; buying is procurement1)',
   },
   {
     href: '/assets',
@@ -381,14 +413,16 @@ export const INTERNAL_MODULES: InternalModule[] = [
   {
     href: '/branch',
     label: 'Branch Ops',
-    description: 'Sites, deployments, shifts, attendance, alertness, alerts, EOB, patrols, incidents.',
+    description:
+      'Portal 35.23 — sites, staff on post, deployments, attendance, inspections, incidents, parking monitor, petty cash requests, reports (ops1@ · bom1@ · field1@ · supervisor1@).',
     typicalLogins: 'ops1@ · bom1@ · field1@ · supervisor1@',
   },
   {
     href: '/cctv',
     label: 'CCTV monitoring',
-    description: 'Camera wall metadata/events (no Nest video stream).',
-    typicalLogins: 'cctv1@ · control1@',
+    description:
+      'Portal 35.22 — wall + AI alerts, parking/access/patrol/alarm/incident monitors (cctv1@ · control1@ · ops1@). Video stays on NVR.',
+    typicalLogins: 'cctv1@ · control1@ · ops1@',
   },
   {
     href: '/devices',
@@ -399,7 +433,8 @@ export const INTERNAL_MODULES: InternalModule[] = [
   {
     href: '/compliance',
     label: 'Compliance / DPO',
-    description: 'Policies + breach register (mutate split: CO vs DPO).',
+    description:
+      'Portal 35.21 — policies, consents, breaches, risk register, access/incident monitors, legal/contracts (dpo1@ · compliance1@ · auditor1@ · legal1@ · ciso1@).',
     typicalLogins: 'compliance1@ · dpo1@ · ciso1@ · auditor1@',
   },
   {
@@ -411,19 +446,21 @@ export const INTERNAL_MODULES: InternalModule[] = [
   {
     href: '/callcentre',
     label: 'Call Centre',
-    description: 'Visitor inbox, service tickets, complaints, gate entries, ID docs.',
+    description:
+      'Portal 35.20 — complaints, visitor/gate support, parking/supplier/payroll inquiry tickets, incident escalate (callcentre1@).',
     typicalLogins: 'callcentre1@',
   },
   {
     href: '/marketing',
     label: 'Marketing',
-    description: 'Customer directory / BD thin view.',
+    description: 'Portal 35.19 BD pipeline — leads, surveys, quotes, campaigns, commissions (marketing1@).',
     typicalLogins: 'marketing1@',
   },
   {
     href: '/developer',
     label: 'Developer / Integration',
-    description: 'Health, adapters, webhooks, outbox, notifications, devices summary.',
+    description:
+      'Portal 35.24 — APIs, adapters, webhooks, environments, logs, device systems, CSV export (dev1@). IT Support stays Super Admin helpdesk.',
     typicalLogins: 'dev1@',
   },
   {

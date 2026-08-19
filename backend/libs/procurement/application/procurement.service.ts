@@ -124,11 +124,24 @@ export class PurchaseOrdersService {
   async list(
     organizationId: string,
     supplierId?: string,
+    opts?: { issuedToSupplier?: boolean },
   ): Promise<PurchaseOrderResponseDto[]> {
     const rows = await this.prisma.purchaseOrder.findMany({
       where: {
         organizationId,
         ...(supplierId ? { supplierId } : {}),
+        ...(opts?.issuedToSupplier
+          ? {
+              status: {
+                in: [
+                  PurchaseOrderStatus.ORDERED,
+                  PurchaseOrderStatus.PARTIALLY_RECEIVED,
+                  PurchaseOrderStatus.RECEIVED,
+                  PurchaseOrderStatus.CANCELLED,
+                ],
+              },
+            }
+          : {}),
       },
       include: { lines: true },
       orderBy: { createdAt: 'desc' },

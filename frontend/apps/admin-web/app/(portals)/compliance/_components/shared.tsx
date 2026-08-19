@@ -36,6 +36,33 @@ export function formatDateTime(value?: string | null) {
   return d.toLocaleString();
 }
 
+export const GOVERNANCE_ROLES = [
+  'INTERNAL_AUDITOR',
+  'LEGAL',
+  'CISO',
+  'DPO',
+  'COMPLIANCE_OFFICER',
+  'SUPER_ADMIN',
+  'GENERAL_MANAGER',
+  'CEO',
+  'CMD',
+  'DEPARTMENT_HEAD',
+];
+
+export function isGovernanceAudience(
+  user: { roles?: string[]; permissions?: string[] } | null,
+): boolean {
+  if (!user) return false;
+  if (user.roles?.includes('SUPER_ADMIN')) return true;
+  if (
+    user.permissions?.includes('dpo.manage') ||
+    user.permissions?.includes('compliance.manage')
+  ) {
+    return true;
+  }
+  return (user.roles ?? []).some((r) => GOVERNANCE_ROLES.includes(r));
+}
+
 export const BREACH_NEXT: Record<string, string | null> = {
   reported: 'INVESTIGATING',
   investigating: 'CONTAINED',

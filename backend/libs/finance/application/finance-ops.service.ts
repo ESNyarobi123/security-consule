@@ -5,6 +5,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import {
+  InvoiceStatus,
   PaymentVoucherStatus,
   PettyCashVoucherStatus,
   Prisma,
@@ -17,6 +18,7 @@ import {
   CreatePaymentVoucherDto,
   CreatePettyCashFundDto,
   CreatePettyCashVoucherDto,
+  FinanceReportResponseDto,
   PaymentVoucherResponseDto,
   PettyCashFundResponseDto,
   PettyCashVoucherResponseDto,
@@ -86,9 +88,10 @@ export class FinanceOpsService {
   async createEssPettyCashVoucher(
     dto: CreateEssPettyCashVoucherDto,
     user: AuthUser,
+    channel: 'ess' | 'ops' = 'ess',
   ): Promise<PettyCashVoucherResponseDto> {
     const fundId = await this.resolveDefaultFundId(user.organizationId);
-    return this.createPettyCashVoucherOnFund(fundId, dto, user, 'ess');
+    return this.createPettyCashVoucherOnFund(fundId, dto, user, channel);
   }
 
   async listPettyCashVouchers(
@@ -104,6 +107,35 @@ export class FinanceOpsService {
       take: 100,
     });
     return this.toPettyVoucherDtos(rows);
+  }
+
+  /** Portal 35.23 — branch-scoped voucher list (issue/approve stay finance.manage). */
+  async listPettyCashVouchersForBranches(
+    organizationId: string,
+    branchIds: string[] | null,
+  ): Promise<PettyCashVoucherResponseDto[]> {
+    const rows = await this.prisma.pettyCashVoucher.findMany({
+      where: {
+        organizationId,
+        ...(branchIds ? { branchId: { in: branchIds } } : {}),
+      },
+      orderBy: { createdAt: 'desc' },
+      take: 100,
+    });
+    return this.toPettyVoucherDtos(rows);
+  }
+
+  async countPendingPettyCashForBranches(
+    organizationId: string,
+    branchIds: string[] | null,
+  ): Promise<number> {
+    return this.prisma.pettyCashVoucher.count({
+      where: {
+        organizationId,
+        status: PettyCashVoucherStatus.PENDING,
+        ...(branchIds ? { branchId: { in: branchIds } } : {}),
+      },
+    });
   }
 
   async listMyPettyCashVouchers(
@@ -441,7 +473,7 @@ export class FinanceOpsService {
       department?: string;
     },
     user: AuthUser,
-    channel: 'admin' | 'ess' = 'admin',
+    channel: 'admin' | 'ess' | 'ops' = 'admin',
   ): Promise<PettyCashVoucherResponseDto> {
     const fund = await this.prisma.pettyCashFund.findFirst({
       where: { id: fundId, organizationId: user.organizationId },
@@ -560,11 +592,26 @@ export class FinanceOpsService {
       throw new BadRequestException('No approval instance');
     }
 
-    await this.approvals.act(
+    const approval = await this.approvals.act(
       voucher.approvalInstanceId,
       { decision: 'APPROVE' },
       user,
     );
+
+    if (approval.status !== 'APPROVED') {
+      await this.audit.record({
+        organizationId: user.organizationId,
+        actorId: user.id,
+        action: 'payment_voucher.approval_step',
+        resourceType: 'PaymentVoucher',
+        resourceId: id,
+        after: {
+          approvalStatus: approval.status,
+          currentStepOrder: approval.currentStepOrder,
+        },
+      });
+      return this.toPaymentVoucherDto(voucher);
+    }
 
     const updated = await this.prisma.paymentVoucher.update({
       where: { id },
@@ -598,6 +645,12 @@ export class FinanceOpsService {
     if (voucher.status !== PaymentVoucherStatus.APPROVED) {
       throw new BadRequestException('Voucher must be approved before payment');
     }
+    if (voucher.createdBy === user.id) {
+      throw new ForbiddenException({
+        error: 'CREATOR_CANNOT_PAY',
+        message: 'The officer who created this voucher cannot mark it paid',
+      });
+    }
 
     const updated = await this.prisma.paymentVoucher.update({
       where: { id },
@@ -629,6 +682,173 @@ export class FinanceOpsService {
       take: 100,
     });
     return rows.map((v) => this.toPaymentVoucherDto(v));
+  }
+
+  async getReports(
+    user: AuthUser,
+    from?: string,
+    to?: string,
+  ): Promise<FinanceReportResponseDto> {
+    const period = this.resolveReportPeriod(from, to);
+    const organizationId = user.organizationId;
+    const money = (count: number, amount: number) => ({ count, amount });
+
+    const [
+      invoices,
+      receipts,
+      pettyIssued,
+      pettyRetired,
+      vouchersPaid,
+    ] = await Promise.all([
+      this.prisma.invoice.findMany({
+        where: { organizationId },
+        select: {
+          status: true,
+          totalAmount: true,
+          amountPaid: true,
+          serviceType: true,
+          createdAt: true,
+        },
+      }),
+      this.prisma.invoicePayment.findMany({
+        where: {
+          organizationId,
+          recordedAt: { gte: period.from, lte: period.to },
+        },
+        select: {
+          amount: true,
+          invoice: { select: { serviceType: true } },
+        },
+      }),
+      this.prisma.pettyCashVoucher.findMany({
+        where: {
+          organizationId,
+          issuedAt: { gte: period.from, lte: period.to },
+        },
+        select: { amount: true },
+      }),
+      this.prisma.pettyCashVoucher.findMany({
+        where: {
+          organizationId,
+          reimbursedAt: { gte: period.from, lte: period.to },
+        },
+        select: { amount: true },
+      }),
+      this.prisma.paymentVoucher.findMany({
+        where: {
+          organizationId,
+          status: PaymentVoucherStatus.PAID,
+          paidAt: { gte: period.from, lte: period.to },
+        },
+        select: { amount: true, supplierId: true },
+      }),
+    ]);
+
+    const inPeriod = invoices.filter(
+      (i) => i.createdAt >= period.from && i.createdAt <= period.to,
+    );
+    const outstandingRows = invoices.filter((i) =>
+      (
+        [
+          InvoiceStatus.SENT,
+          InvoiceStatus.PARTIALLY_PAID,
+          InvoiceStatus.OVERDUE,
+          InvoiceStatus.DISPUTED,
+        ] as InvoiceStatus[]
+      ).includes(i.status),
+    );
+    const parkingInvoices = inPeriod.filter(
+      (i) => (i.serviceType ?? '').toUpperCase() === 'PARKING',
+    );
+    const parkingReceipts = receipts.filter(
+      (p) => (p.invoice.serviceType ?? '').toUpperCase() === 'PARKING',
+    );
+    const supplierPaid = vouchersPaid.filter((v) => v.supplierId);
+
+    const pack: FinanceReportResponseDto = {
+      from: period.from.toISOString(),
+      to: period.to.toISOString(),
+      invoicesIssued: money(
+        inPeriod.length,
+        inPeriod.reduce((s, i) => s + Number(i.totalAmount), 0),
+      ),
+      customerReceipts: money(
+        receipts.length,
+        receipts.reduce((s, p) => s + Number(p.amount), 0),
+      ),
+      outstanding: money(
+        outstandingRows.length,
+        outstandingRows.reduce(
+          (s, i) => s + Math.max(Number(i.totalAmount) - Number(i.amountPaid), 0),
+          0,
+        ),
+      ),
+      parkingBilled: money(
+        parkingInvoices.length,
+        parkingInvoices.reduce((s, i) => s + Number(i.totalAmount), 0),
+      ),
+      parkingReceipts: money(
+        parkingReceipts.length,
+        parkingReceipts.reduce((s, p) => s + Number(p.amount), 0),
+      ),
+      pettyCashIssued: money(
+        pettyIssued.length,
+        pettyIssued.reduce((s, v) => s + Number(v.amount), 0),
+      ),
+      pettyCashRetired: money(
+        pettyRetired.length,
+        pettyRetired.reduce((s, v) => s + Number(v.amount), 0),
+      ),
+      supplierPayments: money(
+        supplierPaid.length,
+        supplierPaid.reduce((s, v) => s + Number(v.amount), 0),
+      ),
+      paymentVouchersPaid: money(
+        vouchersPaid.length,
+        vouchersPaid.reduce((s, v) => s + Number(v.amount), 0),
+      ),
+      bankReconciliationImplemented: false,
+      notes: [
+        'Receipts on the overview: customerReceipts = invoice payments; pettyCashRetired = MinIO retire after issue. No separate receipts table.',
+        'Bank reconciliations are not in this slice (no statement import / matching engine). Payment references stay on receipts and AP vouchers.',
+        'Loan deductions and company payroll live on Portal 35.16 (/payroll) from immutable PayslipSnapshot — not recomputed here.',
+        'Internal Auditor uses Compliance/Audit (audit.read). This portal stays finance.manage mutate.',
+      ],
+    };
+
+    await this.audit.record({
+      organizationId,
+      actorId: user.id,
+      action: 'finance.reports.generated',
+      resourceType: 'FinanceReport',
+      resourceId: organizationId,
+      after: { from: pack.from, to: pack.to },
+    });
+
+    return pack;
+  }
+
+  private resolveReportPeriod(from?: string, to?: string): { from: Date; to: Date } {
+    const end = to ? new Date(to) : new Date();
+    const start = from
+      ? new Date(from)
+      : new Date(end.getTime() - 30 * 24 * 60 * 60 * 1000);
+    if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) {
+      throw new BadRequestException({
+        error: 'INVALID_PERIOD',
+        message: 'from/to must be valid dates',
+      });
+    }
+    if (to && /^\d{4}-\d{2}-\d{2}$/.test(to.trim())) {
+      end.setUTCHours(23, 59, 59, 999);
+    }
+    if (start > end) {
+      throw new BadRequestException({
+        error: 'INVALID_PERIOD',
+        message: 'from must be before to',
+      });
+    }
+    return { from: start, to: end };
   }
 
   private async nextVoucherNumber(organizationId: string): Promise<string> {
@@ -780,6 +1000,7 @@ export class FinanceOpsService {
     paidAt: Date | null;
     paymentReference: string | null;
     createdAt: Date;
+    createdBy: string;
   }): PaymentVoucherResponseDto {
     return {
       id: v.id,
@@ -796,6 +1017,7 @@ export class FinanceOpsService {
       approvedBy: v.approvedBy,
       paidAt: v.paidAt,
       paymentReference: v.paymentReference,
+      createdBy: v.createdBy,
       createdAt: v.createdAt,
     };
   }

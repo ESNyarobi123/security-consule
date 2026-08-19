@@ -4,7 +4,7 @@ import {
   Logger,
   NotFoundException,
 } from '@nestjs/common';
-import { OutboxStatus, WebhookInboxStatus } from '@prisma/client';
+import { OutboxStatus, WebhookInboxStatus, DeviceType, DeviceStatus, DeviceEventType, DeviceEventStatus, DeviceConnection } from '@prisma/client';
 import { AuditService } from '@pssms/audit';
 import { AuthUser, PrismaService } from '@pssms/shared';
 import { Socket } from 'net';
@@ -422,7 +422,8 @@ export class DeveloperIntegrationsService {
     return result;
   }
 
-  async listWebhookInbox(user: AuthUser, status?: string) {
+  async listWebhookInbox(user: AuthUser, status?: string, takeRaw?: number) {
+    const take = Math.min(Math.max(Number(takeRaw) || 50, 1), 100);
     const whereStatus = status
       ? { status: status as WebhookInboxStatus }
       : {};
@@ -435,7 +436,7 @@ export class DeveloperIntegrationsService {
         ],
       },
       orderBy: { createdAt: 'desc' },
-      take: 50,
+      take,
       select: WEBHOOK_INBOX_SAFE_SELECT,
     });
   }
@@ -482,7 +483,8 @@ export class DeveloperIntegrationsService {
     return updated;
   }
 
-  async listOutbox(user: AuthUser, status?: string) {
+  async listOutbox(user: AuthUser, status?: string, takeRaw?: number) {
+    const take = Math.min(Math.max(Number(takeRaw) || 50, 1), 100);
     const statuses: OutboxStatus[] = status
       ? [status as OutboxStatus]
       : [OutboxStatus.PENDING, OutboxStatus.FAILED];
@@ -493,7 +495,7 @@ export class DeveloperIntegrationsService {
         status: { in: statuses },
       },
       orderBy: { createdAt: 'desc' },
-      take: 50,
+      take,
       select: OUTBOX_SAFE_SELECT,
     });
   }
@@ -535,6 +537,331 @@ export class DeveloperIntegrationsService {
     });
 
     return updated;
+  }
+
+  /** Portal 35.24 — design topics vs honest wiring (no fake vendor UP). */
+  integrationCatalog() {
+    return {
+      generatedAt: new Date().toISOString(),
+      topics: [
+        {
+          id: 'apis',
+          name: 'APIs',
+          status: 'WIRED',
+          note: 'Swagger on core-api / integration / reporting / realtime. Browser uses JWT on :4001, never the integration service token.',
+        },
+        {
+          id: 'webhooks',
+          name: 'Webhooks',
+          status: 'WIRED',
+          note: 'Inbox + replay FAILED/DLQ. Payment webhook path on integration-gateway (service-token).',
+        },
+        {
+          id: 'environments',
+          name: 'System environments',
+          status: 'WIRED',
+          note: 'Non-secret config / broker flags. Secrets never returned.',
+        },
+        {
+          id: 'logs',
+          name: 'Logs',
+          status: 'WIRED',
+          note: 'IntegrationRequestLog safe fields only.',
+        },
+        {
+          id: 'testing',
+          name: 'Testing',
+          status: 'WIRED',
+          note: 'Adapter ping: console-sms, console-payment, vision-ai-anpr. WhatsApp ping returns not implemented.',
+        },
+        {
+          id: 'sms',
+          name: 'SMS gateways',
+          status: 'CONSOLE',
+          note: 'ConsoleSmsProvider until vendor adapter is registered.',
+        },
+        {
+          id: 'payment',
+          name: 'Payment gateway',
+          status: 'CONSOLE',
+          note: 'ConsolePaymentProvider. Real PSP/bank webhooks deferred.',
+        },
+        {
+          id: 'mobile-money',
+          name: 'Mobile money',
+          status: 'DEFERRED',
+          note: 'M-Pesa / TigoPesa / Airtel / HaloPesa adapters not registered.',
+        },
+        {
+          id: 'banks',
+          name: 'Banks',
+          status: 'DEFERRED',
+          note: 'No bank host-to-host adapter yet.',
+        },
+        {
+          id: 'whatsapp',
+          name: 'WhatsApp API',
+          status: 'DEFERRED',
+          note: 'Always DISABLED — Meta Cloud API not wired.',
+        },
+        {
+          id: 'anpr',
+          name: 'ANPR systems',
+          status: 'WIRED',
+          note: 'Vision AI health + result ingest. Decide stays parking/ops.',
+        },
+        {
+          id: 'cctv',
+          name: 'CCTV systems',
+          status: 'WIRED',
+          note: 'Device registry + events/metadata. Video stays on NVR. Nest MQTT bridge deferred.',
+        },
+        {
+          id: 'biometrics',
+          name: 'Biometric devices',
+          status: 'WIRED',
+          note: 'Fingerprint / face / terminals in devices registry + iClock/device-api.',
+        },
+        {
+          id: 'rfid',
+          name: 'RFID systems',
+          status: 'WIRED',
+          note: 'RFID_READER / SMART_CARD_READER registry. Barrier MQTT deferred.',
+        },
+        {
+          id: 'export',
+          name: 'Data export',
+          status: 'WIRED',
+          note: 'CSV of logs / webhooks / outbox (safe columns, cap 100).',
+        },
+        {
+          id: 'import',
+          name: 'Data import',
+          status: 'DEFERRED',
+          note: 'No bulk customer/HR CSV import on this portal.',
+        },
+        {
+          id: 'mqtt',
+          name: 'MQTT / EMQX',
+          status: 'DEFERRED',
+          note: 'Broker env may be set; Nest MQTT client is not coded.',
+        },
+      ],
+      notes: [
+        'ICT Manager IAM stays Super Admin. IT Support is helpdesk (no integrations.manage).',
+        'No API_ADMIN / SYSTEM_INTEGRATOR / TECHNICAL_PARTNER roles — use DEVELOPER (dev1@) plus SA/GM.',
+      ],
+    };
+  }
+
+  apiSurface() {
+    const docs = [
+      {
+        code: 'core-api',
+        name: 'Core API',
+        host: this.safeHostname(
+          process.env.CORE_API_INTERNAL_URL ?? 'http://localhost:4001',
+        ),
+        docsPath: '/docs',
+        note: 'Domain APIs. JWT. Swagger on this process.',
+      },
+      {
+        code: 'api-gateway',
+        name: 'API Gateway',
+        host: this.safeHostname(
+          process.env.API_GATEWAY_URL ?? 'http://localhost:4000',
+        ),
+        docsPath: null,
+        note: 'Entry proxy — no Swagger. Blocks /internal.',
+      },
+      {
+        code: 'integration-gateway',
+        name: 'Integration Gateway',
+        host: this.safeHostname(
+          process.env.INTEGRATION_GATEWAY_URL ?? 'http://localhost:4003',
+        ),
+        docsPath: '/docs',
+        note: 'Webhooks/adapters. Service token — not from the browser.',
+      },
+      {
+        code: 'reporting-service',
+        name: 'Reporting Service',
+        host: this.safeHostname(
+          process.env.REPORTING_SERVICE_INTERNAL_URL ??
+            'http://localhost:4005',
+        ),
+        docsPath: '/docs',
+        note: 'KPIs / exports. reporting.read.',
+      },
+      {
+        code: 'realtime-gateway',
+        name: 'Realtime Gateway',
+        host: this.safeHostname(
+          process.env.REALTIME_GATEWAY_URL ?? 'http://localhost:4004',
+        ),
+        docsPath: '/docs',
+        note: 'SSE events. MQTT Nest client not coded.',
+      },
+    ];
+    return {
+      generatedAt: new Date().toISOString(),
+      docs,
+      prefixes: [
+        'auth',
+        'users',
+        'developer',
+        'devices',
+        'device-api',
+        'notifications',
+        'parking',
+        'attendance',
+        'webhooks (integration-gateway)',
+      ],
+      notes: [
+        'Open /docs on core-api while logged into admin-web as an integrator.',
+        'Do not paste INTEGRATION_SERVICE_TOKEN into the browser.',
+      ],
+    };
+  }
+
+  async systemsMonitor(user: AuthUser) {
+    const org = user.organizationId;
+    const since24h = new Date(Date.now() - 24 * 60 * 60 * 1000);
+    const grouped = await this.prisma.device.groupBy({
+      by: ['type', 'status'],
+      where: { organizationId: org },
+      _count: { _all: true },
+    });
+    const byType: Record<
+      string,
+      { total: number; online: number }
+    > = {};
+    for (const row of grouped) {
+      const bucket = byType[row.type] ?? { total: 0, online: 0 };
+      bucket.total += row._count._all;
+      if (row.status === DeviceStatus.ONLINE) bucket.online += row._count._all;
+      byType[row.type] = bucket;
+    }
+    const sumTypes = (types: DeviceType[]) => {
+      let total = 0;
+      let online = 0;
+      for (const t of types) {
+        total += byType[t]?.total ?? 0;
+        online += byType[t]?.online ?? 0;
+      }
+      return { total, online };
+    };
+
+    const [anprToday, openCctvEvents, mqttDevices] = await Promise.all([
+      this.prisma.anprResult.count({
+        where: { organizationId: org, capturedAt: { gte: since24h } },
+      }),
+      this.prisma.deviceEvent.count({
+        where: {
+          organizationId: org,
+          type: DeviceEventType.CCTV_EVENT,
+          status: { in: [DeviceEventStatus.RECEIVED, DeviceEventStatus.FAILED] },
+        },
+      }),
+      this.prisma.device.count({
+        where: {
+          organizationId: org,
+          connection: DeviceConnection.MQTT,
+        },
+      }),
+    ]);
+
+    const result = {
+      generatedAt: new Date().toISOString(),
+      biometric: sumTypes([
+        DeviceType.FINGERPRINT_SCANNER,
+        DeviceType.BIOMETRIC_TERMINAL,
+        DeviceType.FACE_TERMINAL,
+      ]),
+      rfid: sumTypes([DeviceType.RFID_READER, DeviceType.SMART_CARD_READER]),
+      cctv: sumTypes([DeviceType.CCTV_CAMERA]),
+      scanners: sumTypes([DeviceType.QR_SCANNER, DeviceType.BARCODE_SCANNER]),
+      byType,
+      anprToday,
+      openCctvEvents,
+      mqttConnectionDevices: mqttDevices,
+      nestMqttClient: false,
+      notes: [
+        'Counts from devices registry + ANPR/CCTV event metadata. Video not via Nest.',
+        'Device CRUD stays /devices (operations.manage). ANPR decide stays parking-web.',
+        'MQTT connection on a device ≠ Nest MQTT client (still deferred).',
+      ],
+    };
+    await this.audit.record({
+      organizationId: user.organizationId,
+      actorId: user.id,
+      action: 'developer.systems.viewed',
+      resourceType: 'DeveloperSystems',
+      after: {
+        biometric: result.biometric.total,
+        rfid: result.rfid.total,
+        cctv: result.cctv.total,
+        anprToday: result.anprToday,
+        openCctvEvents: result.openCctvEvents,
+      },
+    });
+    return result;
+  }
+
+  async exportPack(
+    user: AuthUser,
+    kindRaw?: string,
+  ): Promise<{ kind: string; filename: string; csv: string; rowCount: number }> {
+    const kind = (kindRaw ?? 'logs').toLowerCase();
+    let raw: unknown;
+    if (kind === 'logs') {
+      raw = await this.listRequestLogs(user, undefined, 100);
+    } else if (kind === 'webhooks') {
+      raw = await this.listWebhookInbox(user, undefined, 100);
+    } else if (kind === 'outbox') {
+      raw = await this.listOutbox(user, undefined, 100);
+    } else {
+      throw new BadRequestException({
+        error: 'INVALID_EXPORT_KIND',
+        message: 'kind must be logs, webhooks, or outbox',
+      });
+    }
+    const parsed = JSON.parse(JSON.stringify(raw));
+    const rows = Array.isArray(parsed)
+      ? (parsed as Record<string, unknown>[])
+      : [];
+    const csv = this.toCsv(rows);
+    const filename = `pssms-${kind}-${new Date().toISOString().slice(0, 10)}.csv`;
+    await this.audit.record({
+      organizationId: user.organizationId,
+      actorId: user.id,
+      action: 'developer.export.generated',
+      resourceType: 'DeveloperExport',
+      after: { kind, rowCount: rows.length },
+    });
+    return { kind, filename, csv, rowCount: rows.length };
+  }
+
+  private toCsv(rows: Record<string, unknown>[]): string {
+    if (!rows.length) return 'id\n';
+    const keys = Object.keys(rows[0] ?? { id: true });
+    const header = keys.join(',');
+    const lines = rows.map((row) =>
+      keys
+        .map((k) => {
+          const v = row[k];
+          const s =
+            v == null
+              ? ''
+              : v instanceof Date
+                ? v.toISOString()
+                : String(v);
+          if (/[",\n]/.test(s)) return `"${s.replace(/"/g, '""')}"`;
+          return s;
+        })
+        .join(','),
+    );
+    return [header, ...lines].join('\n');
   }
 
   private ensureWhatsAppHonesty(
@@ -635,6 +962,7 @@ export class DeveloperIntegrationsService {
 
   private async probeService(target: ProbeTarget): Promise<ServiceHealthItem> {
     const base = process.env[target.envUrl] ?? target.defaultUrl;
+    const publicUrl = this.safeHostname(base) ?? 'configured';
     const url = `${base.replace(/\/$/, '')}${target.path}`;
     const started = Date.now();
     try {
@@ -644,7 +972,7 @@ export class DeveloperIntegrationsService {
         return {
           code: target.code,
           name: target.name,
-          url: base,
+          url: publicUrl,
           path: target.path,
           status: 'down',
           latencyMs,
@@ -661,21 +989,21 @@ export class DeveloperIntegrationsService {
       return {
         code: target.code,
         name: target.name,
-        url: base,
+        url: publicUrl,
         path: target.path,
         status: ok ? 'ok' : 'down',
         latencyMs,
         detail: json.service ?? String(statusRaw),
       };
-    } catch (err) {
+    } catch {
       return {
         code: target.code,
         name: target.name,
-        url: base,
+        url: publicUrl,
         path: target.path,
         status: 'down',
         latencyMs: Date.now() - started,
-        detail: String(err),
+        detail: 'unreachable',
       };
     }
   }
@@ -743,14 +1071,15 @@ export class DeveloperIntegrationsService {
 
   private async probeVisionAi(): Promise<{ status: string; detail: string }> {
     const base = process.env.VISION_AI_URL ?? 'http://localhost:8000';
+    const host = this.safeHostname(base) ?? 'vision-ai';
     try {
       const res = await fetch(`${base}/health`, {
         signal: AbortSignal.timeout(3000),
       });
       if (!res.ok) return { status: 'DOWN', detail: `HTTP ${res.status}` };
-      return { status: 'UP', detail: base };
-    } catch (err) {
-      return { status: 'DOWN', detail: String(err) };
+      return { status: 'UP', detail: host };
+    } catch {
+      return { status: 'DOWN', detail: 'unreachable' };
     }
   }
 }

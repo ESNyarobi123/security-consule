@@ -34,6 +34,7 @@ const EMPLOYEE_ALLOWED_GET_EXACT = [
   '/api/v1/access/me',
   '/api/v1/access/me/sites',
   '/api/v1/access/entries',
+  '/api/v1/access/method-options',
   '/api/v1/customers/me',
   '/api/v1/customers/me/sites',
   '/api/v1/customers/me/payroll/my-payslips',
@@ -41,7 +42,10 @@ const EMPLOYEE_ALLOWED_GET_EXACT = [
 ];
 
 /** Exact GET paths (no staff-only subroutes like /contracts/commercial-alerts). */
-const PORTAL_ALLOWED_GET_EXACT = ['/api/v1/contracts'];
+const PORTAL_ALLOWED_GET_EXACT = [
+  '/api/v1/contracts',
+  '/api/v1/access/method-options',
+];
 
 /** Exact POST paths (regex) allowed for portal hosts. */
 const PORTAL_ALLOWED_POST_PATHS = [
@@ -67,6 +71,7 @@ const PORTAL_ALLOWED_PATCH_PATHS = [
 const EMPLOYEE_ALLOWED_POST_PATHS = [
   /^\/api\/v1\/auth\/change-password$/,
   /^\/api\/v1\/access\/me\/entries$/,
+  /^\/api\/v1\/access\/me\/verify-identity$/,
 ];
 
 @Injectable()

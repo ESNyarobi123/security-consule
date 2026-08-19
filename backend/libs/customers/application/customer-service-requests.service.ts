@@ -13,6 +13,7 @@ import { AuditService } from '@pssms/audit';
 import { AuthUser, PrismaService, requireCustomerScope } from '@pssms/shared';
 import {
   CreateServiceRequestDto,
+  CreateStaffServiceRequestDto,
   ServiceRequestResponseDto,
   UpdateServiceRequestStatusDto,
 } from '../presentation/dto/service-request.dto';
@@ -106,6 +107,39 @@ export class CustomerServiceRequestsService {
     });
 
     return this.toDto(row);
+  }
+
+  async createForStaff(
+    dto: CreateStaffServiceRequestDto,
+    user: AuthUser,
+  ): Promise<ServiceRequestResponseDto> {
+    if (user.customerId || user.supplierId) {
+      throw new ForbiddenException({
+        error: 'SUPPORT_STAFF_ONLY',
+        message: 'Portal users cannot log staff tickets',
+      });
+    }
+    const customer = await this.prisma.customer.findFirst({
+      where: { id: dto.customerId, organizationId: user.organizationId },
+      select: { id: true },
+    });
+    if (!customer) {
+      throw new BadRequestException({
+        error: 'INVALID_CUSTOMER',
+        message: 'Customer not found',
+      });
+    }
+    return this.createForPortal(
+      {
+        category: dto.category,
+        urgency: dto.urgency,
+        title: dto.title,
+        description: dto.description,
+        siteId: dto.siteId,
+        callbackPhone: dto.callbackPhone,
+      },
+      { ...user, customerId: customer.id },
+    );
   }
 
   async listForPortal(user: AuthUser): Promise<ServiceRequestResponseDto[]> {
@@ -355,6 +389,8 @@ export class CustomerServiceRequestsService {
     description: string;
     siteId: string | null;
     callbackPhone: string | null;
+    incidentId?: string | null;
+    incidentNumber?: string | null;
     createdBy: string;
     acknowledgedBy: string | null;
     acknowledgedAt: Date | null;
@@ -378,6 +414,8 @@ export class CustomerServiceRequestsService {
       description: row.description,
       siteId: row.siteId,
       callbackPhone: row.callbackPhone,
+      incidentId: row.incidentId ?? null,
+      incidentNumber: row.incidentNumber ?? null,
       createdBy: row.createdBy,
       acknowledgedBy: row.acknowledgedBy,
       acknowledgedAt: row.acknowledgedAt,

@@ -10,6 +10,7 @@ import {
   AuthUser,
   CurrentUser,
   PermissionsGuard,
+  RequireAnyPermissions,
   RequirePermissions,
 } from '@pssms/shared';
 import { ApprovalsService } from '../application/approvals.service';
@@ -17,17 +18,29 @@ import {
   ApprovalActionDto,
   ApprovalInstanceResponseDto,
   StartApprovalDto,
+  WorkflowCatalogDto,
 } from './dto/approval.dto';
 
 @ApiTags('Approvals')
 @ApiBearerAuth()
 @Controller('approvals')
 @UseGuards(PermissionsGuard)
-@RequirePermissions('approvals.act')
 export class ApprovalsController {
   constructor(private readonly service: ApprovalsService) {}
 
+  @Get('workflows')
+  @RequireAnyPermissions('approvals.act', 'users.manage')
+  @ApiOperation({
+    summary:
+      'List approval workflow definitions and current steps (Portal 35.1 catalog)',
+  })
+  @ApiOkResponse({ type: [WorkflowCatalogDto] })
+  listWorkflows(@CurrentUser() user: AuthUser) {
+    return this.service.listWorkflows(user.organizationId);
+  }
+
   @Post('instances')
+  @RequirePermissions('approvals.act')
   @ApiOperation({
     summary: 'Start an approval workflow instance',
     description:
@@ -39,6 +52,7 @@ export class ApprovalsController {
   }
 
   @Post('instances/:id/actions')
+  @RequirePermissions('approvals.act')
   @ApiOperation({
     summary: 'Approve or reject (creator ≠ approver enforced)',
     description:
@@ -54,6 +68,7 @@ export class ApprovalsController {
   }
 
   @Get('instances')
+  @RequirePermissions('approvals.act')
   @ApiOperation({ summary: 'List approval instances' })
   @ApiOkResponse({ type: [ApprovalInstanceResponseDto] })
   list(@CurrentUser() user: AuthUser) {

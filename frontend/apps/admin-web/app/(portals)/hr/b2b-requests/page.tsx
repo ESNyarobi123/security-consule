@@ -197,7 +197,7 @@ export default function HrB2bRequestsPage() {
   return (
     <HrShell
       title="B2B guard supply"
-      description="Portal 35.14 — triage requests, link CRM customer, bill accepted supply (§15-B)."
+      description="Portal 35.14 — other registered security companies. Approve partners, then triage guard-supply requests (count, qualifications, location, training, urgency, terms). Link CRM + bill accepted supply (§15-B). Creator ≠ processor."
       actions={
         <button
           type="button"

@@ -40,7 +40,8 @@ export default function LoginScreen() {
       <Text style={styles.brand}>HIGHLINK</Text>
       <Text style={styles.title}>Guard App</Text>
       <Text style={styles.sub}>
-        Offline-first clock-in · syncs to core-api :4001
+        Portal 35.6 · attendance, alertness, patrol, incidents · syncs to
+        core-api
       </Text>
 
       <View style={styles.form}>

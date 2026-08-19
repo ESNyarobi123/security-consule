@@ -114,8 +114,8 @@ export default function HrOverviewPage() {
 
   return (
     <HrShell
-      title="HR overview"
-      description="Phase A–C — employees, leave, salary, training, discipline, and transfer/exit. Use tabs for focused work."
+      title="HR & Employee Management"
+      description="Portal 35.4 for HR Officers, Recruitment, Training, Department Heads, and Branch Managers (BOM without hr.manage is deferred — org-wide list has no branch ABAC). Profiles, pay terms, leave, discipline, training, movements, recruitment, and onboarding."
       actions={
         <button
           type="button"
@@ -164,6 +164,68 @@ export default function HrOverviewPage() {
           icon={<Banknote className="h-4 w-4" />}
         />
       </div>
+
+      <section className="mt-6">
+        <h2 className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-[#605e5c]">
+          Coverage
+        </h2>
+        <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+          <QuickLink
+            href="/hr/employees"
+            label="Employee profiles"
+            hint={`${loading ? '…' : stats.total} on the company register`}
+            glyph="users"
+          />
+          <QuickLink
+            href="/hr/salary"
+            label="Employment contracts"
+            hint={`${loading ? '…' : stats.activeSalary} salary assignments · scans on staff file`}
+            glyph="wallet"
+          />
+          <QuickLink
+            href="/hr/leave"
+            label="Leave"
+            hint={`${loading ? '…' : stats.pending} pending requests`}
+            glyph="calendar"
+          />
+          <QuickLink
+            href="/hr/discipline"
+            label="Discipline"
+            hint={`${loading ? '…' : discipline.length} cases`}
+            glyph="shield"
+          />
+          <QuickLink
+            href="/hr/training"
+            label="Training"
+            hint={`${loading ? '…' : training.length} records`}
+            glyph="users"
+          />
+          <QuickLink
+            href="/hr/movements"
+            label="Transfer · promotion · exit · redundancy"
+            hint={`${loading ? '…' : movements.length} movement requests`}
+            glyph="calendar"
+          />
+          <QuickLink
+            href="/hr/applications"
+            label="Recruitment"
+            hint="Applications inbox (recruitment.manage)"
+            glyph="users"
+          />
+          <QuickLink
+            href="/hr/onboarding"
+            label="Onboarding"
+            hint="Recent hires — checklist engine deferred"
+            glyph="users"
+          />
+          <QuickLink
+            href="/hr/employees"
+            label="Staff records"
+            hint="MinIO Employee files from the register"
+            glyph="users"
+          />
+        </div>
+      </section>
 
       <section className="mt-6">
         <HrSectionHeader
@@ -297,7 +359,7 @@ export default function HrOverviewPage() {
         <HrSectionHeader
           title="Movements"
           count={movements.length}
-          subtitle="Transfer and exit approvals"
+          subtitle="Transfer, promotion, exit, and redundancy approvals"
           href="/hr/movements"
           actionLabel="Manage movements"
         />
@@ -310,7 +372,7 @@ export default function HrOverviewPage() {
             <PanelEmpty
               icon={<Users className="h-4 w-4" />}
               title="No movements"
-              description="Request transfer or exit on the Movements tab."
+              description="Request transfer, promotion, exit, or redundancy."
             />
           }
         />
@@ -344,6 +406,12 @@ export default function HrOverviewPage() {
             label="Approvals"
             hint="Leave and other workflows"
             glyph="calendar"
+          />
+          <QuickLink
+            href="/hr/onboarding"
+            label="Onboarding"
+            hint="Recent hires and hired applications"
+            glyph="users"
           />
           <QuickLink
             href="/ess"

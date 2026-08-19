@@ -12,7 +12,11 @@ import {
   getStoredUser,
   type SupervisorUser,
 } from '@/services/auth-store';
-import { login as loginApi, logout as logoutApi } from '@/services/auth';
+import {
+  isSupervisorAppUser,
+  login as loginApi,
+  logout as logoutApi,
+} from '@/services/auth';
 
 type AuthState = {
   ready: boolean;
@@ -32,6 +36,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const refreshSession = useCallback(async () => {
     const [t, u] = await Promise.all([getAccessToken(), getStoredUser()]);
+    if (t && u && !isSupervisorAppUser(u.roles)) {
+      await logoutApi();
+      setToken(null);
+      setUser(null);
+      return;
+    }
     setToken(t);
     setUser(u);
   }, []);

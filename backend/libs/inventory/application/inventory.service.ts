@@ -9,6 +9,9 @@ import { AuditService } from '@pssms/audit';
 import {
   CreateStockItemDto,
   CreateStockMovementDto,
+  InventoryReportResponseDto,
+  resolveStockCategory,
+  STOCK_CATEGORIES,
   StockItemResponseDto,
   StockMovementResponseDto,
   UpdateStockItemDto,
@@ -30,12 +33,14 @@ export class InventoryService {
     });
     if (exists) throw new BadRequestException('SKU already exists');
 
+    const category = this.requireCategory(dto.category, true);
+
     const item = await this.prisma.stockItem.create({
       data: {
         organizationId: user.organizationId,
         sku: dto.sku,
         name: dto.name,
-        category: dto.category,
+        category,
         unit: dto.unit ?? 'EA',
         reorderLevel: dto.reorderLevel,
         createdBy: user.id,
@@ -68,7 +73,7 @@ export class InventoryService {
       data: {
         ...(dto.name != null ? { name: dto.name.trim() } : {}),
         ...(dto.category !== undefined
-          ? { category: dto.category?.trim() || null }
+          ? { category: this.requireCategory(dto.category, false) }
           : {}),
         ...(dto.unit != null ? { unit: dto.unit.trim() } : {}),
         ...(dto.reorderLevel !== undefined
@@ -247,5 +252,83 @@ export class InventoryService {
       notes: m.notes,
       createdAt: m.createdAt,
     };
+  }
+
+  async listCategoryOptions(): Promise<{ code: string; label: string }[]> {
+    return STOCK_CATEGORIES.map((code) => ({
+      code,
+      label: code.replaceAll('_', ' '),
+    }));
+  }
+
+  async getReports(user: AuthUser): Promise<InventoryReportResponseDto> {
+    const rows = await this.prisma.stockItem.findMany({
+      where: { organizationId: user.organizationId },
+    });
+    const balances = await this.computeBalances(
+      user.organizationId,
+      rows.map((i) => i.id),
+    );
+    const items = rows.map((i) =>
+      this.toItemDto(i, balances.get(i.id) ?? 0),
+    );
+    const byMap = new Map<string, { items: number; onHand: number }>();
+    for (const i of items) {
+      const key = i.category ?? 'UNCATEGORIZED';
+      const cur = byMap.get(key) ?? { items: 0, onHand: 0 };
+      cur.items += 1;
+      cur.onHand += i.onHand;
+      byMap.set(key, cur);
+    }
+    const pack: InventoryReportResponseDto = {
+      itemsTotal: items.length,
+      itemsActive: items.filter((i) => i.isActive).length,
+      belowReorder: items.filter((i) => i.belowReorder).length,
+      onHandUnits: items.reduce((s, i) => s + i.onHand, 0),
+      byCategory: [...byMap.entries()].map(([category, v]) => ({
+        category,
+        items: v.items,
+        onHand: v.onHand,
+      })),
+      notes: [
+        'Serialized issued kit (radios, CCTV cameras, smartphones assigned to guards) is on /assets — not this bulk stock register.',
+        'Dept→Procurement→Finance→GM matrix and auto-reorder POs are deferred.',
+      ],
+    };
+    await this.audit.record({
+      organizationId: user.organizationId,
+      actorId: user.id,
+      action: 'inventory.reports.generated',
+      resourceType: 'StockItem',
+      resourceId: user.organizationId,
+      after: {
+        itemsTotal: pack.itemsTotal,
+        belowReorder: pack.belowReorder,
+      },
+    });
+    return pack;
+  }
+
+  private requireCategory(
+    raw: string | null | undefined,
+    required: boolean,
+  ): string | null {
+    if (raw == null || !String(raw).trim()) {
+      if (required) {
+        throw new BadRequestException({
+          error: 'INVALID_STOCK_CATEGORY',
+          message: 'Stock category is required',
+        });
+      }
+      return null;
+    }
+    const resolved = resolveStockCategory(raw);
+    if (!resolved) {
+      throw new BadRequestException({
+        error: 'INVALID_STOCK_CATEGORY',
+        message: `Category must be one of: ${STOCK_CATEGORIES.join(', ')}`,
+      });
+    }
+    return resolved;
   }
 }

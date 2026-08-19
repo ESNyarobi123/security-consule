@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
 
-const PUBLIC = ['/login'];
+const PUBLIC = ['/login', '/register'];
 
 export function middleware(request: NextRequest) {
   const token = request.cookies.get('pssms_customer_token');

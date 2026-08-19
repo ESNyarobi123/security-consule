@@ -9,32 +9,56 @@ import {
   View,
 } from 'react-native';
 import { Link, useFocusEffect } from 'expo-router';
-import { BOARD_POLL_MS, DEMO_SITE_CODE } from '@/constants/config';
+import { BOARD_POLL_MS } from '@/constants/config';
 import { useAuth } from '@/hooks/useAuth';
 import { useOnline } from '@/hooks/useOnline';
 import { useSiteDuty } from '@/hooks/useSiteDuty';
 import { listFieldAlerts } from '@/services/alerts';
+import { listPendingAlertness } from '@/services/alertness';
 import { listAttendance } from '@/services/attendance';
 import { listIncidents } from '@/services/incidents';
+import { listDeployments } from '@/services/operations';
 
 type BoardCounts = {
   onDuty: number;
+  deployed: number;
   unackedAlerts: number;
   pendingApprovals: number;
+  pendingAlertness: number;
   openIncidents: number;
 };
 
 const EMPTY: BoardCounts = {
   onDuty: 0,
+  deployed: 0,
   unackedAlerts: 0,
   pendingApprovals: 0,
+  pendingAlertness: 0,
   openIncidents: 0,
 };
+
+const NAV = [
+  { href: '/(app)/attendance' as const, label: 'Verify attendance' },
+  { href: '/(app)/shifts' as const, label: 'Shifts & replacements' },
+  { href: '/(app)/eob' as const, label: 'Inspect site / EOB' },
+  { href: '/(app)/alertness' as const, label: 'Alertness' },
+  { href: '/(app)/incidents' as const, label: 'Incidents' },
+  { href: '/(app)/patrols' as const, label: 'Patrols' },
+  { href: '/(app)/supervise' as const, label: 'Supervise guards' },
+  { href: '/(app)/alerts' as const, label: 'Field alerts' },
+];
 
 export default function LiveBoardScreen() {
   const { user, logout } = useAuth();
   const online = useOnline();
-  const { ready, site, error: siteError, refresh: refreshSite } = useSiteDuty();
+  const {
+    ready,
+    sites,
+    site,
+    error: siteError,
+    refresh: refreshSite,
+    selectSite,
+  } = useSiteDuty();
   const [counts, setCounts] = useState<BoardCounts>(EMPTY);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -44,20 +68,28 @@ export default function LiveBoardScreen() {
     setBusy(true);
     setError(null);
     try {
-      const [attendance, pending, alerts, incidents] = await Promise.all([
-        listAttendance(site.id),
-        listAttendance(site.id, false),
-        listFieldAlerts(site.id, false),
-        listIncidents(site.id),
-      ]);
+      const [attendance, pending, alerts, incidents, deployments, alertness] =
+        await Promise.all([
+          listAttendance(site.id),
+          listAttendance(site.id, false),
+          listFieldAlerts(site.id, false),
+          listIncidents(site.id),
+          listDeployments().catch(() => []),
+          listPendingAlertness(site.id).catch(() => []),
+        ]);
       const onDuty = attendance.filter((r) => !r.clockOutAt).length;
       const openIncidents = incidents.filter(
         (i) => i.status === 'OPEN' || i.status === 'INVESTIGATING',
       ).length;
+      const deployed = deployments.filter(
+        (d) => d.siteId === site.id && d.status === 'ACTIVE',
+      ).length;
       setCounts({
         onDuty,
+        deployed,
         unackedAlerts: alerts.length,
         pendingApprovals: pending.length,
+        pendingAlertness: alertness.length,
         openIncidents,
       });
     } catch (e) {
@@ -70,9 +102,12 @@ export default function LiveBoardScreen() {
   useFocusEffect(
     useCallback(() => {
       void refreshSite();
-      void loadCounts();
-    }, [refreshSite, loadCounts]),
+    }, [refreshSite]),
   );
+
+  useEffect(() => {
+    void loadCounts();
+  }, [loadCounts]);
 
   useEffect(() => {
     if (!online || !site?.id) return;
@@ -112,16 +147,36 @@ export default function LiveBoardScreen() {
       </View>
 
       <Text style={styles.hello}>Hi, {user?.fullName ?? 'Supervisor'}</Text>
-      <Text style={styles.meta}>{user?.email}</Text>
+      <Text style={styles.meta}>
+        {user?.email}
+        {user?.roles?.length ? ` · ${user.roles.join(', ')}` : ''}
+      </Text>
 
-      <Text style={styles.sectionLabel}>Site</Text>
-      <Text style={styles.siteCode}>{DEMO_SITE_CODE}</Text>
+      <Text style={styles.sectionLabel}>Duty site</Text>
+      <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+        <View style={styles.chips}>
+          {sites.map((s) => {
+            const on = s.id === site?.id;
+            return (
+              <Pressable
+                key={s.id}
+                style={[styles.chip, on && styles.chipOn]}
+                onPress={() => void selectSite(s.id)}
+              >
+                <Text style={[styles.chipText, on && styles.chipTextOn]}>
+                  {s.code}
+                </Text>
+              </Pressable>
+            );
+          })}
+        </View>
+      </ScrollView>
       <Text style={styles.siteMeta}>
         {site
-          ? `${site.name}`
+          ? site.name
           : ready
-            ? 'Site unresolved — check connection'
-            : 'Loading site…'}
+            ? 'No sites in your access scope'
+            : 'Loading sites…'}
       </Text>
 
       {siteError || error ? (
@@ -129,7 +184,7 @@ export default function LiveBoardScreen() {
       ) : null}
       {!online ? (
         <Text style={styles.warn}>
-          Offline — counts pause; Ack / Approve disabled.
+          Offline — counts pause; actions disabled.
         </Text>
       ) : null}
 
@@ -138,8 +193,9 @@ export default function LiveBoardScreen() {
         <ActivityIndicator color="#0f2744" />
       ) : (
         <View style={styles.counts}>
+          <Text style={styles.countLine}>On duty: {counts.onDuty}</Text>
           <Text style={styles.countLine}>
-            On duty (open clock-ins): {counts.onDuty}
+            Deployed at site: {counts.deployed}
           </Text>
           <Text
             style={[
@@ -150,7 +206,10 @@ export default function LiveBoardScreen() {
             Unacked alerts: {counts.unackedAlerts}
           </Text>
           <Text style={styles.countLine}>
-            Pending approvals: {counts.pendingApprovals}
+            Pending attendance: {counts.pendingApprovals}
+          </Text>
+          <Text style={styles.countLine}>
+            Pending alertness: {counts.pendingAlertness}
           </Text>
           <Text style={styles.countLine}>
             Open incidents: {counts.openIncidents}
@@ -158,26 +217,13 @@ export default function LiveBoardScreen() {
         </View>
       )}
 
-      <Link href="/(app)/alerts" asChild>
-        <Pressable style={styles.navBtn}>
-          <Text style={styles.navBtnText}>Field alerts</Text>
-        </Pressable>
-      </Link>
-      <Link href="/(app)/attendance" asChild>
-        <Pressable style={styles.navBtn}>
-          <Text style={styles.navBtnText}>Attendance approvals</Text>
-        </Pressable>
-      </Link>
-      <Link href="/(app)/incidents" asChild>
-        <Pressable style={styles.navBtn}>
-          <Text style={styles.navBtnText}>Incidents</Text>
-        </Pressable>
-      </Link>
-      <Link href="/(app)/eob" asChild>
-        <Pressable style={styles.navBtn}>
-          <Text style={styles.navBtnText}>Occurrence book</Text>
-        </Pressable>
-      </Link>
+      {NAV.map((item) => (
+        <Link key={item.href} href={item.href} asChild>
+          <Pressable style={styles.navBtn}>
+            <Text style={styles.navBtnText}>{item.label}</Text>
+          </Pressable>
+        </Link>
+      ))}
 
       <Pressable style={styles.logout} onPress={() => void logout()}>
         <Text style={styles.logoutText}>Sign out</Text>
@@ -208,7 +254,18 @@ const styles = StyleSheet.create({
     letterSpacing: 0.6,
     marginTop: 8,
   },
-  siteCode: { fontSize: 18, fontWeight: '700', color: '#0f2744' },
+  chips: { flexDirection: 'row', gap: 8, paddingVertical: 4 },
+  chip: {
+    borderWidth: 1,
+    borderColor: '#c5d0dc',
+    borderRadius: 16,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    backgroundColor: '#fff',
+  },
+  chipOn: { backgroundColor: '#0f2744', borderColor: '#0f2744' },
+  chipText: { color: '#0f2744', fontWeight: '700', fontSize: 12 },
+  chipTextOn: { color: '#fff' },
   siteMeta: { color: '#556677', fontSize: 13 },
   counts: { gap: 6, marginBottom: 8 },
   countLine: { fontSize: 16, color: '#1a2b3c', fontWeight: '600' },

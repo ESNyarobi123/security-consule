@@ -3,13 +3,16 @@
 import {
   getMyAccessSites,
   getMyCustomerAccess,
+  listAccessMethodOptions,
   listCustomerAccessEntries,
   recordMyAccessEntry,
+  verifyMyAccessIdentity,
   type AccessEmployee,
   type AccessEntry,
+  type AccessMethodOption,
   type PortalSite,
 } from '@pssms/api-client';
-import { CreditCard, LogIn, LogOut, RefreshCw } from 'lucide-react';
+import { CreditCard, Fingerprint, LogIn, LogOut, RefreshCw, ShieldCheck } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   PortalDeferral,
@@ -29,6 +32,13 @@ export default function MyAccessPage() {
   const [sitesUnrestricted, setSitesUnrestricted] = useState(true);
   const [siteId, setSiteId] = useState('');
   const [gateId, setGateId] = useState('');
+  const [method, setMethod] = useState('QR');
+  const [methods, setMethods] = useState<AccessMethodOption[]>([
+    { id: 'QR', label: 'QR code', requiresEnrollment: false },
+    { id: 'CARD', label: 'Access card', requiresEnrollment: true },
+    { id: 'BIOMETRIC', label: 'Biometric', requiresEnrollment: true },
+    { id: 'PIN', label: 'PIN', requiresEnrollment: false },
+  ]);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -38,13 +48,15 @@ export default function MyAccessPage() {
     setLoading(true);
     setError(null);
     try {
-      const [profile, ents, sitePack] = await Promise.all([
+      const [profile, ents, sitePack, methodPack] = await Promise.all([
         getMyCustomerAccess(),
         listCustomerAccessEntries().catch(() => [] as AccessEntry[]),
         getMyAccessSites().catch(() => null),
+        listAccessMethodOptions().catch(() => null),
       ]);
       setMe(profile);
       setEntries(ents);
+      if (methodPack && methodPack.length > 0) setMethods(methodPack);
       const activeSites = (sitePack?.sites ?? []).filter((s) => s.isActive);
       setSites(activeSites);
       setSitesUnrestricted(sitePack?.unrestricted ?? true);
@@ -86,6 +98,11 @@ export default function MyAccessPage() {
 
   const checkIns = entries.filter((e) => e.entryType === 'CHECK_IN').length;
 
+  useEffect(() => {
+    if (method === 'CARD' && !me?.accessCardRef) setMethod('QR');
+    if (method === 'BIOMETRIC' && !me?.biometricRef) setMethod('QR');
+  }, [me, method]);
+
   async function punch(entryType: 'CHECK_IN' | 'CHECK_OUT') {
     if (!siteId) {
       setError('Select a site first');
@@ -99,7 +116,7 @@ export default function MyAccessPage() {
         siteId,
         gateId: gateId || undefined,
         entryType,
-        accessMethod: 'QR',
+        accessMethod: method,
         clientEventId:
           typeof crypto !== 'undefined' && 'randomUUID' in crypto
             ? crypto.randomUUID()
@@ -126,7 +143,7 @@ export default function MyAccessPage() {
     <div className="space-y-6">
       <PortalHero
         title="My access"
-        subtitle="Your customer employee access profile and gate/office entries — your records only (Portal 35.9)."
+        subtitle="View your access status and enter approved premises with QR, card, biometric, or PIN — your records only (Portal 35.9)."
         actions={
           <button
             type="button"
@@ -147,11 +164,23 @@ export default function MyAccessPage() {
         </p>
       ) : null}
 
-      <div className="grid gap-3 sm:grid-cols-3">
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         <PortalStat
           label="Status"
           value={loading ? '—' : me?.isActive ? 'Active' : 'Inactive'}
-          hint="Access roster status"
+          hint={me?.accessLevel ?? 'Access roster'}
+        />
+        <PortalStat
+          label="Identity"
+          value={
+            loading
+              ? '—'
+              : me?.identityVerifiedAt
+                ? 'Verified'
+                : 'Unverified'
+          }
+          hint="Confirm details on file"
+          tone={me?.identityVerifiedAt ? 'teal' : 'amber'}
         />
         <PortalStat
           label="Recent entries"
@@ -228,6 +257,31 @@ export default function MyAccessPage() {
                 )}
               </select>
             </label>
+            <label className="block text-sm">
+              <span className="text-[11px] font-semibold uppercase tracking-wide text-[#8a8886]">
+                Entry method
+              </span>
+              <select
+                value={method}
+                onChange={(e) => setMethod(e.target.value)}
+                className="mt-1 w-full max-w-md rounded-lg border border-[#edebe9] bg-white px-3 py-2 text-sm text-[#323130]"
+              >
+                {methods.map((m) => {
+                  const enrolled =
+                    m.id === 'CARD'
+                      ? Boolean(me.accessCardRef)
+                      : m.id === 'BIOMETRIC'
+                        ? Boolean(me.biometricRef)
+                        : true;
+                  return (
+                    <option key={m.id} value={m.id} disabled={!enrolled}>
+                      {m.label}
+                      {!enrolled ? ' (not enrolled)' : ''}
+                    </option>
+                  );
+                })}
+              </select>
+            </label>
             <div className="flex flex-wrap gap-2">
               <button
                 type="button"
@@ -296,13 +350,63 @@ export default function MyAccessPage() {
               </dt>
               <dd className="mt-0.5 text-[#323130]">{me.email ?? '—'}</dd>
             </div>
-            <div className="sm:col-span-2">
+            <div>
               <dt className="text-[11px] font-semibold uppercase tracking-wide text-[#8a8886]">
                 Access card
               </dt>
               <dd className="mt-0.5 inline-flex items-center gap-1.5 font-mono text-[#323130]">
                 <CreditCard className="h-3.5 w-3.5 text-[#0078d4]" />
-                {me.accessCardRef ?? '—'}
+                {me.accessCardRef ?? 'Not enrolled'}
+              </dd>
+            </div>
+            <div>
+              <dt className="text-[11px] font-semibold uppercase tracking-wide text-[#8a8886]">
+                Biometric
+              </dt>
+              <dd className="mt-0.5 inline-flex items-center gap-1.5 font-mono text-[#323130]">
+                <Fingerprint className="h-3.5 w-3.5 text-[#0078d4]" />
+                {me.biometricRef ?? 'Not enrolled'}
+              </dd>
+            </div>
+            <div className="sm:col-span-2">
+              <dt className="text-[11px] font-semibold uppercase tracking-wide text-[#8a8886]">
+                Identity
+              </dt>
+              <dd className="mt-1 flex flex-wrap items-center gap-2">
+                <StatusPill
+                  status={me.identityVerifiedAt ? 'VERIFIED' : 'UNVERIFIED'}
+                />
+                {me.identityVerifiedAt ? (
+                  <span className="text-xs text-[#8a8886]">
+                    {formatDate(me.identityVerifiedAt, true)}
+                  </span>
+                ) : (
+                  <button
+                    type="button"
+                    disabled={submitting}
+                    onClick={() => {
+                      setSubmitting(true);
+                      setError(null);
+                      void verifyMyAccessIdentity()
+                        .then((updated) => {
+                          setMe(updated);
+                          setNotice('Identity details confirmed');
+                        })
+                        .catch((err) =>
+                          setError(
+                            err instanceof Error
+                              ? err.message
+                              : 'Verify failed',
+                          ),
+                        )
+                        .finally(() => setSubmitting(false));
+                    }}
+                    className="inline-flex items-center gap-1.5 rounded-lg bg-[#0078d4] px-3 py-1.5 text-xs font-semibold text-white hover:bg-[#106ebe] disabled:opacity-50"
+                  >
+                    <ShieldCheck className="h-3.5 w-3.5" />
+                    Confirm my identity
+                  </button>
+                )}
               </dd>
             </div>
           </dl>
@@ -344,7 +448,7 @@ export default function MyAccessPage() {
         )}
       </PortalPanel>
 
-      <PortalDeferral note="Self check-in uses QR method (thin). Gate is optional when the site has none. Device bio/card UX comes later. Never mixed with guard attendance (§33)." />
+      <PortalDeferral note="QR and PIN record the chosen method on granted sites (camera / PIN-pad hardware later). Card and biometric require enrollment refs from your administrator. Never mixed with HIGHLINK guard attendance (§33)." />
     </div>
   );
 }

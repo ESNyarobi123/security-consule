@@ -121,10 +121,10 @@ export type CreateGuardSupplyRequestInput = {
   siteLocation: string;
   startDate?: string;
   endDate?: string;
-  qualifications?: string;
-  trainingNeeds?: string;
-  urgency?: 'STANDARD' | 'HIGH' | 'CRITICAL';
-  serviceTerms?: string;
+  qualifications: string;
+  trainingNeeds: string;
+  urgency: 'STANDARD' | 'HIGH' | 'CRITICAL';
+  serviceTerms: string;
   criteriaNotes?: string;
   experienceYearsMin?: number;
   ageMin?: number;
@@ -207,6 +207,17 @@ export const getB2bPartnerMe = (token?: string) =>
   partnerFetch<B2bPartnerProfile>('/api/v1/recruitment/b2b/partners/me', {
     token,
   });
+
+export type B2bRequestOptions = {
+  urgencies: Array<{ value: string; label: string; hint: string }>;
+  requiredFields: string[];
+};
+
+export const getB2bRequestOptions = (token?: string) =>
+  partnerFetch<B2bRequestOptions>(
+    '/api/v1/recruitment/b2b/request-options',
+    { token },
+  );
 
 export const listPartnerGuardSupplyRequests = (
   status?: string,

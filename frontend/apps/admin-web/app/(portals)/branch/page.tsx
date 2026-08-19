@@ -1,11 +1,13 @@
 'use client';
 
 import {
+  getBranchDeskSummary,
   listBranches,
   listDeployments,
   listFieldAlerts,
   listShifts,
   listSites,
+  type BranchDeskSummary,
   type Deployment,
   type Site,
 } from '@pssms/api-client';
@@ -40,6 +42,7 @@ export default function BranchOverviewPage() {
     Awaited<ReturnType<typeof listShifts>>
   >([]);
   const [openAlerts, setOpenAlerts] = useState(0);
+  const [desk, setDesk] = useState<BranchDeskSummary | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -47,18 +50,20 @@ export default function BranchOverviewPage() {
     setLoading(true);
     setError(null);
     try {
-      const [b, s, d, sh, alerts] = await Promise.all([
+      const [b, s, d, sh, alerts, summary] = await Promise.all([
         listBranches(),
         listSites(),
         listDeployments(),
         listShifts(),
         listFieldAlerts({ acknowledged: false }),
+        getBranchDeskSummary().catch(() => null),
       ]);
       setBranches(b);
       setSites(s);
       setDeployments(d);
       setShifts(sh);
       setOpenAlerts(alerts.length);
+      setDesk(summary);
     } catch (err) {
       setError(formatApiError(err));
     } finally {
@@ -132,8 +137,10 @@ export default function BranchOverviewPage() {
                   Branch Operations
                 </h1>
                 <p className="mt-1.5 max-w-2xl text-sm leading-relaxed text-slate-300">
-                  BOM / Field supervise sites, deployments, shifts, and field
-                  alerts. Guard readiness stays under Ops Console.
+                  BOM / Field / Ops Mgr supervise sites, staff on post,
+                  attendance, inspections, incidents, and branch petty cash
+                  requests. Parking is a monitor — mutate stays parking-web.
+                  Marketing / CCTV technical stay their own portals.
                 </p>
                 <div className="mt-3 flex flex-wrap gap-1.5">
                   {HERO_CHIPS.map((chip) =>
@@ -215,6 +222,27 @@ export default function BranchOverviewPage() {
               tone={stats.openAlerts > 0 ? 'rose' : 'slate'}
               pulse={stats.openAlerts > 0}
               icon={<Bell className="h-4 w-4" />}
+            />
+            <KpiCard
+              label="Guards on post"
+              value={loading ? '…' : (desk?.deployedGuards ?? '—')}
+              hint="Active deployments in scope"
+              tone="emerald"
+              icon={<Shield className="h-4 w-4" />}
+            />
+            <KpiCard
+              label="Parking denies (24h)"
+              value={loading ? '…' : (desk?.parkingDenies24h ?? '—')}
+              hint="Read-only monitor"
+              tone={(desk?.parkingDenies24h ?? 0) > 0 ? 'rose' : 'slate'}
+              icon={<Bell className="h-4 w-4" />}
+            />
+            <KpiCard
+              label="Pending petty cash"
+              value={loading ? '…' : (desk?.pendingPettyCash ?? '—')}
+              hint="Finance still issues"
+              tone="amber"
+              icon={<Timer className="h-4 w-4" />}
             />
           </div>
         </div>
@@ -361,11 +389,10 @@ export default function BranchOverviewPage() {
         </section>
 
         <p className="mt-5 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2.5 text-[11px] leading-relaxed text-slate-600">
-          Deferred (honest): Live SSE, GPS map, branch petty cash, parking board
-          in Branch Ops, ABAC branch filter, field ops reports pack, equipment
-          inspections, vendor field board. No fake coverage % or risk scores.
-          Sub-routes (Sites → Incidents) remain thin boards — this overview is
-          control-room chrome over live list APIs.
+          Deferred (honest): Live SSE, GPS map, stall sensors, equipment
+          inspection photos, vendor field board. Branch petty cash issue stays
+          Finance. Parking permits/billing stay parking-web. No fake coverage %
+          or risk scores.
         </p>
       </BranchShell>
     </div>

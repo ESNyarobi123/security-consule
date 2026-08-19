@@ -2,13 +2,13 @@ import { useCallback, useState } from 'react';
 import {
   ActivityIndicator,
   Pressable,
+  ScrollView,
   StyleSheet,
   Text,
   View,
 } from 'react-native';
 import { Link, useFocusEffect } from 'expo-router';
 import {
-  DEMO_SITE_CODE,
   DEVICE_TIME_DISCLAIMER,
   GPS_DISCLAIMER,
 } from '@/constants/config';
@@ -17,15 +17,33 @@ import { useOnline } from '@/hooks/useOnline';
 import { countPending } from '@/offline/outbox';
 import { enqueueDemoClockIn, formatGpsLabel } from '@/services/clock-in';
 import { enqueueDemoClockOut } from '@/services/clock-out';
+import { getMyDuty, type GuardDuty } from '@/services/duty';
 import { getOpenAttendanceId } from '@/services/duty-state';
 import { getFieldGps, type FieldGps } from '@/services/location';
-import { resolveDemoSite, type SiteSummary } from '@/services/sites';
+
+function formatShift(duty: GuardDuty | null): string {
+  if (!duty?.shift) return 'No shift assigned';
+  const start = new Date(duty.shift.startAt);
+  const end = new Date(duty.shift.endAt);
+  const when = Number.isNaN(start.getTime())
+    ? duty.shift.name
+    : `${duty.shift.name} · ${start.toLocaleTimeString('en-GB', {
+        hour: '2-digit',
+        minute: '2-digit',
+      })}–${end.toLocaleTimeString('en-GB', {
+        hour: '2-digit',
+        minute: '2-digit',
+      })}`;
+  return duty.shift.supervisorName
+    ? `${when} · Supervisor ${duty.shift.supervisorName}`
+    : when;
+}
 
 export default function HomeScreen() {
   const { user, logout } = useAuth();
   const online = useOnline();
   const [pending, setPending] = useState(0);
-  const [site, setSite] = useState<SiteSummary | null>(null);
+  const [duty, setDuty] = useState<GuardDuty | null>(null);
   const [openAttendanceId, setOpenAttendanceIdState] = useState<string | null>(
     null,
   );
@@ -36,18 +54,18 @@ export default function HomeScreen() {
 
   const refresh = useCallback(async () => {
     try {
-      const [c, s, openId, gps] = await Promise.all([
+      const [c, d, openId, gps] = await Promise.all([
         countPending(),
-        resolveDemoSite().catch(() => null),
+        getMyDuty(true).catch(() => null),
         getOpenAttendanceId(),
         getFieldGps({ allowFallback: true }).catch(() => null),
       ]);
       setPending(c);
-      setSite(s);
+      setDuty(d);
       setOpenAttendanceIdState(openId);
       if (gps) setLastGps(gps);
     } catch {
-      /* ignore offline site resolve */
+      /* ignore offline duty resolve */
     }
   }, []);
 
@@ -94,7 +112,7 @@ export default function HomeScreen() {
   }
 
   return (
-    <View style={styles.root}>
+    <ScrollView contentContainerStyle={styles.root}>
       <View style={styles.row}>
         <View
           style={[
@@ -108,16 +126,21 @@ export default function HomeScreen() {
       </View>
 
       <Text style={styles.hello}>Hi, {user?.fullName ?? 'Guard'}</Text>
-      <Text style={styles.meta}>{user?.email}</Text>
+      <Text style={styles.meta}>
+        {duty?.employeeNumber ?? user?.email} · Portal 35.6
+      </Text>
 
       <View style={styles.card}>
-        <Text style={styles.cardLabel}>Duty site</Text>
-        <Text style={styles.cardValue}>{DEMO_SITE_CODE}</Text>
-        <Text style={styles.cardMeta}>
-          {site
-            ? `${site.name} · ${site.id.slice(0, 8)}…`
-            : 'Site id resolves on sync / first online'}
+        <Text style={styles.cardLabel}>Assigned site</Text>
+        <Text style={styles.cardValue}>
+          {duty?.site?.code ?? 'No site yet'}
         </Text>
+        <Text style={styles.cardMeta}>
+          {duty?.site
+            ? duty.site.name
+            : duty?.note ?? 'Site resolves on first online sync'}
+        </Text>
+        <Text style={styles.cardMeta}>{formatShift(duty)}</Text>
         <Text style={styles.cardMeta}>
           {lastGps
             ? formatGpsLabel(lastGps)
@@ -176,6 +199,26 @@ export default function HomeScreen() {
             <Text style={styles.secondaryText}>Parking patrol</Text>
           </Pressable>
         </Link>
+        <Link href="/(app)/incident" asChild>
+          <Pressable style={styles.secondary}>
+            <Text style={styles.secondaryText}>Incident</Text>
+          </Pressable>
+        </Link>
+        <Link href="/(app)/emergency" asChild>
+          <Pressable style={styles.panic}>
+            <Text style={styles.panicText}>Emergency</Text>
+          </Pressable>
+        </Link>
+        <Link href="/(app)/equipment" asChild>
+          <Pressable style={styles.secondary}>
+            <Text style={styles.secondaryText}>Equipment</Text>
+          </Pressable>
+        </Link>
+        <Link href="/(app)/notices" asChild>
+          <Pressable style={styles.secondary}>
+            <Text style={styles.secondaryText}>Supervisor messages</Text>
+          </Pressable>
+        </Link>
         <Link href="/(app)/outbox" asChild>
           <Pressable style={styles.secondary}>
             <Text style={styles.secondaryText}>Outbox</Text>
@@ -186,12 +229,12 @@ export default function HomeScreen() {
       <Pressable style={styles.logout} onPress={() => void logout()}>
         <Text style={styles.logoutText}>Sign out</Text>
       </Pressable>
-    </View>
+    </ScrollView>
   );
 }
 
 const styles = StyleSheet.create({
-  root: { flex: 1, padding: 20, gap: 12 },
+  root: { padding: 20, gap: 12, paddingBottom: 32 },
   row: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -254,6 +297,13 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   secondaryText: { color: '#0f2744', fontWeight: '600' },
+  panic: {
+    backgroundColor: '#9b1c1c',
+    borderRadius: 8,
+    paddingVertical: 12,
+    alignItems: 'center',
+  },
+  panicText: { color: '#fff', fontWeight: '700' },
   logout: { alignItems: 'center', paddingVertical: 12, marginTop: 8 },
   logoutText: { color: '#8899aa' },
   disabled: { opacity: 0.7 },

@@ -6,11 +6,14 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { AccessEntryType, AccessLevel, AccessMethod } from '@prisma/client';
+import * as bcrypt from 'bcryptjs';
 import {
   PrismaService,
   AuthUser,
+  evaluatePasswordPolicy,
   isCustomerEmployeeSelfScoped,
   mustSelfScopeAccessEntries,
+  normalizePasswordPolicy,
 } from '@pssms/shared';
 import { AuditService } from '@pssms/audit';
 import {
@@ -19,6 +22,8 @@ import {
   CreateCustomerEmployeeDto,
   CustomerEmployeeResponseDto,
   AccessEntryResponseDto,
+  RegisterCustomerEmployeeAccessDto,
+  RegisterCustomerEmployeeAccessResponseDto,
   SelfAccessSitesResponseDto,
   UpdateCustomerEmployeeDto,
   UpdateCustomerEmployeePaymentDto,
@@ -497,6 +502,7 @@ export class AccessControlService {
     }
 
     const accessMethod = dto.accessMethod ?? AccessMethod.QR;
+    this.assertMethodEnrolled(employee, accessMethod);
 
     const entry = await this.prisma.accessEntry.create({
       data: {
@@ -691,6 +697,9 @@ export class AccessControlService {
     user: AuthUser,
     customerId?: string,
     siteId?: string,
+    employeeId?: string,
+    from?: string,
+    to?: string,
   ): Promise<AccessEntryResponseDto[]> {
     let selfEmployeeId: string | undefined;
     if (mustSelfScopeAccessEntries(user) || isCustomerEmployeeSelfScoped(user)) {
@@ -712,12 +721,62 @@ export class AccessControlService {
       selfEmployeeId = me.id;
     }
 
+    let recordedAt: { gte?: Date; lte?: Date } | undefined;
+    if (from || to) {
+      const start = from ? new Date(from) : undefined;
+      const end = to ? new Date(to) : undefined;
+      if ((from && Number.isNaN(start!.getTime())) || (to && Number.isNaN(end!.getTime()))) {
+        throw new BadRequestException({
+          error: 'INVALID_PERIOD',
+          message: 'from and to must be valid ISO datetimes',
+        });
+      }
+      if (start && end && start.getTime() > end.getTime()) {
+        throw new BadRequestException({
+          error: 'INVALID_PERIOD',
+          message: 'from must be before to',
+        });
+      }
+      recordedAt = {
+        ...(start ? { gte: start } : {}),
+        ...(end ? { lte: end } : {}),
+      };
+    }
+
+    let filterEmployeeId = selfEmployeeId;
+    if (employeeId) {
+      if (selfEmployeeId && employeeId !== selfEmployeeId) {
+        throw new ForbiddenException({
+          error: 'FORBIDDEN',
+          message: 'Customer employees may only view their own access records',
+        });
+      }
+      if (!selfEmployeeId) {
+        const emp = await this.prisma.customerEmployee.findFirst({
+          where: {
+            id: employeeId,
+            organizationId: user.organizationId,
+            ...(customerId ? { customerId } : {}),
+          },
+          select: { id: true },
+        });
+        if (!emp) {
+          throw new NotFoundException({
+            error: 'NOT_FOUND',
+            message: 'Employee not found for this customer',
+          });
+        }
+        filterEmployeeId = emp.id;
+      }
+    }
+
     const rows = await this.prisma.accessEntry.findMany({
       where: {
         organizationId: user.organizationId,
         ...(customerId ? { customerId } : {}),
         ...(siteId ? { siteId } : {}),
-        ...(selfEmployeeId ? { employeeId: selfEmployeeId } : {}),
+        ...(filterEmployeeId ? { employeeId: filterEmployeeId } : {}),
+        ...(recordedAt ? { recordedAt } : {}),
       },
       orderBy: { recordedAt: 'desc' },
       take: 100,
@@ -924,6 +983,208 @@ export class AccessControlService {
     };
   }
 
+  accessMethodOptions() {
+    return [
+      { id: AccessMethod.QR, label: 'QR code', requiresEnrollment: false },
+      { id: AccessMethod.CARD, label: 'Access card', requiresEnrollment: true },
+      { id: AccessMethod.BIOMETRIC, label: 'Biometric', requiresEnrollment: true },
+      { id: AccessMethod.PIN, label: 'PIN', requiresEnrollment: false },
+    ];
+  }
+
+  async verifyMyIdentity(user: AuthUser): Promise<CustomerEmployeeResponseDto> {
+    const employee = await this.prisma.customerEmployee.findFirst({
+      where: {
+        organizationId: user.organizationId,
+        customerId: user.customerId ?? undefined,
+        userId: user.id,
+        isActive: true,
+      },
+    });
+    if (!employee || !user.customerId) {
+      throw new NotFoundException({
+        error: 'NOT_FOUND',
+        message: 'No customer employee profile linked to this login',
+      });
+    }
+    if (employee.identityVerifiedAt) {
+      return this.toEmployeeDto(employee);
+    }
+    const updated = await this.prisma.customerEmployee.update({
+      where: { id: employee.id },
+      data: { identityVerifiedAt: new Date() },
+    });
+    await this.audit.record({
+      organizationId: user.organizationId,
+      actorId: user.id,
+      action: 'access.employee.identity_verified',
+      resourceType: 'CustomerEmployee',
+      resourceId: employee.id,
+      after: {
+        identityVerifiedAt: updated.identityVerifiedAt,
+        via: 'self',
+      },
+    });
+    return this.toEmployeeDto(updated);
+  }
+
+  async register(
+    dto: RegisterCustomerEmployeeAccessDto,
+  ): Promise<RegisterCustomerEmployeeAccessResponseDto> {
+    const org = await this.prisma.organization.findFirst({
+      where: { code: 'HIGHLINK' },
+    });
+    if (!org) {
+      throw new NotFoundException({
+        error: 'NOT_FOUND',
+        message: 'Organisation not found',
+      });
+    }
+
+    return this.prisma.runInRequestContext({ organizationId: org.id }, async () => {
+      const customerCode = dto.customerCode.trim().toUpperCase();
+      const employeeNumber = dto.employeeNumber.trim();
+      const email = dto.email.toLowerCase().trim();
+
+      const customer = await this.prisma.customer.findFirst({
+        where: { organizationId: org.id, code: customerCode },
+      });
+      if (
+        !customer ||
+        customer.status === 'SUSPENDED' ||
+        customer.status === 'TERMINATED'
+      ) {
+        throw new BadRequestException({
+          error: 'REGISTER_NOT_ELIGIBLE',
+          message:
+            'No matching active employee roster record. Ask your administrator to register you first.',
+        });
+      }
+
+      const employee = await this.prisma.customerEmployee.findFirst({
+        where: {
+          organizationId: org.id,
+          customerId: customer.id,
+          employeeNumber,
+        },
+      });
+      if (!employee || employee.email?.toLowerCase().trim() !== email) {
+        throw new BadRequestException({
+          error: 'REGISTER_NOT_ELIGIBLE',
+          message:
+            'No matching active employee roster record. Ask your administrator to register you first.',
+        });
+      }
+      if (!employee.isActive) {
+        throw new BadRequestException({
+          error: 'EMPLOYEE_INACTIVE',
+          message: 'This employee record is inactive',
+        });
+      }
+      if (employee.userId) {
+        throw new ConflictException({
+          error: 'ALREADY_LINKED',
+          message: 'This employee already has a portal login — sign in instead',
+        });
+      }
+
+      const existingUser = await this.prisma.user.findUnique({ where: { email } });
+      if (existingUser) {
+        throw new ConflictException({
+          error: 'EMAIL_IN_USE',
+          message: 'That email already has a login',
+        });
+      }
+
+      const policy = normalizePasswordPolicy(org.passwordPolicy);
+      const policyFailures = evaluatePasswordPolicy(dto.password, policy);
+      if (policyFailures.length > 0) {
+        throw new BadRequestException({
+          error: 'WEAK_PASSWORD',
+          message: `Password must contain ${policyFailures.join(', ')}`,
+        });
+      }
+
+      const role = await this.prisma.role.findFirst({
+        where: { organizationId: org.id, code: 'CUSTOMER_EMPLOYEE' },
+      });
+      if (!role) {
+        throw new NotFoundException({
+          error: 'NOT_FOUND',
+          message: 'CUSTOMER_EMPLOYEE role is not configured',
+        });
+      }
+
+      const passwordHash = await bcrypt.hash(dto.password, 12);
+      const { user } = await this.prisma.$transaction(async (tx) => {
+        const user = await tx.user.create({
+          data: {
+            email,
+            fullName: employee.fullName,
+            phone: employee.phone,
+            passwordHash,
+            organizationId: org.id,
+            customerId: customer.id,
+            mustChangePassword: false,
+            roles: { create: [{ roleId: role.id }] },
+          },
+        });
+        await tx.customerEmployee.update({
+          where: { id: employee.id },
+          data: { userId: user.id },
+        });
+        return { user };
+      });
+
+      await this.audit.record({
+        organizationId: org.id,
+        actorId: user.id,
+        action: 'access.employee.self_registered',
+        resourceType: 'CustomerEmployee',
+        resourceId: employee.id,
+        after: {
+          employeeId: employee.id,
+          userId: user.id,
+          email,
+          customerId: customer.id,
+          customerCode,
+          roles: ['CUSTOMER_EMPLOYEE'],
+        },
+      });
+
+      return {
+        email: user.email,
+        fullName: employee.fullName,
+        employeeNumber: employee.employeeNumber ?? employeeNumber,
+        customerCode,
+      };
+    });
+  }
+
+  private assertMethodEnrolled(
+    employee: { accessCardRef: string | null; biometricRef: string | null },
+    method: AccessMethod,
+  ) {
+    if (method === AccessMethod.MANUAL) {
+      throw new BadRequestException({
+        error: 'METHOD_NOT_ALLOWED',
+        message: 'MANUAL is a staff gate method — use QR, card, biometric, or PIN',
+      });
+    }
+    if (method === AccessMethod.CARD && !employee.accessCardRef?.trim()) {
+      throw new BadRequestException({
+        error: 'METHOD_NOT_ENROLLED',
+        message: 'Access card is not enrolled for this employee',
+      });
+    }
+    if (method === AccessMethod.BIOMETRIC && !employee.biometricRef?.trim()) {
+      throw new BadRequestException({
+        error: 'METHOD_NOT_ENROLLED',
+        message: 'Biometric is not enrolled for this employee',
+      });
+    }
+  }
+
   private toEmployeeDto(e: {
     id: string;
     organizationId: string;
@@ -937,6 +1198,7 @@ export class AccessControlService {
     accessLevel: AccessLevel;
     accessCardRef: string | null;
     biometricRef: string | null;
+    identityVerifiedAt?: Date | null;
     bankAccountRef?: string | null;
     bankName?: string | null;
     mobileMoneyRef?: string | null;
@@ -957,6 +1219,7 @@ export class AccessControlService {
       accessLevel: e.accessLevel,
       accessCardRef: e.accessCardRef,
       biometricRef: e.biometricRef,
+      identityVerifiedAt: e.identityVerifiedAt ?? null,
       bankAccountRef: e.bankAccountRef ?? null,
       bankName: e.bankName ?? null,
       mobileMoneyRef: e.mobileMoneyRef ?? null,

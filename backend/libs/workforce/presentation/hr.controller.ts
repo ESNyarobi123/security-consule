@@ -311,7 +311,7 @@ export class MovementsController {
 
   @Post()
   @ApiOperation({
-    summary: 'Request transfer or exit (starts approval workflow)',
+    summary: 'Request transfer, promotion, exit, or redundancy (starts approval workflow)',
   })
   @ApiCreatedResponse({ type: EmployeeMovementResponseDto })
   create(
@@ -322,14 +322,14 @@ export class MovementsController {
   }
 
   @Post(':id/approve')
-  @ApiOperation({ summary: 'Approve transfer/exit' })
+  @ApiOperation({ summary: 'Approve pending movement (creator ≠ approver)' })
   @ApiOkResponse({ type: EmployeeMovementResponseDto })
   approve(@Param('id') id: string, @CurrentUser() user: AuthUser) {
     return this.service.approve(id, user);
   }
 
   @Post(':id/reject')
-  @ApiOperation({ summary: 'Reject transfer/exit' })
+  @ApiOperation({ summary: 'Reject pending movement (creator ≠ approver)' })
   @ApiOkResponse({ type: EmployeeMovementResponseDto })
   reject(
     @Param('id') id: string,
@@ -340,7 +340,7 @@ export class MovementsController {
   }
 
   @Get()
-  @ApiOperation({ summary: 'List transfer/exit requests' })
+  @ApiOperation({ summary: 'List movement requests' })
   @ApiQuery({ name: 'employeeId', required: false })
   @ApiOkResponse({ type: [EmployeeMovementResponseDto] })
   list(

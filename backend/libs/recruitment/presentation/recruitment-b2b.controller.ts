@@ -27,6 +27,7 @@ import { RecruitmentB2bService } from '../application/recruitment-b2b.service';
 import {
   B2bCustomerOptionDto,
   B2bPartnerProfileDto,
+  B2bRequestOptionsDto,
   CreateGuardSupplyRequestDto,
   GuardSupplyRequestResponseDto,
   RegisterB2bPartnerDto,
@@ -104,6 +105,17 @@ export class RecruitmentB2bController {
   @ApiOkResponse({ type: B2bPartnerProfileDto })
   partnerMe(@CurrentUser() user: AuthUser) {
     return this.service.getPartnerMe(user);
+  }
+
+  @Get('request-options')
+  @RequireAnyPermissions('recruitment.b2b', 'recruitment.manage')
+  @ApiOperation({
+    summary:
+      'Portal 35.14 — urgency catalog + required request fields (partner + HR)',
+  })
+  @ApiOkResponse({ type: B2bRequestOptionsDto })
+  requestOptions() {
+    return this.service.requestOptions();
   }
 
   @Post('requests')

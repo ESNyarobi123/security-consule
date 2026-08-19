@@ -40,8 +40,14 @@ export class MovementService {
       user.organizationId,
     );
 
-    if (dto.type === MovementType.TRANSFER && !dto.toDepartment?.trim()) {
-      throw new BadRequestException('toDepartment is required for TRANSFER');
+    if (
+      (dto.type === MovementType.TRANSFER ||
+        dto.type === MovementType.PROMOTION) &&
+      !dto.toDepartment?.trim()
+    ) {
+      throw new BadRequestException(
+        'toDepartment is required for TRANSFER and PROMOTION',
+      );
     }
 
     if (employee.status === EmployeeStatus.TERMINATED) {
@@ -57,12 +63,12 @@ export class MovementService {
     });
     if (pending) {
       throw new BadRequestException(
-        'Employee already has a pending transfer/exit request',
+        'Employee already has a pending movement request',
       );
     }
 
     const workflowCode =
-      dto.type === MovementType.EXIT
+      dto.type === MovementType.EXIT || dto.type === MovementType.REDUNDANCY
         ? 'employee-exit-approval'
         : 'employee-transfer-approval';
 
@@ -149,7 +155,10 @@ export class MovementService {
 
         let deploymentsEnded: string[] = [];
 
-        if (row.type === MovementType.EXIT) {
+        if (
+          row.type === MovementType.EXIT ||
+          row.type === MovementType.REDUNDANCY
+        ) {
           const employee = await tx.employee.update({
             where: { id: row.employeeId },
             data: { status: EmployeeStatus.TERMINATED },
@@ -166,12 +175,22 @@ export class MovementService {
             const result = await this.deployments.endAllActiveForGuard(
               employee.guardProfileId,
               user,
-              { reason: 'employee.exit', sourceMovementId: row.id },
+              {
+                reason:
+                  row.type === MovementType.REDUNDANCY
+                    ? 'employee.redundancy'
+                    : 'employee.exit',
+                sourceMovementId: row.id,
+              },
               tx,
             );
             deploymentsEnded = result.endedIds;
           }
-        } else if (row.type === MovementType.TRANSFER && row.toDepartment) {
+        } else if (
+          (row.type === MovementType.TRANSFER ||
+            row.type === MovementType.PROMOTION) &&
+          row.toDepartment
+        ) {
           await tx.employee.update({
             where: { id: row.employeeId },
             data: { department: row.toDepartment },

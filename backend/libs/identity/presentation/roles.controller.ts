@@ -24,6 +24,7 @@ import { RolesService } from '../application/roles.service';
 import {
   CreateRoleDto,
   PermissionResponseDto,
+  PortalCatalogResponseDto,
   RoleResponseDto,
   SetRolePermissionsDto,
 } from './dto/role.dto';
@@ -48,6 +49,16 @@ export class RolesController {
   @ApiOkResponse({ type: [PermissionResponseDto] })
   listPermissions() {
     return this.rolesService.listPermissions();
+  }
+
+  @Get('portal-catalog')
+  @ApiOperation({
+    summary:
+      'Design §35 portals + §36 account types with live role/user/permission coverage',
+  })
+  @ApiOkResponse({ type: PortalCatalogResponseDto })
+  portalCatalog(@CurrentUser() user: AuthUser) {
+    return this.rolesService.portalCatalog(user.organizationId);
   }
 
   @Post()
