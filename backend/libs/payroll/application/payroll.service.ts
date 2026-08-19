@@ -1365,7 +1365,7 @@ export class PayrollService {
         }
       }
       const allowances = Array.isArray(p.allowancesSnapshot)
-        ? (p.allowancesSnapshot as PayslipLineItem[])
+        ? (p.allowancesSnapshot as unknown as PayslipLineItem[])
         : [];
       for (const a of allowances) {
         pack.allowances.count += 1;

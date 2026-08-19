@@ -394,13 +394,13 @@ export class SuppliersService {
           message: 'Purchase order not found for this supplier',
         });
       }
-      const issued = new Set([
+      const issued: PurchaseOrderStatus[] = [
         PurchaseOrderStatus.ORDERED,
         PurchaseOrderStatus.PARTIALLY_RECEIVED,
         PurchaseOrderStatus.RECEIVED,
         PurchaseOrderStatus.CANCELLED,
-      ]);
-      if (user.supplierId && !issued.has(po.status)) {
+      ];
+      if (user.supplierId && !issued.includes(po.status)) {
         throw new BadRequestException({
           error: 'INVALID_PURCHASE_ORDER',
           message: 'Purchase order not found for this supplier',
