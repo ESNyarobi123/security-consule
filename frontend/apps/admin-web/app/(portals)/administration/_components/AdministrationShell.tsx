@@ -108,7 +108,8 @@ export function AdministrationShell({
         }`}
       >
         {tabs.map((tab) => {
-          const active = tab.exact
+          const exact = 'exact' in tab && tab.exact;
+          const active = exact
             ? pathname === tab.href
             : pathname === tab.href || pathname.startsWith(`${tab.href}/`);
           return (
