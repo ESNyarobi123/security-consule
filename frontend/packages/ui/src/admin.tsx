@@ -19,20 +19,25 @@ export function Modal({
   onClose,
   children,
   size = 'md',
+  open = true,
 }: {
   title: string;
   description?: string;
   onClose: () => void;
   children: ReactNode;
   size?: 'sm' | 'md' | 'lg' | 'xl';
+  open?: boolean;
 }) {
   useEffect(() => {
+    if (!open) return;
     function onKey(e: KeyboardEvent) {
       if (e.key === 'Escape') onClose();
     }
     document.addEventListener('keydown', onKey);
     return () => document.removeEventListener('keydown', onKey);
-  }, [onClose]);
+  }, [onClose, open]);
+
+  if (!open) return null;
 
   const width =
     size === 'sm'
@@ -81,7 +86,8 @@ export function Modal({
   );
 }
 
-export function StatusBadge({ status }: { status: string }) {
+export function StatusBadge({ status }: { status?: string | null }) {
+  const label = status?.trim() ? status : '—';
   const ok = 'bg-[#dff6dd] text-[#0e700e]';
   const colors: Record<string, string> = {
     ACTIVE: ok,
@@ -106,10 +112,10 @@ export function StatusBadge({ status }: { status: string }) {
     ALLOWED: ok,
     DENIED: 'bg-rose-50 text-rose-700',
   };
-  const cls = colors[status] ?? 'bg-slate-100 text-slate-600';
+  const cls = colors[label] ?? 'bg-slate-100 text-slate-600';
   return (
     <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase ${cls}`}>
-      {status.replace(/_/g, ' ')}
+      {label.replace(/_/g, ' ')}
     </span>
   );
 }

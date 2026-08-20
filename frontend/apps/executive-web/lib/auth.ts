@@ -35,9 +35,3 @@ export function isForbiddenError(err: unknown): boolean {
     m.includes('"code":"forbidden"')
   );
 }
-  if (!(err instanceof Error)) return false;
-  const e = err as Error & { status?: number; code?: string };
-  if (e.status === 401 || e.code === 'UNAUTHORIZED') return true;
-  const m = e.message.toLowerCase();
-  return m.includes('unauthorized') || m.includes('"code":"unauthorized"');
-}
