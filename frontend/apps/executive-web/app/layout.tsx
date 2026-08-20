@@ -2,7 +2,6 @@ import type { Metadata } from 'next';
 import { Inter } from 'next/font/google';
 import './globals.css';
 
-/** Preline UI default sans — Inter */
 const inter = Inter({
   subsets: ['latin'],
   variable: '--font-inter',
@@ -16,12 +15,17 @@ export const metadata: Metadata = {
 
 export default function RootLayout({
   children,
-}: Readonly<{
-  children: React.ReactNode;
-}>) {
+}: Readonly<{ children: React.ReactNode }>) {
   return (
-    <html lang="en" className={inter.variable}>
-      <body className={`${inter.className} font-sans antialiased`}>
+    <html
+      lang="en"
+      className={`${inter.variable} light`}
+      data-theme="light"
+      suppressHydrationWarning
+    >
+      <body
+        className={`${inter.className} bg-background text-foreground font-sans antialiased`}
+      >
         {children}
       </body>
     </html>

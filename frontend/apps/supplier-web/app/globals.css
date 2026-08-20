@@ -1,6 +1,7 @@
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+@import "tailwindcss";
+@config "../tailwind.config.js";
+@import "@heroui/styles";
+@import "../../../packages/ui/pssms-theme.css";
 
 :root {
   --sp-navy: #0b1f3a;

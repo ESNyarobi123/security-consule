@@ -1,18 +1,26 @@
 'use client';
 
 import type { NavItem } from '@pssms/permissions';
+import { Chip, EmptyState as HeroEmptyState, Modal as HModal, useOverlayState } from '@heroui/react';
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { AzureGlyph, ServiceIcon, moduleVisual } from './azure';
 
-/** Shared Azure button class helpers for page-level actions. */
+/** HeroUI token classes — medium radius buttons, large-radius form fields */
 export const btnPrimary =
-  'inline-flex items-center gap-1.5 rounded-md bg-[#0078d4] px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-[#106ebe] disabled:opacity-60';
+  'inline-flex items-center justify-center gap-1.5 rounded-[length:var(--radius)] bg-accent px-4 py-2 text-sm font-semibold text-accent-foreground shadow-sm transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50';
 export const btnSecondary =
-  'inline-flex items-center gap-1.5 rounded-md border border-[#8a8886] bg-white px-4 py-2 text-sm font-medium text-[#323130] transition hover:bg-[#f3f2f1] disabled:opacity-60';
+  'inline-flex items-center justify-center gap-1.5 rounded-[length:var(--radius)] border border-border bg-surface px-4 py-2 text-sm font-medium text-foreground shadow-sm transition hover:bg-default disabled:cursor-not-allowed disabled:opacity-50';
 export const inputCls =
-  'mt-1 w-full rounded-md border border-[#8a8886] bg-white px-3 py-2 text-sm text-[#1b1a19] outline-none transition focus:border-[#0078d4] focus:ring-1 focus:ring-[#0078d4]';
+  'mt-1 w-full rounded-[length:var(--field-radius)] border border-field-border bg-field-background px-3 py-2.5 text-sm text-field-foreground shadow-[var(--field-shadow,0_1px_2px_rgba(0,0,0,0.04))] outline-none transition placeholder:text-field-placeholder focus:border-accent focus:ring-2 focus:ring-accent/20 disabled:cursor-not-allowed disabled:opacity-50';
 
-/** Light Azure modal dialog (backdrop click / Escape to close). */
+const MODAL_SIZE = {
+  sm: 'sm',
+  md: 'md',
+  lg: 'lg',
+  xl: 'full',
+} as const;
+
+/** HeroUI modal — same props as legacy wrapper for portal pages */
 export function Modal({
   title,
   description,
@@ -28,95 +36,79 @@ export function Modal({
   size?: 'sm' | 'md' | 'lg' | 'xl';
   open?: boolean;
 }) {
+  const state = useOverlayState({
+    isOpen: open,
+    onOpenChange: (next) => {
+      if (!next) onClose();
+    },
+  });
+
   useEffect(() => {
-    if (!open) return;
-    function onKey(e: KeyboardEvent) {
-      if (e.key === 'Escape') onClose();
-    }
-    document.addEventListener('keydown', onKey);
-    return () => document.removeEventListener('keydown', onKey);
-  }, [onClose, open]);
+    state.setOpen(open);
+  }, [open, state]);
 
   if (!open) return null;
 
-  const width =
-    size === 'sm'
-      ? 'max-w-sm'
-      : size === 'lg'
-        ? 'max-w-2xl'
-        : size === 'xl'
-          ? 'max-w-4xl'
-          : 'max-w-md';
-
   return (
-    <div
-      className="fixed inset-0 z-[60] flex items-start justify-center overflow-y-auto bg-slate-900/40 p-4 backdrop-blur-sm sm:items-center"
-      role="dialog"
-      aria-modal="true"
-      aria-label={title}
-    >
-      <button
-        type="button"
-        aria-label="Close dialog"
-        className="absolute inset-0 h-full w-full cursor-default"
-        onClick={onClose}
-      />
-      <div
-        className={`relative z-10 w-full ${width} rounded-xl border border-[#e1dfdd] bg-white p-6 shadow-2xl`}
-      >
-        <div className="mb-4 flex items-start justify-between gap-4">
-          <div>
-            <h2 className="text-lg font-semibold text-[#1b1a19]">{title}</h2>
-            {description ? (
-              <p className="mt-0.5 text-[13px] text-[#605e5c]">{description}</p>
-            ) : null}
-          </div>
-          <button
-            type="button"
-            onClick={onClose}
-            aria-label="Close"
-            className="flex h-8 w-8 shrink-0 items-center justify-center rounded text-[#605e5c] transition hover:bg-[#f3f2f1]"
-          >
-            <AzureGlyph name="plus" className="h-5 w-5 rotate-45" />
-          </button>
-        </div>
-        {children}
-      </div>
-    </div>
+    <HModal state={state}>
+      <HModal.Backdrop isDismissable>
+        <HModal.Container size={MODAL_SIZE[size] ?? 'md'}>
+          <HModal.Dialog aria-label={title}>
+            <HModal.Header className="flex items-start justify-between gap-3 border-b border-separator pb-3">
+              <div className="min-w-0">
+                <HModal.Heading className="text-lg font-semibold">
+                  {title}
+                </HModal.Heading>
+                {description ? (
+                  <p className="mt-0.5 text-sm text-muted">{description}</p>
+                ) : null}
+              </div>
+              <HModal.CloseTrigger aria-label="Close" />
+            </HModal.Header>
+            <HModal.Body className="pt-4">{children}</HModal.Body>
+          </HModal.Dialog>
+        </HModal.Container>
+      </HModal.Backdrop>
+    </HModal>
   );
 }
 
+const STATUS_CHIP: Record<
+  string,
+  'success' | 'warning' | 'danger' | 'default' | 'accent'
+> = {
+  ACTIVE: 'success',
+  DRAFT: 'default',
+  PAID: 'success',
+  SENT: 'accent',
+  PARTIALLY_PAID: 'warning',
+  ON_LEAVE: 'warning',
+  SUSPENDED: 'danger',
+  PENDING: 'warning',
+  PENDING_APPROVAL: 'warning',
+  ISSUED: 'accent',
+  REIMBURSED: 'success',
+  RETIRED: 'success',
+  REJECTED: 'danger',
+  CALCULATED: 'accent',
+  OVERDUE: 'danger',
+  DISPUTED: 'warning',
+  CLOSED: 'default',
+  VOIDED: 'default',
+  RECEIVED: 'success',
+  ALLOWED: 'success',
+  DENIED: 'danger',
+};
+
 export function StatusBadge({ status }: { status?: string | null }) {
   const label = status?.trim() ? status : '—';
-  const ok = 'bg-[#dff6dd] text-[#0e700e]';
-  const colors: Record<string, string> = {
-    ACTIVE: ok,
-    DRAFT: 'bg-slate-100 text-slate-600',
-    PAID: ok,
-    SENT: 'bg-[#eff6fc] text-[#005a9e]',
-    PARTIALLY_PAID: 'bg-amber-50 text-amber-700',
-    ON_LEAVE: 'bg-amber-50 text-amber-700',
-    SUSPENDED: 'bg-rose-50 text-rose-700',
-    PENDING: 'bg-amber-50 text-amber-700',
-    PENDING_APPROVAL: 'bg-amber-50 text-amber-700',
-    ISSUED: 'bg-[#eff6fc] text-[#005a9e]',
-    REIMBURSED: ok,
-    RETIRED: ok,
-    REJECTED: 'bg-rose-50 text-rose-700',
-    CALCULATED: 'bg-[#eff6fc] text-[#005a9e]',
-    OVERDUE: 'bg-rose-50 text-rose-700',
-    DISPUTED: 'bg-orange-50 text-orange-800',
-    CLOSED: 'bg-slate-100 text-slate-600',
-    VOIDED: 'bg-slate-100 text-slate-600',
-    RECEIVED: ok,
-    ALLOWED: ok,
-    DENIED: 'bg-rose-50 text-rose-700',
-  };
-  const cls = colors[label] ?? 'bg-slate-100 text-slate-600';
+  const color = STATUS_CHIP[label] ?? 'default';
   return (
-    <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase ${cls}`}>
-      {label.replace(/_/g, ' ')}
-    </span>
+    <Chip size="sm" variant="soft" color={color}>
+      <Chip.Label className="uppercase tracking-wide">
+        {label.replace(/_/g, ' ')}
+      </Chip.Label>
+    </Chip>
   );
 }
 
@@ -132,9 +124,11 @@ export function PageHeader({
   return (
     <div className="mb-6 flex flex-wrap items-start justify-between gap-4">
       <div>
-        <h1 className="text-2xl font-semibold text-slate-900">{title}</h1>
+        <h1 className="text-2xl font-semibold tracking-tight text-foreground">
+          {title}
+        </h1>
         {description ? (
-          <p className="mt-1 text-sm text-slate-500">{description}</p>
+          <p className="mt-1 text-sm text-muted">{description}</p>
         ) : null}
       </div>
       {actions ? <div className="flex flex-wrap gap-2">{actions}</div> : null}
@@ -152,20 +146,17 @@ export function EmptyState({
   action?: { label: string; href: string };
 }) {
   return (
-    <div className="rounded-2xl border border-dashed border-slate-200 bg-white p-10 text-center">
-      <h3 className="text-lg font-medium text-slate-800">{title}</h3>
+    <HeroEmptyState className="rounded-[length:var(--radius)] border border-dashed border-border bg-surface p-10 text-center">
+      <h3 className="text-lg font-medium text-foreground">{title}</h3>
       {description ? (
-        <p className="mt-2 text-sm text-slate-500">{description}</p>
+        <p className="mt-2 text-sm text-muted">{description}</p>
       ) : null}
       {action ? (
-        <a
-          href={action.href}
-          className="mt-4 inline-block rounded-md bg-[#0078d4] px-4 py-2 text-sm font-medium text-white hover:bg-[#106ebe]"
-        >
+        <a href={action.href} className={`mt-4 inline-block ${btnPrimary}`}>
           {action.label}
         </a>
       ) : null}
-    </div>
+    </HeroEmptyState>
   );
 }
 
@@ -183,19 +174,19 @@ export function DataTable<T extends Record<string, unknown>>({
   emptyMessage?: string;
 }) {
   if (loading) {
-    return <p className="text-slate-500">Loading…</p>;
+    return <p className="text-muted">Loading…</p>;
   }
   if (rows.length === 0) {
     return (
-      <p className="rounded-2xl border border-slate-200 bg-white p-6 text-center text-slate-500">
+      <p className="rounded-[length:var(--radius)] border border-border bg-surface p-6 text-center text-muted">
         {emptyMessage}
       </p>
     );
   }
   return (
-    <div className="overflow-x-auto rounded-2xl border border-slate-200 bg-white shadow-sm">
+    <div className="overflow-x-auto rounded-[length:var(--radius)] border border-border bg-surface shadow-[var(--surface-shadow)]">
       <table className="min-w-full text-left text-sm">
-        <thead className="border-b border-slate-100 bg-slate-50 text-xs uppercase tracking-wide text-slate-500">
+        <thead className="border-b border-separator bg-default text-xs uppercase tracking-wide text-muted">
           <tr>
             {columns.map((col) => (
               <th key={col.key} className="px-4 py-3 font-medium">
@@ -208,10 +199,10 @@ export function DataTable<T extends Record<string, unknown>>({
           {rows.map((row) => (
             <tr
               key={String(row[keyField])}
-              className="border-b border-slate-100 hover:bg-slate-50/80"
+              className="border-b border-separator transition hover:bg-default/60"
             >
               {columns.map((col) => (
-                <td key={col.key} className="px-4 py-3 text-slate-700">
+                <td key={col.key} className="px-4 py-3 text-foreground">
                   {col.render ? col.render(row) : String(row[col.key] ?? '')}
                 </td>
               ))}
@@ -426,7 +417,7 @@ export function AdminShell({
   );
 
   return (
-    <div className="flex h-[100dvh] flex-col overflow-hidden bg-[#f5f6fa] text-[#323130]">
+    <div className="flex h-[100dvh] flex-col overflow-hidden bg-background text-foreground">
       {/* Top command bar */}
       <header className="z-40 flex h-12 shrink-0 items-center gap-2 bg-gradient-to-r from-[#0b1f3a] via-[#0e2f52] to-[#123a63] px-2 text-white shadow-[0_1px_0_rgba(255,255,255,0.06)] md:px-3">
         <button
@@ -672,7 +663,7 @@ function ExternalPortalShell({
   );
 
   return (
-    <div className="flex h-[100dvh] flex-col overflow-hidden bg-[#f5f6fa] text-[#323130]">
+    <div className="flex h-[100dvh] flex-col overflow-hidden bg-background text-foreground">
       {/* Top command bar */}
       <header className="z-40 flex h-12 shrink-0 items-center gap-2 bg-gradient-to-r from-[#0b1f3a] via-[#0e2f52] to-[#123a63] px-2 text-white shadow-[0_1px_0_rgba(255,255,255,0.06)] md:px-3">
         <button
@@ -1014,7 +1005,7 @@ export function ParkingShell({
   );
 
   return (
-    <div className="flex h-[100dvh] flex-col overflow-hidden bg-[#f5f6fa] text-[#323130]">
+    <div className="flex h-[100dvh] flex-col overflow-hidden bg-background text-foreground">
       <header className="z-40 flex h-12 shrink-0 items-center gap-2 bg-gradient-to-r from-[#0b1f3a] via-[#0e2f52] to-[#123a63] px-2 text-white shadow-[0_1px_0_rgba(255,255,255,0.06)] md:px-3">
         <button
           type="button"

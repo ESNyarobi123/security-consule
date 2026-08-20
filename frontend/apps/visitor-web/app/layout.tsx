@@ -1,16 +1,10 @@
 import type { Metadata } from 'next';
-import { Outfit, Source_Sans_3 } from 'next/font/google';
+import { Inter } from 'next/font/google';
 import './globals.css';
 
-const display = Outfit({
+const inter = Inter({
   subsets: ['latin'],
-  variable: '--font-display',
-  display: 'swap',
-});
-
-const body = Source_Sans_3({
-  subsets: ['latin'],
-  variable: '--font-body',
+  variable: '--font-inter',
   display: 'swap',
 });
 
@@ -24,8 +18,17 @@ export default function RootLayout({
   children,
 }: Readonly<{ children: React.ReactNode }>) {
   return (
-    <html lang="en" className={`${display.variable} ${body.variable}`}>
-      <body>{children}</body>
+    <html
+      lang="en"
+      className={`${inter.variable} light`}
+      data-theme="light"
+      suppressHydrationWarning
+    >
+      <body
+        className={`${inter.className} bg-background text-foreground font-sans antialiased`}
+      >
+        {children}
+      </body>
     </html>
   );
 }

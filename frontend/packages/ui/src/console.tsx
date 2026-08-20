@@ -14,7 +14,7 @@ export function SectionTitle({
     <div
       className={`mb-3 flex items-center justify-between gap-3 ${className}`}
     >
-      <h2 className="text-[13px] font-semibold uppercase tracking-wide text-[#605e5c]">
+      <h2 className="text-[13px] font-semibold uppercase tracking-wide text-muted">
         {children}
       </h2>
       {action ? (
@@ -56,7 +56,7 @@ export function StatCard({
   accent?: StatAccent;
 }) {
   return (
-    <div className="rounded-xl border border-[#e1dfdd] bg-white p-4 shadow-[0_1px_2px_rgba(16,24,40,0.04)]">
+    <div className="rounded-[length:var(--radius)] border border-border bg-surface p-4 shadow-[var(--surface-shadow)]">
       <div className="flex items-center gap-3">
         {icon ? (
           <span

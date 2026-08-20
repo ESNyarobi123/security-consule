@@ -18,8 +18,17 @@ export default function RootLayout({
   children,
 }: Readonly<{ children: React.ReactNode }>) {
   return (
-    <html lang="en" className={inter.variable}>
-      <body className={`${inter.className} antialiased`}>{children}</body>
+    <html
+      lang="en"
+      className={`${inter.variable} light`}
+      data-theme="light"
+      suppressHydrationWarning
+    >
+      <body
+        className={`${inter.className} bg-background text-foreground font-sans antialiased`}
+      >
+        {children}
+      </body>
     </html>
   );
 }

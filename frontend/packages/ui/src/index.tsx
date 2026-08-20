@@ -13,7 +13,7 @@ export function Shell({
   children: ReactNode;
 }) {
   return (
-    <div className="min-h-screen bg-[#f5f6fa] text-[#323130]">
+    <div className="min-h-screen bg-background text-foreground">
       <header className="bg-gradient-to-r from-[#0b1f3a] via-[#0e2f52] to-[#123a63] text-white shadow-sm">
         <div className="mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-4 px-6 py-4">
           <div className="flex items-center gap-3">
@@ -146,3 +146,4 @@ export {
   shade,
 } from './azure';
 export type { GlyphName } from './azure';
+

@@ -1,12 +1,11 @@
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+@import "tailwindcss";
+@config "../tailwind.config.js";
+@import "@heroui/styles";
+@import "../../../packages/ui/pssms-theme.css";
 
 body {
-  @apply bg-[#f5f6fa] text-[#323130] antialiased;
-  font-family:
-    'Segoe UI', var(--font-outfit), system-ui, -apple-system,
-    BlinkMacSystemFont, sans-serif;
+  @apply bg-background text-foreground antialiased;
+  font-family: var(--font-inter), Inter, ui-sans-serif, system-ui, sans-serif;
 }
 
 /* Soft neutral wash for the portal content area (Azure/Fluent) */
