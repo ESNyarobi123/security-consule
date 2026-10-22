@@ -4,7 +4,13 @@ import {
   NotificationStatus,
   Prisma,
 } from '@prisma/client';
-import { PrismaService, AuthUser } from '@pssms/shared';
+import {
+  PrismaService,
+  AuthUser,
+  normalisePhone,
+  resolveSmsTransport,
+  SmsProviderCode,
+} from '@pssms/shared';
 import { v4 as uuidv4 } from 'uuid';
 import { OutboxWriterService } from './outbox-writer.service';
 import {
@@ -26,44 +32,65 @@ export class NotificationsService {
   ): Promise<NotificationResponseDto> {
     const idempotencyKey =
       dto.idempotencyKey ?? `notif-${dto.templateCode}-${uuidv4()}`;
+    // Phone channels must be E.164 before they reach a vendor adapter.
+    const recipient =
+      dto.channel === NotificationChannel.SMS ||
+      dto.channel === NotificationChannel.WHATSAPP
+        ? (normalisePhone(dto.recipient) ?? dto.recipient)
+        : dto.recipient;
 
-    const notification = await this.prisma.$transaction(async (tx) => {
-      const row = await tx.notification.create({
-        data: {
-          organizationId: user.organizationId,
-          templateCode: dto.templateCode,
-          channel: dto.channel,
-          recipient: dto.recipient,
-          subject: dto.subject,
-          body: dto.body,
-          payload: dto as unknown as Prisma.InputJsonValue,
-          resourceType: dto.resourceType,
-          resourceId: dto.resourceId,
-          idempotencyKey,
-          correlationId: uuidv4(),
-        },
+    try {
+      const notification = await this.prisma.$transaction(async (tx) => {
+        const row = await tx.notification.create({
+          data: {
+            organizationId: user.organizationId,
+            templateCode: dto.templateCode,
+            channel: dto.channel,
+            recipient,
+            subject: dto.subject,
+            body: dto.body,
+            payload: dto as unknown as Prisma.InputJsonValue,
+            resourceType: dto.resourceType,
+            resourceId: dto.resourceId,
+            idempotencyKey,
+            correlationId: uuidv4(),
+          },
+        });
+
+        await this.outbox.write(
+          {
+            organizationId: user.organizationId,
+            eventType: 'notification.requested',
+            aggregateType: 'Notification',
+            aggregateId: row.id,
+            payload: {
+              notificationId: row.id,
+              channel: row.channel,
+              recipient: row.recipient,
+            },
+            idempotencyKey: `outbox-${idempotencyKey}`,
+          },
+          tx,
+        );
+
+        return row;
       });
 
-      await this.outbox.write(
-        {
-          organizationId: user.organizationId,
-          eventType: 'notification.requested',
-          aggregateType: 'Notification',
-          aggregateId: row.id,
-          payload: {
-            notificationId: row.id,
-            channel: row.channel,
-            recipient: row.recipient,
-          },
-          idempotencyKey: `outbox-${idempotencyKey}`,
-        },
-        tx,
-      );
-
-      return row;
-    });
-
-    return this.toDto(notification);
+      return this.toDto(notification);
+    } catch (err) {
+      // Re-approve / retry after a transient failure must be idempotent, not a
+      // silent "channel skipped". Return the notification already queued.
+      if (
+        err instanceof Prisma.PrismaClientKnownRequestError &&
+        err.code === 'P2002'
+      ) {
+        const existing = await this.prisma.notification.findUnique({
+          where: { idempotencyKey },
+        });
+        if (existing) return this.toDto(existing);
+      }
+      throw err;
+    }
   }
 
   /**
@@ -120,6 +147,157 @@ export class NotificationsService {
   }
 
   /**
+   * Portal 35.13 — EMAIL the formal offer (term sheet) to the applicant.
+   * Idempotency is per offer issue (`offerVersion`) so re-issuing an amended
+   * offer is delivered again while retries do not double-send.
+   */
+  async enqueueRecruitmentOffer(params: {
+    organizationId: string;
+    applicationId: string;
+    applicantEmail?: string | null;
+    applicantName: string;
+    postingTitle: string;
+    position: string;
+    department?: string | null;
+    employmentType?: string | null;
+    salaryAmount?: string | null;
+    currency?: string | null;
+    startDate?: Date | null;
+    expiresAt?: Date | null;
+    message?: string | null;
+    offerVersion: string;
+    actorId: string;
+  }): Promise<{ email: boolean }> {
+    const email = params.applicantEmail?.trim();
+    if (!email) return { email: false };
+    const actor = {
+      id: params.actorId,
+      email: 'system@pssms',
+      organizationId: params.organizationId,
+      fullName: 'System',
+      roles: [] as string[],
+      permissions: [] as string[],
+      allowedBranchIds: [] as string[],
+      allowedSiteIds: [] as string[],
+    };
+    const money =
+      params.salaryAmount && params.currency
+        ? `${params.currency} ${params.salaryAmount}`
+        : params.salaryAmount
+          ? params.salaryAmount
+          : 'To be confirmed';
+    const body = [
+      `Dear ${params.applicantName},`,
+      '',
+      `HIGHLINK is pleased to offer you the position of ${params.position}${
+        params.department ? ` (${params.department})` : ''
+      } for: ${params.postingTitle}.`,
+      '',
+      `Employment type: ${params.employmentType ?? 'To be confirmed'}`,
+      `Monthly gross: ${money}`,
+      `Proposed start date: ${
+        params.startDate
+          ? params.startDate.toISOString().slice(0, 10)
+          : 'To be agreed'
+      }`,
+      `Respond by: ${
+        params.expiresAt
+          ? params.expiresAt.toISOString().slice(0, 10)
+          : 'As soon as possible'
+      }`,
+      ...(params.message ? ['', params.message] : []),
+      '',
+      'ACCEPT or DECLINE on the careers portal using your reference number and this email address.',
+      '',
+      '— HIGHLINK Investigation and Security Guard Company',
+    ].join('\n');
+    try {
+      await this.enqueue(
+        {
+          channel: NotificationChannel.EMAIL,
+          recipient: email,
+          templateCode: 'RECRUITMENT_OFFER',
+          subject: `HIGHLINK offer — ${params.position}`,
+          body,
+          resourceType: 'JobApplication',
+          resourceId: params.applicationId,
+          idempotencyKey: `recruitment-offer-email-${params.applicationId}-${params.offerVersion}`,
+        },
+        actor,
+      );
+      return { email: true };
+    } catch {
+      return { email: false };
+    }
+  }
+
+  /**
+   * Portal 35.13 — tell the issuing officer the applicant answered the offer.
+   */
+  async enqueueRecruitmentOfferResponse(params: {
+    organizationId: string;
+    applicationId: string;
+    recipientEmail?: string | null;
+    applicantName: string;
+    referenceNumber: string;
+    postingTitle: string;
+    position: string;
+    decision: 'ACCEPT' | 'DECLINE';
+    reason?: string | null;
+    respondedAt: Date;
+    actorId: string;
+  }): Promise<{ email: boolean }> {
+    const email = params.recipientEmail?.trim();
+    if (!email) return { email: false };
+    const actor = {
+      id: params.actorId,
+      email: 'system@pssms',
+      organizationId: params.organizationId,
+      fullName: 'System',
+      roles: [] as string[],
+      permissions: [] as string[],
+      allowedBranchIds: [] as string[],
+      allowedSiteIds: [] as string[],
+    };
+    const accepted = params.decision === 'ACCEPT';
+    const body = [
+      'Recruitment offer response',
+      '',
+      `Applicant: ${params.applicantName} (${params.referenceNumber})`,
+      `Position: ${params.position} — ${params.postingTitle}`,
+      `Decision: ${accepted ? 'ACCEPTED' : 'DECLINED'}`,
+      `Responded at: ${params.respondedAt.toISOString()}`,
+      params.reason ? `Reason: ${params.reason}` : '',
+      '',
+      accepted
+        ? 'You can now complete the hire step in the HR applications inbox.'
+        : 'The application has been withdrawn. No hire action is needed.',
+      '',
+      '— HIGHLINK Recruitment',
+    ]
+      .filter(Boolean)
+      .join('\n');
+    try {
+      await this.enqueue(
+        {
+          channel: NotificationChannel.EMAIL,
+          recipient: email,
+          templateCode: 'RECRUITMENT_OFFER_RESPONSE',
+          subject: `Offer ${accepted ? 'accepted' : 'declined'} — ${params.applicantName}`,
+          body,
+          resourceType: 'JobApplication',
+          resourceId: params.applicationId,
+          idempotencyKey: `recruitment-offer-response-email-${params.applicationId}-${params.respondedAt.toISOString()}`,
+        },
+        actor,
+      );
+      return { email: true };
+    } catch {
+      return { email: false };
+    }
+  }
+
+  /**
    * Module 12-C — enqueue gate code once per channel on host approve.
    * Idempotency keys are appointment+channel so approve never double-queues.
    */
@@ -132,7 +310,22 @@ export class NotificationsService {
     siteName: string;
     validUntil: Date;
     actorId: string;
-  }): Promise<{ email: boolean; sms: boolean; whatsapp: boolean }> {
+    /**
+     * Resend adds a unique suffix (e.g. `r2`) so the per-channel idempotency
+     * key stays appointment-scoped for the first approval yet a deliberate
+     * resend is not swallowed as a duplicate.
+     */
+    idempotencySuffix?: string;
+  }): Promise<{
+    email: boolean;
+    sms: boolean;
+    whatsapp: boolean;
+    smsRecipient: string | null;
+    /** Transport that the integration gateway will use for this SMS. */
+    smsProvider: SmsProviderCode;
+    /** False when the transport is `console` / credentials are missing. */
+    smsLive: boolean;
+  }> {
     const body = `HIGHLINK gate code: ${params.plainCode}. Valid until ${params.validUntil.toISOString()}. Site: ${params.siteName}`;
     const emailBody = [
       'Your HIGHLINK visitor gate verification code has been issued.',
@@ -153,9 +346,26 @@ export class NotificationsService {
       allowedBranchIds: [] as string[],
       allowedSiteIds: [] as string[],
     };
-    const delivery = { email: false, sms: false, whatsapp: false };
+    const suffix = params.idempotencySuffix ? `-${params.idempotencySuffix}` : '';
+    const key = (channel: string) =>
+      `visitor-code-${channel}-${params.appointmentId}${suffix}`;
+    // WhatsApp has no adapter yet — queueing it would be delivered twice over
+    // SMS by the dispatch fallback, so only queue when a real gateway is set.
+    const whatsappEnabled = Boolean(
+      process.env.WHATSAPP_API_URL?.trim() &&
+        process.env.WHATSAPP_API_TOKEN?.trim(),
+    );
+    const smsTransport = resolveSmsTransport();
+    const delivery = {
+      email: false,
+      sms: false,
+      whatsapp: false,
+      smsRecipient: normalisePhone(params.visitorPhone),
+      smsProvider: smsTransport.provider,
+      smsLive: smsTransport.live,
+    };
     const email = params.visitorEmail?.trim();
-    const phone = params.visitorPhone?.trim();
+    const phone = delivery.smsRecipient;
 
     if (email) {
       try {
@@ -168,7 +378,7 @@ export class NotificationsService {
             body: emailBody,
             resourceType: 'VisitorAppointment',
             resourceId: params.appointmentId,
-            idempotencyKey: `visitor-code-email-${params.appointmentId}`,
+            idempotencyKey: key('email'),
           },
           actor,
         );
@@ -188,7 +398,7 @@ export class NotificationsService {
             body,
             resourceType: 'VisitorAppointment',
             resourceId: params.appointmentId,
-            idempotencyKey: `visitor-code-sms-${params.appointmentId}`,
+            idempotencyKey: key('sms'),
           },
           actor,
         );
@@ -197,6 +407,7 @@ export class NotificationsService {
         // keep going
       }
 
+      if (!whatsappEnabled) return delivery;
       try {
         await this.enqueue(
           {
@@ -206,7 +417,7 @@ export class NotificationsService {
             body,
             resourceType: 'VisitorAppointment',
             resourceId: params.appointmentId,
-            idempotencyKey: `visitor-code-whatsapp-${params.appointmentId}`,
+            idempotencyKey: key('whatsapp'),
           },
           actor,
         );

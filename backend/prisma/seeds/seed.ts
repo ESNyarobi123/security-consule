@@ -1,4 +1,4 @@
-import { PrismaClient, ContractStatus } from '@prisma/client';
+import { PrismaClient, ContractStatus, Prisma } from '@prisma/client';
 import * as bcrypt from 'bcryptjs';
 import { seedDemoVolume } from './demo-volume';
 
@@ -39,6 +39,11 @@ async function main() {
       module: 'access-control',
     },
     { code: 'visitors.manage', name: 'Manage visitors', module: 'visitors' },
+    {
+      code: 'support.manage',
+      name: 'Handle customer complaints & support tickets (Portal 35.20)',
+      module: 'customers',
+    },
     {
       code: 'visitors.self',
       name: 'Own visitor appointments / entries (contractor)',
@@ -208,6 +213,21 @@ async function main() {
       isSystem: true,
     },
     {
+      code: 'REGIONAL_MANAGER',
+      name: 'Regional Manager',
+      isSystem: true,
+    },
+    {
+      code: 'TECHNICAL_MANAGER',
+      name: 'Technical Manager',
+      isSystem: true,
+    },
+    {
+      code: 'BD_MANAGER',
+      name: 'Business Development Manager',
+      isSystem: true,
+    },
+    {
       code: 'ACCOUNTS_OFFICER',
       name: 'Accounts Officer',
       isSystem: true,
@@ -233,6 +253,11 @@ async function main() {
       isSystem: true,
     },
     {
+      code: 'SECURITY_OFFICER',
+      name: 'Security Monitoring Officer',
+      isSystem: true,
+    },
+    {
       code: 'CONTROL_ROOM',
       name: 'Control Room Officer',
       isSystem: true,
@@ -255,6 +280,11 @@ async function main() {
     {
       code: 'CALL_CENTRE',
       name: 'Call Centre Agent',
+      isSystem: true,
+    },
+    {
+      code: 'CUSTOMER_SUPPORT',
+      name: 'Customer Support Officer',
       isSystem: true,
     },
     {
@@ -310,8 +340,12 @@ async function main() {
     'enterprise.manage',
     'ess.access',
     'documents.manage',
+    // §35.20 — Supervisors see the support desk (complaints/tickets) for their sites
+    'support.manage',
     // §4 Harden A5 — leave step 1 (domain approve via approvals.act; no hr.manage)
     'approvals.act',
+    // §35.22 — supervisors monitor CCTV / AI alerts / patrols for their own sites
+    'cctv.manage',
   ]);
 
   /** §4 Field Officer — same branch ops surface as supervisor (sites + escalate FIELD). */
@@ -350,6 +384,52 @@ async function main() {
   ]);
 
   /**
+   * §35.23 Regional Manager — company-wide field oversight across branches
+   * (branch ops + guards + CCTV + reports; no finance/HR admin).
+   */
+  const regionalManagerPermCodes = new Set([
+    'operations.manage',
+    'guards.manage',
+    'attendance.manage',
+    'incidents.manage',
+    'enterprise.manage',
+    'cctv.manage',
+    'ess.access',
+    'documents.manage',
+    'reporting.read',
+  ]);
+
+  /**
+   * §35.23 Technical Manager — branch sites/devices + CCTV/security systems and
+   * the field boards needed to act on them (no parking/finance/HR mutate).
+   */
+  const technicalManagerPermCodes = new Set([
+    'operations.manage',
+    'cctv.manage',
+    'attendance.manage',
+    'incidents.manage',
+    'enterprise.manage',
+    'ess.access',
+    'documents.manage',
+  ]);
+
+  /**
+   * §35.23 Business Development Manager — branch performance/site context plus
+   * the commercial pipeline (no guards admin, no finance/HR admin).
+   */
+  const bdManagerPermCodes = new Set([
+    'operations.manage',
+    'incidents.manage',
+    'marketing.manage',
+    'customers.manage',
+    'contracts.manage',
+    'enterprise.manage',
+    'ess.access',
+    'documents.manage',
+    'reporting.read',
+  ]);
+
+  /**
    * §4 Harden A3 — Guard: self-service + field punch/incident (no Field ops nav).
    * Own-records enforced in list APIs via isGuardSelfScoped.
    */
@@ -372,21 +452,30 @@ async function main() {
   ]);
 
   /**
-   * §4 Phase 6 — Call Centre: visitors inbox + service tickets
-   * (tickets allowlisted via visitors.manage OR customers.manage — no full CRM).
+   * §35.20 — Helpdesk / Customer Support officers: complaints + support tickets.
+   * Visitor gate operations stay with GATE_OFFICER / CALL_CENTRE's visitors.manage.
    */
   const callCentrePermCodes = new Set([
     'visitors.manage',
+    'support.manage',
     'documents.manage',
   ]);
 
-  /** §4 Phase 6 — IT Support: user helpdesk + org master data (not full integrator). */
+  /** §35.20 — Customer Support Officer (`cs1@`): desk only, no visitor gate ops. */
+  const customerSupportPermCodes = new Set([
+    'support.manage',
+    'documents.manage',
+  ]);
+
+  /** §4 Phase 6 — IT Support / ICT Mgr: user helpdesk + integration monitoring. */
   const itSupportPermCodes = new Set([
     'users.manage',
+    'support.manage',
     'enterprise.manage',
     'notifications.manage',
     'audit.read',
     'documents.manage',
+    'integrations.manage',
   ]);
 
   /** Policies + approve steps; breach register is read-only (DPO owns mutates). */
@@ -471,6 +560,16 @@ async function main() {
    */
   const cctvOperatorPermCodes = new Set(['cctv.manage', 'documents.manage']);
 
+  /**
+   * §35.22 — Security Monitoring Officer: full CCTV/security monitoring desk
+   * (alerts triage + incidents from alerts) but no parking/access/payroll mutate.
+   */
+  const securityOfficerPermCodes = new Set([
+    'cctv.manage',
+    'documents.manage',
+    'ess.access',
+  ]);
+
   /** §4 Phase 4 — Control Room: AL1 CONTROL ack + branch alerts / incidents + CCTV mosaic. */
   const controlRoomPermCodes = new Set([
     'operations.manage',
@@ -523,6 +622,9 @@ async function main() {
     FIELD_OFFICER: fieldOfficerPermCodes,
     BRANCH_MANAGER: branchManagerPermCodes,
     OPERATIONS_MANAGER: operationsManagerPermCodes,
+    REGIONAL_MANAGER: regionalManagerPermCodes,
+    TECHNICAL_MANAGER: technicalManagerPermCodes,
+    BD_MANAGER: bdManagerPermCodes,
     GUARD: guardPermCodes,
     DEVELOPER: developerPermCodes,
     COMPLIANCE_OFFICER: complianceOfficerPermCodes,
@@ -537,11 +639,13 @@ async function main() {
     PROCUREMENT_OFFICER: procurementOfficerPermCodes,
     STOREKEEPER: storekeeperPermCodes,
     CCTV_OPERATOR: cctvOperatorPermCodes,
+    SECURITY_OFFICER: securityOfficerPermCodes,
     CONTROL_ROOM: controlRoomPermCodes,
     DEPARTMENT_HEAD: departmentHeadPermCodes,
     CISO: cisoPermCodes,
     INTERNAL_AUDITOR: internalAuditorPermCodes,
     CALL_CENTRE: callCentrePermCodes,
+    CUSTOMER_SUPPORT: customerSupportPermCodes,
     IT_SUPPORT: itSupportPermCodes,
   };
 
@@ -627,6 +731,15 @@ async function main() {
   const operationsManagerRole = await prisma.role.findFirstOrThrow({
     where: { organizationId: org.id, code: 'OPERATIONS_MANAGER' },
   });
+  const regionalManagerRole = await prisma.role.findFirstOrThrow({
+    where: { organizationId: org.id, code: 'REGIONAL_MANAGER' },
+  });
+  const technicalManagerRole = await prisma.role.findFirstOrThrow({
+    where: { organizationId: org.id, code: 'TECHNICAL_MANAGER' },
+  });
+  const bdManagerRole = await prisma.role.findFirstOrThrow({
+    where: { organizationId: org.id, code: 'BD_MANAGER' },
+  });
   const hrOfficerRole = await prisma.role.findFirstOrThrow({
     where: { organizationId: org.id, code: 'HR_OFFICER' },
   });
@@ -645,6 +758,9 @@ async function main() {
   const cctvOperatorRole = await prisma.role.findFirstOrThrow({
     where: { organizationId: org.id, code: 'CCTV_OPERATOR' },
   });
+  const securityOfficerRole = await prisma.role.findFirstOrThrow({
+    where: { organizationId: org.id, code: 'SECURITY_OFFICER' },
+  });
   const controlRoomRole = await prisma.role.findFirstOrThrow({
     where: { organizationId: org.id, code: 'CONTROL_ROOM' },
   });
@@ -659,6 +775,9 @@ async function main() {
   });
   const callCentreRole = await prisma.role.findFirstOrThrow({
     where: { organizationId: org.id, code: 'CALL_CENTRE' },
+  });
+  const customerSupportRole = await prisma.role.findFirstOrThrow({
+    where: { organizationId: org.id, code: 'CUSTOMER_SUPPORT' },
   });
   const itSupportRole = await prisma.role.findFirstOrThrow({
     where: { organizationId: org.id, code: 'IT_SUPPORT' },
@@ -723,6 +842,20 @@ async function main() {
     create: {
       email: 'parking1@highlink.co.tz',
       fullName: 'Paula Parking',
+      passwordHash,
+      organizationId: org.id,
+      roles: { create: [{ roleId: parkingOfficerRole.id }] },
+    },
+  });
+
+  // Second parking officer so permit creator ≠ approver (SoD) can be exercised
+  // inside the parking portal. Both accounts are ordinary PARKING_OFFICER.
+  await prisma.user.upsert({
+    where: { email: 'parking2@highlink.co.tz' },
+    update: {},
+    create: {
+      email: 'parking2@highlink.co.tz',
+      fullName: 'Peter Parking',
       passwordHash,
       organizationId: org.id,
       roles: { create: [{ roleId: parkingOfficerRole.id }] },
@@ -816,6 +949,19 @@ async function main() {
     },
   });
 
+  // Second marketing officer so referral commissions can satisfy creator ≠ accrue.
+  const bdOfficer = await prisma.user.upsert({
+    where: { email: 'bd1@highlink.co.tz' },
+    update: {},
+    create: {
+      email: 'bd1@highlink.co.tz',
+      fullName: 'Bella Business Development',
+      passwordHash,
+      organizationId: org.id,
+      roles: { create: [{ roleId: marketingRole.id }] },
+    },
+  });
+
   // §4 Phase 1 — Field / Branch / Ops Manager demos (password ChangeMe123!)
   await prisma.user.upsert({
     where: { email: 'field1@highlink.co.tz' },
@@ -850,6 +996,43 @@ async function main() {
       passwordHash,
       organizationId: org.id,
       roles: { create: [{ roleId: operationsManagerRole.id }] },
+    },
+  });
+
+  // §35.23 — Regional / Technical / Business Development manager demos
+  await prisma.user.upsert({
+    where: { email: 'regional1@highlink.co.tz' },
+    update: {},
+    create: {
+      email: 'regional1@highlink.co.tz',
+      fullName: 'Rehema Regional',
+      passwordHash,
+      organizationId: org.id,
+      roles: { create: [{ roleId: regionalManagerRole.id }] },
+    },
+  });
+
+  await prisma.user.upsert({
+    where: { email: 'tech1@highlink.co.tz' },
+    update: {},
+    create: {
+      email: 'tech1@highlink.co.tz',
+      fullName: 'Tumaini Technical',
+      passwordHash,
+      organizationId: org.id,
+      roles: { create: [{ roleId: technicalManagerRole.id }] },
+    },
+  });
+
+  await prisma.user.upsert({
+    where: { email: 'bdm1@highlink.co.tz' },
+    update: {},
+    create: {
+      email: 'bdm1@highlink.co.tz',
+      fullName: 'Baraka Business Development',
+      passwordHash,
+      organizationId: org.id,
+      roles: { create: [{ roleId: bdManagerRole.id }] },
     },
   });
 
@@ -940,6 +1123,19 @@ async function main() {
     },
   });
 
+  // §35.22 — Security Monitoring Officer demo (CCTV desk without ops/parking mutate)
+  await prisma.user.upsert({
+    where: { email: 'monitor1@highlink.co.tz' },
+    update: {},
+    create: {
+      email: 'monitor1@highlink.co.tz',
+      fullName: 'Moses Monitoring Officer',
+      passwordHash,
+      organizationId: org.id,
+      roles: { create: [{ roleId: securityOfficerRole.id }] },
+    },
+  });
+
   // §4 Phase 5 — Dept Head / CISO / Internal Auditor demos
   await prisma.user.upsert({
     where: { email: 'depthead1@highlink.co.tz' },
@@ -987,6 +1183,18 @@ async function main() {
       passwordHash,
       organizationId: org.id,
       roles: { create: [{ roleId: callCentreRole.id }] },
+    },
+  });
+
+  await prisma.user.upsert({
+    where: { email: 'cs1@highlink.co.tz' },
+    update: {},
+    create: {
+      email: 'cs1@highlink.co.tz',
+      fullName: 'Cynthia Support',
+      passwordHash,
+      organizationId: org.id,
+      roles: { create: [{ roleId: customerSupportRole.id }] },
     },
   });
 
@@ -1271,11 +1479,10 @@ async function main() {
       },
     });
   }
-  if (
-    !(await prisma.marketingCommission.findFirst({
-      where: { organizationId: org.id, leadId: leadWon.id },
-    }))
-  ) {
+  const existingDemoCommission = await prisma.marketingCommission.findFirst({
+    where: { organizationId: org.id, leadId: leadWon.id, beneficiary: 'Asha Mwinyi' },
+  });
+  if (!existingDemoCommission) {
     await prisma.marketingCommission.create({
       data: {
         organizationId: org.id,
@@ -1285,8 +1492,17 @@ async function main() {
         amount: 225000,
         status: 'PENDING',
         notes: 'Referral commission on CUST-DEMO win — accrue in portal; pay via Finance',
-        createdBy: marketingOfficer?.id ?? admin.id,
+        createdBy: bdOfficer?.id ?? marketingOfficer?.id ?? admin.id,
       },
+    });
+  } else if (
+    existingDemoCommission.status === 'PENDING' &&
+    existingDemoCommission.createdBy === (marketingOfficer?.id ?? admin.id)
+  ) {
+    // Demo SoD: a second BD officer created the referral so marketing1 can accrue it.
+    await prisma.marketingCommission.update({
+      where: { id: existingDemoCommission.id },
+      data: { createdBy: bdOfficer?.id ?? existingDemoCommission.createdBy },
     });
   }
 
@@ -1819,6 +2035,23 @@ async function main() {
     where: { userId: bom1User.id },
   });
 
+  // §35.23 — Technical / Business Development managers are branch-scoped.
+  // (Regional Manager is an org-wide viewer role, no ACL rows needed.)
+  for (const email of ['tech1@highlink.co.tz', 'bdm1@highlink.co.tz']) {
+    const branchUser = await prisma.user.findUnique({ where: { email } });
+    if (!branchUser) continue;
+    await prisma.userBranchAccess.upsert({
+      where: {
+        userId_branchId: { userId: branchUser.id, branchId: branch.id },
+      },
+      update: {},
+      create: { userId: branchUser.id, branchId: branch.id },
+    });
+    await prisma.userSiteAccess.deleteMany({
+      where: { userId: branchUser.id },
+    });
+  }
+
   const contractSeeds: {
     contractNumber: string;
     title: string;
@@ -2121,6 +2354,111 @@ async function main() {
         createdBy: admin.id,
       },
     });
+  }
+
+  // Customer payroll completeness — give every demo customer employee an
+  // active salary assignment and payment refs, otherwise a customer cycle
+  // silently skips most of the roster and the customer's own payslips page
+  // looks empty. Jane keeps her richer dedicated assignment below.
+  const customerStaffPay: Record<
+    string,
+    { basic: number; allowances: Record<string, number> }
+  > = {
+    'EMP-1002': { basic: 900000, allowances: { TRANSPORT: 60000, MEAL: 30000 } },
+    'EMP-1003': { basic: 720000, allowances: { TRANSPORT: 45000, MEAL: 25000 } },
+    'EMP-1004': { basic: 680000, allowances: { TRANSPORT: 40000, MEAL: 25000 } },
+    'EMP-1005': { basic: 650000, allowances: { TRANSPORT: 40000, MEAL: 25000 } },
+  };
+  for (const s of staffSeeds) {
+    const pay = customerStaffPay[s.employeeNumber];
+    if (!pay) continue;
+    const emp = await prisma.customerEmployee.findFirst({
+      where: {
+        organizationId: org.id,
+        customerId: customer.id,
+        employeeNumber: s.employeeNumber,
+      },
+    });
+    if (!emp) continue;
+    await prisma.customerEmployee.update({
+      where: { id: emp.id },
+      data: {
+        bankAccountRef: `01234567${s.employeeNumber.slice(-4)}`,
+        bankName: 'CRDB Bank',
+        mobileMoneyRef: s.phone,
+        mobileMoneyProvider: 'M-PESA',
+      },
+    });
+    const existingStaffSalary =
+      await prisma.customerSalaryAssignment.findFirst({
+        where: { customerEmployeeId: emp.id, isActive: true },
+      });
+    if (!existingStaffSalary) {
+      await prisma.customerSalaryAssignment.create({
+        data: {
+          organizationId: org.id,
+          customerId: customer.id,
+          customerEmployeeId: emp.id,
+          basicSalary: pay.basic,
+          currency: 'TZS',
+          hourlyRate: Math.round(pay.basic / 176),
+          allowances: pay.allowances,
+          effectiveFrom: new Date('2024-01-01'),
+          createdBy: admin.id,
+        },
+      });
+    }
+  }
+
+  // Demo weekday presence for the current month so customer payroll does not
+  // look like a mass-absence month. Idempotent via a stable clientEventId.
+  const payrollDemoStaff = await prisma.customerEmployee.findMany({
+    where: {
+      organizationId: org.id,
+      customerId: customer.id,
+      employeeNumber: {
+        in: ['EMP-1001', ...Object.keys(customerStaffPay)],
+      },
+    },
+  });
+  const demoDayStart = new Date();
+  demoDayStart.setUTCHours(0, 0, 0, 0);
+  for (const emp of payrollDemoStaff) {
+    for (let day = 1; day <= demoDayStart.getUTCDate(); day += 1) {
+      const at = new Date(
+        Date.UTC(
+          demoDayStart.getUTCFullYear(),
+          demoDayStart.getUTCMonth(),
+          day,
+          8,
+          0,
+          0,
+        ),
+      );
+      const weekday = at.getUTCDay();
+      if (weekday === 0 || weekday === 6) continue;
+      if (at.getTime() > Date.now()) continue;
+      const clientEventId = `seed-cpay-${emp.employeeNumber}-${at
+        .toISOString()
+        .slice(0, 10)}`;
+      const existingEntry = await prisma.accessEntry.findFirst({
+        where: { organizationId: org.id, clientEventId },
+      });
+      if (existingEntry) continue;
+      await prisma.accessEntry.create({
+        data: {
+          organizationId: org.id,
+          customerId: customer.id,
+          employeeId: emp.id,
+          siteId: site.id,
+          entryType: 'CHECK_IN',
+          accessMethod: 'CARD',
+          recordedBy: admin.id,
+          recordedAt: at,
+          clientEventId,
+        },
+      });
+    }
   }
 
   // Module 11-C — Jane limited to SITE-WAREHOUSE-A; others unrestricted (no grant rows)
@@ -3177,7 +3515,7 @@ async function main() {
         firearmAuthorized: false,
       },
     });
-    await prisma.employee.upsert({
+    const employeeRow = await prisma.employee.upsert({
       where: {
         organizationId_employeeNumber: {
           organizationId: org.id,
@@ -3205,6 +3543,55 @@ async function main() {
         createdBy: admin.id,
       },
     });
+
+    // Payroll demo completeness — payment refs (bank/mobile file) + salary
+    // assignment so a company cycle produces a real slip for every demo guard.
+    const guardPay: Record<
+      string,
+      { basic: number; allowances: Record<string, number> }
+    > = {
+      'GRD-0002': {
+        basic: 780000,
+        allowances: { TRANSPORT: 50000, RISK: 60000, SITE: 25000 },
+      },
+      'GRD-0003': {
+        basic: 760000,
+        allowances: { TRANSPORT: 45000, RISK: 55000, SITE: 25000 },
+      },
+      'GRD-0004': {
+        basic: 740000,
+        allowances: { TRANSPORT: 45000, RISK: 50000, SITE: 20000 },
+      },
+    };
+    await prisma.employee.update({
+      where: { id: employeeRow.id },
+      data: {
+        bankAccountRef: `01501234${g.number.slice(-4)}0`,
+        bankName: 'CRDB Bank',
+        mobileMoneyRef: g.phone,
+        mobileMoneyProvider: 'M-PESA',
+      },
+    });
+    const pay = guardPay[g.number];
+    if (pay) {
+      const existingGuardSalary = await prisma.salaryAssignment.findFirst({
+        where: { employeeId: employeeRow.id, isActive: true },
+      });
+      if (!existingGuardSalary) {
+        await prisma.salaryAssignment.create({
+          data: {
+            organizationId: org.id,
+            employeeId: employeeRow.id,
+            basicSalary: pay.basic,
+            currency: 'TZS',
+            hourlyRate: Math.round(pay.basic / 176),
+            allowances: pay.allowances,
+            effectiveFrom: new Date('2024-01-01'),
+            createdBy: admin.id,
+          },
+        });
+      }
+    }
     const activeDep = await prisma.guardDeployment.findFirst({
       where: {
         organizationId: org.id,
@@ -3510,6 +3897,7 @@ async function main() {
       bankName: 'CRDB Bank',
       mobileMoneyRef: '+255712345678',
       mobileMoneyProvider: 'M-PESA',
+      branchId: branch.id,
     },
     create: {
       organizationId: org.id,
@@ -3520,6 +3908,7 @@ async function main() {
       email: 'guard1@highlink.co.tz',
       phone: '+255712345678',
       department: 'Operations',
+      branchId: branch.id,
       employmentType: 'GUARD',
       hireDate: new Date('2024-01-15'),
       createdBy: admin.id,
@@ -3559,6 +3948,7 @@ async function main() {
       email: 'supervisor1@highlink.co.tz',
       employmentType: 'SUPERVISOR',
       department: 'Field Operations',
+      branchId: branch.id,
     },
     create: {
       organizationId: org.id,
@@ -3569,6 +3959,7 @@ async function main() {
       phone: '+255713000001',
       department: 'Field Operations',
       employmentType: 'SUPERVISOR',
+      branchId: branch.id,
       hireDate: new Date('2023-06-01'),
       createdBy: admin.id,
     },
@@ -3578,6 +3969,103 @@ async function main() {
     where: { organizationId: org.id, employeeNumber: 'OFF-SUP-001' },
     select: { id: true },
   });
+
+  // §35.23 — branch office staff so Branch Ops can demo staff management
+  // (add / edit / deactivate) without only showing guards on post.
+  const branchOfficeStaff = [
+    {
+      employeeNumber: 'OFF-OPS-001',
+      fullName: 'Neema Mushi',
+      email: 'neema.mushi@highlink.co.tz',
+      phone: '+255713000101',
+      department: 'Operations',
+      employmentType: 'ADMIN' as const,
+    },
+    {
+      employeeNumber: 'OFF-FIN-001',
+      fullName: 'Asha Mwinyi',
+      email: 'asha.mwinyi@highlink.co.tz',
+      phone: '+255713000102',
+      department: 'Finance',
+      employmentType: 'ADMIN' as const,
+    },
+    {
+      employeeNumber: 'OFF-HR-001',
+      fullName: 'Halima Said',
+      email: 'halima.said@highlink.co.tz',
+      phone: '+255713000103',
+      department: 'Human Resources',
+      employmentType: 'ADMIN' as const,
+    },
+    {
+      employeeNumber: 'OFF-TECH-001',
+      fullName: 'Tumaini Mrema',
+      email: 'tumaini.mrema@highlink.co.tz',
+      phone: '+255713000104',
+      department: 'Technical',
+      employmentType: 'OTHER' as const,
+    },
+  ];
+  for (const staff of branchOfficeStaff) {
+    await prisma.employee.upsert({
+      where: {
+        organizationId_employeeNumber: {
+          organizationId: org.id,
+          employeeNumber: staff.employeeNumber,
+        },
+      },
+      update: {
+        fullName: staff.fullName,
+        email: staff.email,
+        phone: staff.phone,
+        department: staff.department,
+        employmentType: staff.employmentType,
+        branchId: branch.id,
+        status: 'ACTIVE',
+      },
+      create: {
+        organizationId: org.id,
+        employeeNumber: staff.employeeNumber,
+        fullName: staff.fullName,
+        email: staff.email,
+        phone: staff.phone,
+        department: staff.department,
+        employmentType: staff.employmentType,
+        branchId: branch.id,
+        hireDate: new Date('2024-03-01'),
+        createdBy: admin.id,
+      },
+    });
+  }
+
+  // Payroll self-service demo — supervisor needs payment refs + a salary
+  // assignment to appear on a company payroll run and in their own payslips.
+  await prisma.employee.update({
+    where: { id: supervisorEmployee.id },
+    data: {
+      bankAccountRef: '0150123456789',
+      bankName: 'NMB Bank',
+      mobileMoneyRef: '+255713000001',
+      mobileMoneyProvider: 'M-PESA',
+    },
+  });
+  const existingSupervisorSalary = await prisma.salaryAssignment.findFirst({
+    where: { employeeId: supervisorEmployee.id, isActive: true },
+  });
+  if (!existingSupervisorSalary) {
+    await prisma.salaryAssignment.create({
+      data: {
+        organizationId: org.id,
+        employeeId: supervisorEmployee.id,
+        basicSalary: 1200000,
+        currency: 'TZS',
+        hourlyRate: 6819,
+        allowances: { TRANSPORT: 80000, RISK: 60000 },
+        effectiveFrom: new Date('2024-01-01'),
+        createdBy: admin.id,
+      },
+    });
+  }
 
   // Module 17-A — APPROVED boots loan ready for HR issue demo
   await prisma.employeeLoan.upsert({
@@ -4264,7 +4752,7 @@ async function main() {
         gateId: cam.gateId ?? null,
         type: 'CCTV_CAMERA',
         connection: 'ONVIF',
-        config: cam.config,
+        config: cam.config as Prisma.InputJsonValue,
       },
       create: {
         organizationId: org.id,
@@ -4277,7 +4765,7 @@ async function main() {
         vendor: cam.vendor,
         model: cam.model,
         status: cam.status,
-        config: cam.config,
+        config: cam.config as Prisma.InputJsonValue,
         createdBy: admin.id,
       },
     });
@@ -4296,10 +4784,15 @@ async function main() {
       minutesAgo: 12,
       payload: {
         event_type: 'INTRUSION',
+        severity: 'HIGH',
         confidence: 0.91,
         snapshot_url: '',
-        note: 'Demo AI alert — person in restricted zone near Main Gate (metadata only)',
         zone: 'Gate',
+        object_class: 'PERSON',
+        person_count: 1,
+        bbox: [412, 188, 96, 274],
+        title: 'Person climbed the perimeter fence',
+        note: 'Person in restricted zone near Main Gate — verify live view before dispatching.',
       },
     },
     {
@@ -4308,10 +4801,15 @@ async function main() {
       minutesAgo: 45,
       payload: {
         event_type: 'LOITERING',
+        severity: 'MEDIUM',
         confidence: 0.78,
         snapshot_url: '',
-        note: 'Demo AI alert — loitering detected in yard',
         zone: 'Yard',
+        object_class: 'PERSON',
+        person_count: 2,
+        bbox: [120, 240, 88, 210],
+        title: 'Two people loitering in the yard',
+        note: 'Subjects stayed in the yard beyond 5 minutes without a visitor pass.',
       },
     },
     {
@@ -4320,10 +4818,63 @@ async function main() {
       minutesAgo: 90,
       payload: {
         event_type: 'LINE_CROSSING',
+        severity: 'HIGH',
         confidence: 0.86,
         snapshot_url: '',
-        note: 'Demo AI alert — line crossing at warehouse aisle',
         zone: 'Warehouse',
+        object_class: 'PERSON',
+        person_count: 1,
+        bbox: [300, 160, 74, 232],
+        title: 'Line crossing at warehouse aisle',
+        note: 'Movement crossed the restricted aisle line during non-working hours.',
+      },
+    },
+    {
+      dedupeKey: 'seed-cctv-tailgate-gate',
+      deviceCode: 'CAM-GATE-01',
+      minutesAgo: 70,
+      payload: {
+        event_type: 'TAILGATING',
+        severity: 'HIGH',
+        confidence: 0.88,
+        snapshot_url: '',
+        zone: 'Gate',
+        object_class: 'PERSON',
+        person_count: 2,
+        bbox: [250, 150, 130, 300],
+        title: 'Tailgating at the vehicle gate',
+        note: 'Two people passed through on a single access card swipe.',
+      },
+    },
+    {
+      dedupeKey: 'seed-cctv-blacklist-vehicle',
+      deviceCode: 'CAM-GATE-01',
+      minutesAgo: 25,
+      payload: {
+        event_type: 'BLACKLISTED_VEHICLE',
+        severity: 'CRITICAL',
+        confidence: 0.94,
+        snapshot_url: '',
+        zone: 'Gate',
+        plate_number: 'T123ABC',
+        object_class: 'VEHICLE',
+        bbox: [180, 260, 340, 210],
+        title: 'Blacklisted vehicle at the main gate',
+        note: 'Plate T123ABC is on the parking blacklist — deny entry and alert the supervisor.',
+      },
+    },
+    {
+      dedupeKey: 'seed-cctv-tamper-parking',
+      deviceCode: 'CAM-PARK-01',
+      minutesAgo: 130,
+      payload: {
+        event_type: 'CAMERA_TAMPER',
+        severity: 'CRITICAL',
+        confidence: 0.97,
+        snapshot_url: '',
+        zone: 'Parking',
+        title: 'Parking camera tamper detected',
+        note: 'Camera view obstructed / moved — check the unit and the parking lot physically.',
       },
     },
   ];
@@ -4340,9 +4891,14 @@ async function main() {
         },
       },
       update: {
-        payload: ev.payload,
+        payload: ev.payload as Prisma.InputJsonValue,
         capturedAt,
         status: 'RECEIVED',
+        // Re-seed reopens the demo alert fully: clear any previous triage so
+        // "open · awaiting review" never shows a stale routedTo/processedAt.
+        routedTo: null,
+        processedAt: null,
+        error: null,
         deviceId,
         type: 'CCTV_EVENT',
       },
@@ -4351,7 +4907,7 @@ async function main() {
         deviceId,
         type: 'CCTV_EVENT',
         dedupeKey: ev.dedupeKey,
-        payload: ev.payload,
+        payload: ev.payload as Prisma.InputJsonValue,
         status: 'RECEIVED',
         capturedAt,
       },
@@ -4525,6 +5081,70 @@ async function main() {
                 requiredRole: 'CMD',
                 minApprovers: 1,
                 amountThreshold: 10_000_000,
+              },
+            ],
+          },
+        },
+      });
+    }
+  }
+
+  // Portal 35.15 — petty-cash-approval: Finance review → GM over threshold.
+  // Legacy single-GM step made Finance's Approve button fail with FORBIDDEN,
+  // so Finance could never accept a request in the portal.
+  {
+    const pettyDesc =
+      'Petty cash approval: Finance review (ACCOUNTS_OFFICER) → General Manager over 1,000,000 TZS (Portal 35.15)';
+    const def = await prisma.workflowDefinition.upsert({
+      where: {
+        organizationId_code: {
+          organizationId: org.id,
+          code: 'petty-cash-approval',
+        },
+      },
+      update: { description: pettyDesc },
+      create: {
+        organizationId: org.id,
+        code: 'petty-cash-approval',
+        name: 'Petty Cash Approval',
+        description: pettyDesc,
+      },
+    });
+    const ver = await prisma.workflowVersion.findFirst({
+      where: { definitionId: def.id, isCurrent: true },
+      include: { steps: { orderBy: { stepOrder: 'asc' } } },
+    });
+    const financeThenGm =
+      !!ver &&
+      ver.steps.length === 2 &&
+      ver.steps[0]?.requiredRole === 'ACCOUNTS_OFFICER' &&
+      ver.steps[1]?.requiredRole === 'GENERAL_MANAGER';
+    if (!financeThenGm) {
+      if (ver) {
+        await prisma.workflowVersion.update({
+          where: { id: ver.id },
+          data: { isCurrent: false },
+        });
+      }
+      await prisma.workflowVersion.create({
+        data: {
+          definitionId: def.id,
+          version: (ver?.version ?? 0) + 1,
+          isCurrent: true,
+          steps: {
+            create: [
+              {
+                stepOrder: 1,
+                name: 'Finance Review',
+                requiredRole: 'ACCOUNTS_OFFICER',
+                minApprovers: 1,
+              },
+              {
+                stepOrder: 2,
+                name: 'General Manager Review',
+                requiredRole: 'GENERAL_MANAGER',
+                minApprovers: 1,
+                amountThreshold: 1_000_000,
               },
             ],
           },
@@ -5749,6 +6369,45 @@ async function main() {
         },
       },
     });
+
+    // Finance ledger consistency: a PAID/PARTIALLY_PAID invoice must have an
+    // InvoicePayment row, otherwise REVENUE_COLLECTED / INVOICE_COLLECTED
+    // (payment-based KPIs) contradict the invoice `amountPaid`.
+    if (inv.paid > 0) {
+      const seeded = await prisma.invoice.findUnique({
+        where: {
+          organizationId_invoiceNumber: {
+            organizationId: org.id,
+            invoiceNumber: inv.invoiceNumber,
+          },
+        },
+        select: { id: true },
+      });
+      if (seeded) {
+        const paymentReference = `SEED-${inv.invoiceNumber}`;
+        const existing = await prisma.invoicePayment.findFirst({
+          where: {
+            organizationId: org.id,
+            invoiceId: seeded.id,
+            paymentReference,
+          },
+          select: { id: true },
+        });
+        if (!existing) {
+          await prisma.invoicePayment.create({
+            data: {
+              organizationId: org.id,
+              invoiceId: seeded.id,
+              amount: inv.paid,
+              paymentMethod: 'BANK_TRANSFER',
+              paymentReference,
+              recordedBy: admin.id,
+              recordedAt: invIssue,
+            },
+          });
+        }
+      }
+    }
   }
 
   const payrollInvoiceAfter = await prisma.invoice.findFirst({
@@ -5894,7 +6553,8 @@ async function main() {
   });
 
   for (const p of [
-    { code: 'console-sms', category: 'SMS' as const, adapterClass: 'ConsoleSmsProvider' },
+    { code: 'console-sms', category: 'SMS' as const, adapterClass: 'SmsSender' },
+    { code: 'console-email', category: 'EMAIL' as const, adapterClass: 'EmailSender' },
     { code: 'console-payment', category: 'PAYMENT' as const, adapterClass: 'ConsolePaymentProvider' },
     { code: 'vision-ai-anpr', category: 'ANPR' as const, adapterClass: 'VisionAiAnprAdapter' },
   ]) {
@@ -5975,6 +6635,7 @@ async function main() {
   console.log('  guard1@highlink.co.tz / ChangeMe123! (GUARD self-scope; site SITE-WAREHOUSE-A; no ops.manage)');
   console.log('  gate1@highlink.co.tz / ChangeMe123! (GATE_OFFICER)');
   console.log('  parking1@highlink.co.tz / ChangeMe123! (PARKING_OFFICER)');
+  console.log('  parking2@highlink.co.tz / ChangeMe123! (PARKING_OFFICER — second approver for permit SoD)');
   console.log('  owner1@highlink.co.tz / ChangeMe123! (VEHICLE_OWNER → T123ABC · E3 self-view)');
   console.log('  contractor1@vendor.co.tz / ChangeMe123! (CONTRACTOR → VIS-DEMO-001/005 · E4 self-view)');
   console.log('  consultant1@auditpartners.tz / ChangeMe123! (CONSULTANT → VIS-DEMO-002/003 · E5 self-view)');
@@ -5990,11 +6651,13 @@ async function main() {
   console.log('  store1@highlink.co.tz / ChangeMe123! (STOREKEEPER — assets returns)');
   console.log('  cctv1@highlink.co.tz / ChangeMe123! (CCTV_OPERATOR — cctv.manage only; no Field ops)');
   console.log('  control1@highlink.co.tz / ChangeMe123! (CONTROL_ROOM — AL1 CONTROL ack + cctv.manage)');
+  console.log('  monitor1@highlink.co.tz / ChangeMe123! (SECURITY_OFFICER — CCTV/security monitoring desk)');
   console.log('  depthead1@highlink.co.tz / ChangeMe123! (DEPARTMENT_HEAD — leave step 3; transfer/exit step 1)');
   console.log('  ciso1@highlink.co.tz / ChangeMe123! (CISO)');
   console.log('  auditor1@highlink.co.tz / ChangeMe123! (INTERNAL_AUDITOR — audit.read; compliance GET only)');
   console.log('  callcentre1@highlink.co.tz / ChangeMe123! (CALL_CENTRE)');
-  console.log('  it1@highlink.co.tz / ChangeMe123! (IT_SUPPORT — users helpdesk)');
+  console.log('  cs1@highlink.co.tz / ChangeMe123! (CUSTOMER_SUPPORT — complaints + tickets)');
+  console.log('  it1@highlink.co.tz / ChangeMe123! (IT_SUPPORT / ICT Mgr — users helpdesk + support desk + integrations.manage)');
   console.log('  dev1@highlink.co.tz / ChangeMe123! (DEVELOPER — integrator; no users.manage)');
   console.log('  compliance1@highlink.co.tz / ChangeMe123! (COMPLIANCE_OFFICER — policies)');
   console.log('  dpo1@highlink.co.tz / ChangeMe123! (DPO — breach register dpo.manage)');
@@ -6002,6 +6665,7 @@ async function main() {
   console.log('  ceo@highlink.co.tz / ChangeMe123! (CEO — contract step 3)');
   console.log('  cmd@highlink.co.tz / ChangeMe123! (CMD — contract step 4 if fee ≥ 10M)');
   console.log('  marketing1@highlink.co.tz / ChangeMe123! (MARKETING — contract creator)');
+  console.log('  bd1@highlink.co.tz / ChangeMe123! (MARKETING — second BD officer, commission accruer)');
   console.log('  Demo customer: CUST-DEMO, site SITE-WAREHOUSE-A, gates GATE-MAIN / GATE-VEHICLE');
   console.log('  Contracts↔Sites (B2): CTR-DEMO-* linked to SITE-WAREHOUSE-A / SITE-OFFICE-DEMO');
   console.log('  Demo employee login: jane.doe@demo-mfg.co.tz / ChangeMe123! (CUSTOMER_EMPLOYEE · EMP-1001 · Portal 35.9)');
@@ -6013,7 +6677,7 @@ async function main() {
   console.log('  Customer portal ops: demo incidents INC-DEMO-00001/2/3/4 at SITE-WAREHOUSE-A (incl. CRITICAL RESOLVED for A4b close)');
   console.log('  Branch patrols A4a: Warehouse perimeter loop dueMinutes=0 + FieldAlert PATROL_MISSED (scan-missed / escalate on /branch/alerts)');
   console.log('  Customer portal guards: GRD-0001/2/3 → Warehouse A; GRD-0004 → SITE-OFFICE-DEMO');
-  console.log('  CCTV: CAM-GATE-01 / CAM-YARD-01 / CAM-WH-01 / CAM-PARK-01 at SITE-WAREHOUSE-A + 3 CCTV_EVENT AI alerts (metadata only)');
+  console.log('  CCTV: CAM-GATE-01 / CAM-YARD-01 / CAM-WH-01 / CAM-PARK-01 at SITE-WAREHOUSE-A + 6 rich CCTV_EVENT AI alerts (metadata only)');
   console.log('  ESS: AST-RADIO-001 assigned to GRD-0001 (request return → admin confirms)');
   console.log('  Integrations: console-sms, VISITOR_GATE_CODE template, service token ready');
   console.log('  Role DEVELOPER: integrations.manage + audit.read + notifications.manage + operations.manage (no users.manage)');
@@ -6025,6 +6689,8 @@ async function main() {
   console.log('  §4 Phase 2: HR_OFFICER harden + ACCOUNTS_OFFICER + PAYROLL_OFFICER (least privilege)');
   console.log('  §4 Phase 3: PROCUREMENT_OFFICER + STOREKEEPER (procurement/inventory/assets gated)');
   console.log('  §4 Phase 4 + A2: CCTV_OPERATOR=cctv.manage; CONTROL_ROOM/Ops Mgr + cctv.manage');
+  console.log('  §35.22: SECURITY_OFFICER + SUPERVISOR can open /cctv (supervisors site-scoped)');
+  console.log('  §35.22: SECURITY_OFFICER + SUPERVISOR can open /cctv (supervisors site-scoped)');
   console.log('  §4 Phase 5: DEPARTMENT_HEAD / CISO / INTERNAL_AUDITOR (transfer/exit DeptHead→GM)');
   console.log('  §4 Harden A6: CISO/IT users.manage cannot assign SUPER_ADMIN/GM/CEO/CMD/CISO');
   console.log('  §4 Harden A5: leave-approval Supervisor→HR→DeptHead→GM (supervisor1 has approvals.act)');

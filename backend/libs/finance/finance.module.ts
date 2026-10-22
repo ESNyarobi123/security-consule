@@ -8,6 +8,7 @@ import {
   InvoicesController,
   PaymentVouchersController,
   PettyCashController,
+  FinanceReceiptsController,
   FinanceReportsController,
 } from './presentation/finance.controller';
 
@@ -17,6 +18,7 @@ import {
     InvoicesController,
     PettyCashController,
     PaymentVouchersController,
+    FinanceReceiptsController,
     FinanceReportsController,
   ],
   providers: [InvoicesService, FinanceOpsService],

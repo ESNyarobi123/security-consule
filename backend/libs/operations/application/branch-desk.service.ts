@@ -147,7 +147,9 @@ export class BranchDeskService {
       org,
       rows.map((r) => r.siteId),
     );
-    const userIds = [...new Set(rows.map((r) => r.guard.userId))];
+    const userIds = [
+      ...new Set(rows.map((r) => r.guard.userId).filter(Boolean)),
+    ] as string[];
     const users = userIds.length
       ? await this.prisma.user.findMany({
           where: { organizationId: org, id: { in: userIds } },
@@ -346,6 +348,70 @@ export class BranchDeskService {
       branches,
       notes: [
         'Request here or via ESS. Approve / issue / retire stays Finance (creator ≠ issuer).',
+      ],
+    };
+  }
+
+  /**
+   * Thin contract picker for branch deployments. Branch Ops may not hold
+   * `contracts.manage` (33-B), so this exposes only id / number / title /
+   * status / covered sites — no commercial fees or payment terms.
+   */
+  async deploymentContractOptions(user: AuthUser) {
+    this.assertStaff(user);
+    const org = user.organizationId;
+    const siteFilter = resolveSiteIdFilter(user);
+    const siteScope = siteFilter === null ? undefined : { in: siteFilter };
+    const rows = await this.prisma.contract.findMany({
+      where: {
+        organizationId: org,
+        status: { in: ['APPROVED', 'ACTIVE', 'EXPIRING'] },
+        // Only contracts that cover at least one site the caller can deploy to.
+        sites: { some: siteScope ? { siteId: siteScope } : {} },
+      },
+      orderBy: { createdAt: 'desc' },
+      take: 200,
+      select: {
+        id: true,
+        contractNumber: true,
+        title: true,
+        status: true,
+        customerId: true,
+        customer: { select: { code: true, name: true } },
+        sites: {
+          where: siteScope ? { siteId: siteScope } : {},
+          select: { siteId: true },
+        },
+      },
+    });
+    const sites = await this.prisma.site.findMany({
+      where: {
+        organizationId: org,
+        id: { in: [...new Set(rows.flatMap((r) => r.sites.map((s) => s.siteId)))] },
+      },
+      select: { id: true, code: true, name: true },
+    });
+    const siteMap = new Map(sites.map((s) => [s.id, s]));
+    return {
+      rows: rows.map((r) => {
+        const siteIds = r.sites.map((s) => s.siteId);
+        return {
+          id: r.id,
+          contractNumber: r.contractNumber,
+          title: r.title,
+          status: r.status,
+          customerId: r.customerId,
+          customerCode: r.customer.code,
+          customerName: r.customer.name,
+          siteIds,
+          sites: siteIds
+            .map((id) => siteMap.get(id))
+            .filter(Boolean)
+            .map((s) => ({ id: s!.id, code: s!.code, name: s!.name })),
+        };
+      }),
+      notes: [
+        'Billable contracts (APPROVED / ACTIVE / EXPIRING) with covered sites. Fees and terms stay with Commercial (contracts.manage).',
       ],
     };
   }

@@ -60,7 +60,9 @@ async function coreFetch<T>(
     fetch(`${coreUrl()}${path}`, {
       ...rest,
       headers: {
-        'Content-Type': 'application/json',
+        ...(rest.body != null
+          ? { 'Content-Type': 'application/json' }
+          : {}),
         ...authHeaders(access ?? token),
         ...(rest.headers ?? {}),
       },

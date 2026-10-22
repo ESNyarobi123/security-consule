@@ -191,6 +191,15 @@ export class PayrollController {
     return this.service.getPayslip(id, user.organizationId);
   }
 
+  @Get('cycles/:id/readiness')
+  @ApiOperation({
+    summary:
+      'Pre-flight: who would be skipped (no salary assignment) and who lacks bank/mobile refs',
+  })
+  getReadiness(@Param('id') id: string, @CurrentUser() user: AuthUser) {
+    return this.service.getCycleReadiness(id, user);
+  }
+
   @Get('cycles/:id/register')
   @ApiOperation({ summary: 'Payroll register — immutable snapshot summary' })
   getRegister(@Param('id') id: string, @CurrentUser() user: AuthUser) {

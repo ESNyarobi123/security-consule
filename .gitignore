@@ -24,6 +24,8 @@ coverage/
 .DS_Store
 .idea/
 *.log
+# Terminal session captures (script/screen recordings)
+screenlog.*
 
 # Prisma
 backend/prisma/*.db

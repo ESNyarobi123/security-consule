@@ -1,4 +1,27 @@
 {
+  "name": "pssms",
+  "version": "0.1.0",
+  "private": true,
+  "description": "HIGHLINK PSSMS — root convenience scripts (backend + frontend live in their own packages)",
+  "scripts": {
+    "dev": "npm --prefix frontend run dev",
+    "dev:frontend": "npm --prefix frontend run dev",
+    "dev:backend": "npm --prefix backend run start:dev",
+    "dev:core": "npm --prefix backend run start:core",
+    "dev:gateway": "npm --prefix backend run start:gateway",
+    "dev:worker": "npm --prefix backend run start:worker",
+    "dev:integration": "npm --prefix backend run start:integration",
+    "dev:realtime": "npm --prefix backend run start:realtime",
+    "dev:reporting": "npm --prefix backend run start:reporting",
+    "dev:admin": "npm --prefix frontend/apps/admin-web run dev",
+    "build": "npm --prefix frontend run build",
+    "build:backend": "npm --prefix backend run build:all",
+    "lint": "npm --prefix frontend run lint",
+    "clean": "rm -rf frontend/apps/*/.next frontend/apps/*/tsconfig.tsbuildinfo frontend/.turbo",
+    "prisma:generate": "npm --prefix backend run prisma:generate",
+    "prisma:migrate": "npm --prefix backend run prisma:migrate",
+    "prisma:seed": "npm --prefix backend run prisma:seed"
+  },
   "dependencies": {
     "preline": "^4.2.0"
   }

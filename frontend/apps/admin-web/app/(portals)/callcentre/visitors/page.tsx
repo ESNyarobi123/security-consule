@@ -2,11 +2,13 @@
 
 import {
   approveVisitorAppointment,
+  getCallCentreVisitorDesk,
   getDocumentDownloadUrl,
   listDocuments,
   listVisitorAppointments,
   listVisitorEntries,
   rejectVisitorAppointment,
+  resendVisitorGateCode,
   uploadDocument,
   type DocumentObject,
   type GateCodeDelivery,
@@ -62,14 +64,17 @@ function formatDocError(err: unknown): string {
 
 export default function CallCentreVisitorsPage() {
   const sessionUser = useMemo(() => getSessionUser(), []);
+  const canManageVisitors = can(sessionUser, 'visitors.manage');
   const canUploadIdScan =
-    can(sessionUser, 'documents.manage') && can(sessionUser, 'visitors.manage');
+    can(sessionUser, 'documents.manage') && canManageVisitors;
   const [appointments, setAppointments] = useState<VisitorAppointment[]>([]);
   const [entries, setEntries] = useState<VisitorEntry[]>([]);
   const [loading, setLoading] = useState(true);
+  const [readOnly, setReadOnly] = useState(!canManageVisitors);
   const [codeModal, setCodeModal] = useState<{
     code: string;
     delivery?: GateCodeDelivery;
+    resent?: boolean;
   } | null>(null);
   const [rejectTarget, setRejectTarget] = useState<VisitorAppointment | null>(
     null,
@@ -80,19 +85,32 @@ export default function CallCentreVisitorsPage() {
 
   const load = useCallback(async () => {
     setLoading(true);
+    setError(null);
     try {
-      const [a, e] = await Promise.all([
-        listVisitorAppointments(),
-        listVisitorEntries(),
-      ]);
-      setAppointments(a);
-      setEntries(e);
+      if (canManageVisitors) {
+        const [a, e] = await Promise.all([
+          listVisitorAppointments(),
+          listVisitorEntries(),
+        ]);
+        setAppointments(a);
+        setEntries(e);
+        setReadOnly(false);
+      } else {
+        // Support desk (Customer Support / Helpdesk / Supervisor without
+        // visitors.manage): read-only visibility, no code issuance.
+        const desk = await getCallCentreVisitorDesk();
+        setAppointments(desk.appointments as VisitorAppointment[]);
+        setEntries(
+          desk.entries.map((e) => ({ ...e, siteId: '' })) as VisitorEntry[],
+        );
+        setReadOnly(desk.readOnly);
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Load failed');
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [canManageVisitors]);
 
   useEffect(() => {
     void load();
@@ -126,6 +144,21 @@ export default function CallCentreVisitorsPage() {
       await load();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Approve failed');
+    }
+  }
+
+  async function resend(id: string) {
+    setError(null);
+    try {
+      const res = await resendVisitorGateCode(id);
+      setCodeModal({
+        code: res.verificationCode,
+        delivery: res.delivery,
+        resent: true,
+      });
+      await load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Resend failed');
     }
   }
 
@@ -168,6 +201,16 @@ export default function CallCentreVisitorsPage() {
         </p>
       ) : null}
 
+      {readOnly ? (
+        <p className="mb-4 rounded-md border border-sky-200 bg-sky-50 px-4 py-3 text-sm text-sky-800">
+          Read-only support view — visitor codes, host approve/reject and gate
+          verification stay with <code className="font-semibold">visitors.manage</code>{' '}
+          (Call Centre agents and gate officers). You can still see every
+          appointment, ID reference and gate outcome while handling a visitor
+          inquiry.
+        </p>
+      ) : null}
+
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
         <StatCard
           label="Appointments"
@@ -202,8 +245,9 @@ export default function CallCentreVisitorsPage() {
       <div className="mt-8">
         <SectionTitle>Visitor appointments</SectionTitle>
         <p className="mb-3 text-xs text-[#605e5c]">
-          ID scan attachments (MinIO) — upload needs documents.manage +
-          visitors.manage. Hosts can view scans on the customer portal (read-only).
+          {readOnly
+            ? 'Read-only support view — ID reference and site are shown so you can answer a visitor inquiry. Attachments, gate codes and host decisions need visitors.manage.'
+            : 'ID scan attachments (MinIO) — upload needs documents.manage + visitors.manage. Hosts can view scans on the customer portal (read-only).'}
         </p>
         <DataTable
           loading={loading}
@@ -246,15 +290,17 @@ export default function CallCentreVisitorsPage() {
               label: 'Actions',
               render: (r) => (
                 <div className="flex flex-wrap items-center gap-3">
-                  <button
-                    type="button"
-                    className="inline-flex items-center gap-1 text-xs font-medium text-[#0078d4] hover:underline"
-                    onClick={() => setDocsTarget(r)}
-                  >
-                    <Paperclip className="h-3 w-3" />
-                    Docs
-                  </button>
-                  {r.status === 'PENDING' ? (
+                  {canManageVisitors ? (
+                    <button
+                      type="button"
+                      className="inline-flex items-center gap-1 text-xs font-medium text-[#0078d4] hover:underline"
+                      onClick={() => setDocsTarget(r)}
+                    >
+                      <Paperclip className="h-3 w-3" />
+                      Docs
+                    </button>
+                  ) : null}
+                  {canManageVisitors && r.status === 'PENDING' ? (
                     <>
                       <button
                         type="button"
@@ -274,8 +320,15 @@ export default function CallCentreVisitorsPage() {
                         Reject
                       </button>
                     </>
-                  ) : r.status === 'APPROVED' ? (
-                    <span className="text-xs text-[#605e5c]">Code issued</span>
+                  ) : canManageVisitors && r.status === 'APPROVED' ? (
+                    <button
+                      type="button"
+                      className="inline-flex items-center gap-1 text-xs font-medium text-[#0078d4] hover:underline"
+                      onClick={() => void resend(r.id)}
+                    >
+                      <RefreshCw className="h-3 w-3" />
+                      Resend code
+                    </button>
                   ) : null}
                 </div>
               ),
@@ -397,8 +450,12 @@ export default function CallCentreVisitorsPage() {
 
       {codeModal ? (
         <Modal
-          title="Gate code"
-          description="Shown once — share this code with the visitor."
+          title={codeModal.resent ? 'New gate code' : 'Gate code'}
+          description={
+            codeModal.resent
+              ? 'The previous code was revoked. This new code was re-sent — deliver it as a fallback if the SMS did not arrive.'
+              : 'Shown once — the visitor also receives it by SMS/email.'
+          }
           size="sm"
           onClose={() => setCodeModal(null)}
         >
@@ -418,7 +475,25 @@ export default function CallCentreVisitorsPage() {
                   <li>Code emailed to visitor</li>
                 ) : null}
                 {codeModal.delivery.sms ? (
-                  <li>SMS queued to visitor phone</li>
+                  <li>
+                    SMS queued
+                    {codeModal.delivery.smsRecipient ? (
+                      <> to {codeModal.delivery.smsRecipient}</>
+                    ) : (
+                      ' to visitor phone'
+                    )}
+                    {codeModal.delivery.smsLive === false ? (
+                      <span className="mt-1 block text-xs text-amber-700">
+                        Console mode — no text is actually delivered. Set
+                        SMS_PROVIDER + vendor credentials in .env to send it.
+                      </span>
+                    ) : codeModal.delivery.smsProvider ? (
+                      <span className="text-xs text-[#605e5c]">
+                        {' '}
+                        via {codeModal.delivery.smsProvider}
+                      </span>
+                    ) : null}
+                  </li>
                 ) : null}
                 {codeModal.delivery.whatsapp ? (
                   <li>WhatsApp queued to visitor phone</li>

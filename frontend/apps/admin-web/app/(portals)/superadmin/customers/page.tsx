@@ -668,14 +668,19 @@ export default function CustomersPage() {
     setSiteError(null);
     setSiteCreateOpen(true);
     try {
-      const br = await listBranches();
+      const br = (await listBranches()).filter((b) => b.isActive !== false);
       setBranches(br);
+      const preferred =
+        br.find((b) => b.id === detail.branchId)?.id ?? br[0]?.id ?? '';
       setSiteForm({
-        branchId: detail.branchId ?? br[0]?.id ?? '',
+        branchId: preferred,
         code: '',
         name: '',
         address: '',
       });
+      if (br.length === 0) {
+        setSiteError('No active branches — add or reactivate one under Organization.');
+      }
     } catch (err) {
       setSiteError(formatApiError(err));
     }
@@ -2816,6 +2821,9 @@ export default function CustomersPage() {
                   </option>
                 ))}
               </select>
+              <p className="mt-1 text-[11px] text-[#605e5c]">
+                Active branches only. Manage under Super Admin → Organization.
+              </p>
             </label>
             <label className="block text-sm font-medium text-[#323130]">
               Site code

@@ -7,6 +7,7 @@ import {
   listCustomerVisitorAppointmentDocuments,
   listCustomerVisitors,
   rejectCustomerVisitor,
+  resendCustomerVisitorCode,
   type GateCodeDelivery,
   type PortalVisitorEntry,
   type VisitorAppointment,
@@ -58,6 +59,7 @@ export default function VisitorsPage() {
     visitorName: string;
     code: string;
     delivery?: GateCodeDelivery;
+    resent?: boolean;
   } | null>(null);
   const [rejectTarget, setRejectTarget] = useState<VisitorAppointment | null>(
     null,
@@ -166,6 +168,25 @@ export default function VisitorsPage() {
     }
   }
 
+  async function resend(v: VisitorAppointment) {
+    setActingId(v.id);
+    setError(null);
+    try {
+      const res = await resendCustomerVisitorCode(v.id);
+      setCodeModal({
+        visitorName: v.visitorName,
+        code: res.verificationCode,
+        delivery: res.delivery,
+        resent: true,
+      });
+      await load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Resend failed');
+    } finally {
+      setActingId(null);
+    }
+  }
+
   async function submitReject() {
     if (!rejectTarget) return;
     const reason = rejectReason.trim();
@@ -231,6 +252,17 @@ export default function VisitorsPage() {
               Reject
             </button>
           </>
+        ) : null}
+        {v.status.toUpperCase() === 'APPROVED' ? (
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() => void resend(v)}
+            className="inline-flex items-center gap-1.5 rounded-lg border border-[#e1dfdd] bg-white px-2.5 py-1.5 text-xs font-semibold text-[#0078d4] hover:bg-[#deecf9] disabled:opacity-50"
+          >
+            <RefreshCw className="h-3.5 w-3.5" />
+            Resend code
+          </button>
         ) : null}
       </div>
     );
@@ -488,11 +520,13 @@ export default function VisitorsPage() {
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
           <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-xl">
             <h2 className="text-lg font-semibold text-[#1b1a19]">
-              Gate verification code
+              {codeModal.resent ? 'New gate verification code' : 'Gate verification code'}
             </h2>
             <p className="mt-1 text-sm text-[#605e5c]">
-              Issued for <strong>{codeModal.visitorName}</strong>. Share with the
-              visitor — shown once.
+              Issued for <strong>{codeModal.visitorName}</strong>.{' '}
+              {codeModal.resent
+                ? 'The previous code was revoked and the new one re-sent.'
+                : 'Share with the visitor — shown once.'}
             </p>
             <p className="mt-4 rounded-xl bg-[#f3f2f1] py-4 text-center font-mono text-3xl font-bold tracking-[0.2em] text-[#0078d4]">
               {codeModal.code}
@@ -506,7 +540,23 @@ export default function VisitorsPage() {
                   <li>Code emailed to visitor</li>
                 ) : null}
                 {codeModal.delivery.sms ? (
-                  <li>SMS queued to visitor phone</li>
+                  <li>
+                    SMS queued
+                    {codeModal.delivery.smsRecipient
+                      ? ` to ${codeModal.delivery.smsRecipient}`
+                      : ' to visitor phone'}
+                    {codeModal.delivery.smsLive === false ? (
+                      <span className="mt-1 block text-xs text-amber-700">
+                        Console mode — no text is actually delivered. Ask
+                        HIGHLINK to configure the SMS provider.
+                      </span>
+                    ) : codeModal.delivery.smsProvider ? (
+                      <span className="text-xs text-[#605e5c]">
+                        {' '}
+                        via {codeModal.delivery.smsProvider}
+                      </span>
+                    ) : null}
+                  </li>
                 ) : null}
                 {codeModal.delivery.whatsapp ? (
                   <li>WhatsApp queued to visitor phone</li>

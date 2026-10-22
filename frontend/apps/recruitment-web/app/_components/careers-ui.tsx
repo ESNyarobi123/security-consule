@@ -172,10 +172,13 @@ export function formatDate(iso?: string | null, withTime = false) {
 export function Field({
   label,
   hint,
+  error,
   children,
 }: {
   label: string;
   hint?: string;
+  /** Inline field-level validation message (shown under the input). */
+  error?: string;
   children: ReactNode;
 }) {
   return (
@@ -185,8 +188,18 @@ export function Field({
         <span className="ml-1 font-normal text-[#a19f9d]">({hint})</span>
       ) : null}
       <div className="mt-1.5">{children}</div>
+      {error ? (
+        <p className="mt-1 text-xs font-normal text-rose-600">{error}</p>
+      ) : null}
     </label>
   );
+}
+
+/** Adds a red border to an input that failed client-side validation. */
+export function inputClassFor(error?: string) {
+  return error
+    ? inputClass.replace('border-slate-300', 'border-rose-400')
+    : inputClass;
 }
 
 export const inputClass =

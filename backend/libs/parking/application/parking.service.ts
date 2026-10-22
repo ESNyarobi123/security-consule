@@ -49,8 +49,10 @@ import {
   ParkingEntryResponseDto,
   ParkingPermitResponseDto,
   ParkingPatrolObservationResponseDto,
+  ParkingRelocationResponseDto,
   ParkingSpaceResponseDto,
   ParkingViolationResponseDto,
+  RelocateParkingSpaceDto,
   ResolveParkingViolationDto,
   UpdateParkingPermitDto,
   UpdateParkingSpaceDto,
@@ -2253,6 +2255,217 @@ export class ParkingService {
     return this.enrichSpaceDto(updated, user.organizationId);
   }
 
+  /**
+   * §13 vehicle relocation — one atomic call moves a vehicle to a new bay/zone
+   * (or another site) releasing the old bay. No manual release-then-allocate.
+   */
+  async relocateVehicleSpace(
+    dto: RelocateParkingSpaceDto,
+    user: AuthUser,
+  ): Promise<ParkingRelocationResponseDto> {
+    const vehicle = await this.prisma.vehicle.findFirst({
+      where: {
+        id: dto.vehicleId,
+        organizationId: user.organizationId,
+        isActive: true,
+      },
+      select: {
+        id: true,
+        plateNumber: true,
+        customerId: true,
+        parkingCategory: true,
+      },
+    });
+    if (!vehicle) {
+      throw new BadRequestException({
+        error: 'INVALID_VEHICLE',
+        message: 'vehicleId must be an active vehicle in this organization',
+      });
+    }
+
+    const from = await this.prisma.parkingSpace.findFirst({
+      where: {
+        organizationId: user.organizationId,
+        vehicleId: vehicle.id,
+        status: ParkingSpaceStatus.OCCUPIED,
+      },
+    });
+    if (!from) {
+      throw new ConflictException({
+        error: 'VEHICLE_NOT_ALLOCATED',
+        message:
+          'Vehicle has no occupied bay yet — allocate a bay before relocating',
+      });
+    }
+
+    let target;
+    if (dto.toSpaceId) {
+      target = await this.prisma.parkingSpace.findFirst({
+        where: {
+          id: dto.toSpaceId,
+          organizationId: user.organizationId,
+          isActive: true,
+        },
+      });
+      if (!target) {
+        throw new NotFoundException('Target parking space not found');
+      }
+      if (target.id === from.id) {
+        throw new BadRequestException({
+          error: 'SAME_SPACE',
+          message: 'Vehicle is already in that bay',
+        });
+      }
+      if (
+        target.status !== ParkingSpaceStatus.AVAILABLE ||
+        target.vehicleId
+      ) {
+        throw new ConflictException({
+          error: 'SPACE_NOT_AVAILABLE',
+          message: `Space ${target.code} is ${target.status}`,
+        });
+      }
+      if (target.customerId && target.customerId !== vehicle.customerId) {
+        throw new BadRequestException({
+          error: 'CUSTOMER_SPACE_MISMATCH',
+          message: 'Dedicated bay requires a vehicle linked to the same customer',
+        });
+      }
+    } else {
+      if (!dto.siteId) {
+        throw new BadRequestException({
+          error: 'SITE_ID_REQUIRED',
+          message: 'siteId (or toSpaceId) is required to relocate',
+        });
+      }
+      const site = await this.prisma.site.findFirst({
+        where: {
+          id: dto.siteId,
+          organizationId: user.organizationId,
+          isActive: true,
+        },
+        select: { id: true },
+      });
+      if (!site) {
+        throw new BadRequestException({
+          error: 'INVALID_SITE',
+          message: 'siteId must be an active site in this organization',
+        });
+      }
+      const spaceType =
+        dto.spaceType ?? this.inferSpaceTypeFromVehicle(vehicle.parkingCategory);
+      target = await this.findAutoSpace({
+        organizationId: user.organizationId,
+        siteId: site.id,
+        spaceType,
+        customerId: vehicle.customerId,
+      });
+      if (!target || target.id === from.id) {
+        throw new ConflictException({
+          error: 'NO_AUTO_SPACE',
+          message: `No other AUTO AVAILABLE ${spaceType} bay at this site`,
+        });
+      }
+    }
+
+    let permitId: string | null = null;
+    if (dto.permitId) {
+      const permit = await this.prisma.parkingPermit.findFirst({
+        where: {
+          id: dto.permitId,
+          organizationId: user.organizationId,
+          vehicleId: vehicle.id,
+          siteId: target.siteId,
+          status: PermitStatus.ACTIVE,
+        },
+        select: { id: true },
+      });
+      if (!permit) {
+        throw new BadRequestException({
+          error: 'INVALID_PERMIT',
+          message:
+            'permitId must be an ACTIVE permit for this vehicle and target site',
+        });
+      }
+      permitId = permit.id;
+    } else if (from.permitId && from.siteId === target.siteId) {
+      permitId = from.permitId;
+    }
+
+    const now = new Date();
+    const [, occupied] = await this.prisma.$transaction([
+      this.prisma.parkingSpace.updateMany({
+        where: {
+          id: from.id,
+          organizationId: user.organizationId,
+          vehicleId: vehicle.id,
+          status: ParkingSpaceStatus.OCCUPIED,
+        },
+        data: {
+          status: ParkingSpaceStatus.AVAILABLE,
+          vehicleId: null,
+          permitId: null,
+          allocatedAt: null,
+          allocatedBy: null,
+        },
+      }),
+      this.prisma.parkingSpace.updateMany({
+        where: {
+          id: target.id,
+          organizationId: user.organizationId,
+          status: ParkingSpaceStatus.AVAILABLE,
+          vehicleId: null,
+          isActive: true,
+        },
+        data: {
+          status: ParkingSpaceStatus.OCCUPIED,
+          vehicleId: vehicle.id,
+          permitId,
+          allocatedAt: now,
+          allocatedBy: user.id,
+        },
+      }),
+    ]);
+
+    if (occupied.count !== 1) {
+      throw new ConflictException({
+        error: 'SPACE_NOT_AVAILABLE',
+        message: `Space ${target.code} is no longer available`,
+      });
+    }
+
+    const [released, allocated] = await Promise.all([
+      this.prisma.parkingSpace.findFirstOrThrow({
+        where: { id: from.id, organizationId: user.organizationId },
+      }),
+      this.prisma.parkingSpace.findFirstOrThrow({
+        where: { id: target.id, organizationId: user.organizationId },
+      }),
+    ]);
+
+    await this.audit.record({
+      organizationId: user.organizationId,
+      actorId: user.id,
+      action: 'parking.space.relocated',
+      resourceType: 'ParkingSpace',
+      resourceId: allocated.id,
+      before: from,
+      after: {
+        ...allocated,
+        plateNumber: vehicle.plateNumber,
+        fromSpaceCode: from.code,
+        reason: blankToNull(dto.reason),
+      },
+    });
+
+    return {
+      from: await this.enrichSpaceDto(released, user.organizationId),
+      to: await this.enrichSpaceDto(allocated, user.organizationId),
+      plateNumber: vehicle.plateNumber,
+      reason: blankToNull(dto.reason),
+    };
+  }
+
   async releaseParkingSpace(
     id: string,
     user: AuthUser,
@@ -2482,6 +2695,82 @@ export class ParkingService {
       siteCode: site.code,
       siteName: site.name,
     });
+  }
+
+  /**
+   * Guard picker for ops users recording a patrol observation by hand
+   * (patrol rows stay attributed to a real guard, per §33 data separation).
+   */
+  async listPatrolGuardOptions(
+    user: AuthUser,
+    siteId?: string,
+  ): Promise<
+    Array<{
+      id: string;
+      employeeNumber: string;
+      fullName: string | null;
+      siteCode: string | null;
+      siteName: string | null;
+    }>
+  > {
+    let site: { id: string; code: string; name: string } | null = null;
+    if (siteId) {
+      site = await this.prisma.site.findFirst({
+        where: {
+          id: siteId,
+          organizationId: user.organizationId,
+          isActive: true,
+        },
+        select: { id: true, code: true, name: true },
+      });
+      if (!site) {
+        throw new BadRequestException({
+          error: 'INVALID_SITE',
+          message: 'siteId must be an active site in this organization',
+        });
+      }
+      assertSiteAccess(user, site.id);
+    }
+
+    const guards = await this.prisma.guardProfile.findMany({
+      where: {
+        organizationId: user.organizationId,
+        status: 'ACTIVE',
+        ...(site
+          ? {
+              deployments: {
+                some: { siteId: site.id, status: 'ACTIVE' },
+              },
+            }
+          : {}),
+      },
+      select: {
+        id: true,
+        userId: true,
+        employeeNumber: true,
+        employee: { select: { fullName: true } },
+      },
+      orderBy: { employeeNumber: 'asc' },
+      take: 200,
+    });
+
+    const userIds = [...new Set(guards.map((g) => g.userId))];
+    const users =
+      userIds.length > 0
+        ? await this.prisma.user.findMany({
+            where: { id: { in: userIds } },
+            select: { id: true, fullName: true },
+          })
+        : [];
+    const userNameById = new Map(users.map((u) => [u.id, u.fullName]));
+
+    return guards.map((g) => ({
+      id: g.id,
+      employeeNumber: g.employeeNumber,
+      fullName: g.employee?.fullName ?? userNameById.get(g.userId) ?? null,
+      siteCode: site?.code ?? null,
+      siteName: site?.name ?? null,
+    }));
   }
 
   async listParkingPatrolObservations(
@@ -4171,6 +4460,7 @@ export class ParkingService {
       validFrom: Date;
       validUntil: Date;
       createdAt: Date;
+      createdBy?: string | null;
       feeAmount?: Prisma.Decimal | number | null;
       currency?: string | null;
       billingPeriod?: string;
@@ -4205,6 +4495,7 @@ export class ParkingService {
       validFrom: p.validFrom,
       validUntil: p.validUntil,
       createdAt: p.createdAt,
+      createdBy: p.createdBy ?? null,
       feeAmount: decimalToNumber(p.feeAmount),
       currency: p.currency ?? null,
       billingPeriod: p.billingPeriod ?? ParkingBillingPeriod.ONE_TIME,

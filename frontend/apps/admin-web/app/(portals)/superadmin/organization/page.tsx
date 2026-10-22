@@ -18,6 +18,18 @@ import { GlassCard, btnPrimary, btnSecondary } from '@pssms/ui';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { fieldCls, formatApiError } from '../_components/shared';
 
+function StatusBadge({ active }: { active: boolean }) {
+  return active ? (
+    <span className="inline-flex rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-emerald-700 ring-1 ring-emerald-200">
+      Active
+    </span>
+  ) : (
+    <span className="inline-flex rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-slate-600 ring-1 ring-slate-200">
+      Inactive
+    </span>
+  );
+}
+
 export default function SuperAdminOrganizationPage() {
   const session = useMemo(() => getSessionUser(), []);
   const canMutate = can(session, 'enterprise.manage');
@@ -33,6 +45,19 @@ export default function SuperAdminOrganizationPage() {
   const [dCode, setDCode] = useState('');
   const [dName, setDName] = useState('');
   const [dBranchId, setDBranchId] = useState('');
+
+  const activeBranches = useMemo(
+    () => branches.filter((b) => b.isActive),
+    [branches],
+  );
+  const inactiveBranches = useMemo(
+    () => branches.filter((b) => !b.isActive),
+    [branches],
+  );
+  const sortedBranches = useMemo(
+    () => [...activeBranches, ...inactiveBranches],
+    [activeBranches, inactiveBranches],
+  );
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -146,7 +171,17 @@ export default function SuperAdminOrganizationPage() {
 
       <div className="grid gap-4 lg:grid-cols-2">
         <GlassCard glow="none" className="p-4">
-          <h2 className="text-sm font-semibold">Branches</h2>
+          <div className="flex flex-wrap items-baseline justify-between gap-2">
+            <h2 className="text-sm font-semibold">Branches</h2>
+            <p className="text-[11px] text-[#605e5c]">
+              {activeBranches.length} active · {inactiveBranches.length} inactive
+            </p>
+          </div>
+          <p className="mt-1 text-[11px] leading-relaxed text-[#605e5c]">
+            Deactivate does <span className="font-semibold">not delete</span> —
+            the branch stays here with an Inactive badge. Inactive branches are
+            hidden from Customer → Add site. Keep at least one Active branch.
+          </p>
           {canMutate ? (
             <form
               onSubmit={(e) => void onCreateBranch(e)}
@@ -181,17 +216,36 @@ export default function SuperAdminOrganizationPage() {
               View only — enterprise.manage required to create.
             </p>
           )}
+          {activeBranches.length === 0 && !loading ? (
+            <p className="mt-3 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+              No active branches — Customer Add site will be empty until you
+              Reactivate one below.
+            </p>
+          ) : null}
           <ul className="mt-4 divide-y divide-[#edebe9] text-sm">
-            {branches.map((b) => (
+            {sortedBranches.map((b) => (
               <li
                 key={b.id}
-                className="flex items-center justify-between gap-2 py-2"
+                className={`flex items-center justify-between gap-2 py-2 ${
+                  b.isActive ? '' : 'opacity-70'
+                }`}
               >
-                <span>
-                  <span className="font-mono text-xs">{b.code}</span>{' '}
-                  <span className="font-medium">{b.name}</span>
+                <span className="min-w-0">
+                  <span className="flex flex-wrap items-center gap-2">
+                    <span
+                      className={`font-mono text-xs ${
+                        b.isActive ? '' : 'line-through decoration-slate-400'
+                      }`}
+                    >
+                      {b.code}
+                    </span>
+                    <span className="font-medium">{b.name}</span>
+                    <StatusBadge active={b.isActive} />
+                  </span>
                   {b.region ? (
-                    <span className="text-xs text-[#605e5c]"> · {b.region}</span>
+                    <span className="mt-0.5 block text-xs text-[#605e5c]">
+                      {b.region}
+                    </span>
                   ) : null}
                 </span>
                 {canMutate ? (
@@ -208,11 +262,7 @@ export default function SuperAdminOrganizationPage() {
                   >
                     {b.isActive ? 'Deactivate' : 'Reactivate'}
                   </button>
-                ) : (
-                  <span className="text-xs text-[#605e5c]">
-                    {b.isActive ? 'Active' : 'Inactive'}
-                  </span>
-                )}
+                ) : null}
               </li>
             ))}
           </ul>
@@ -245,7 +295,7 @@ export default function SuperAdminOrganizationPage() {
                 onChange={(e) => setDBranchId(e.target.value)}
               >
                 <option value="">All branches</option>
-                {branches.map((b) => (
+                {activeBranches.map((b) => (
                   <option key={b.id} value={b.id}>
                     {b.code} · {b.name}
                   </option>
@@ -260,11 +310,20 @@ export default function SuperAdminOrganizationPage() {
             {departments.map((d) => (
               <li
                 key={d.id}
-                className="flex items-center justify-between gap-2 py-2"
+                className={`flex items-center justify-between gap-2 py-2 ${
+                  d.isActive ? '' : 'opacity-70'
+                }`}
               >
-                <span>
-                  <span className="font-mono text-xs">{d.code}</span>{' '}
+                <span className="flex flex-wrap items-center gap-2">
+                  <span
+                    className={`font-mono text-xs ${
+                      d.isActive ? '' : 'line-through decoration-slate-400'
+                    }`}
+                  >
+                    {d.code}
+                  </span>
                   <span className="font-medium">{d.name}</span>
+                  <StatusBadge active={d.isActive} />
                 </span>
                 {canMutate ? (
                   <button
@@ -272,19 +331,14 @@ export default function SuperAdminOrganizationPage() {
                     className={btnSecondary}
                     disabled={busy}
                     onClick={() =>
-                      void updateDepartment(d.id, { isActive: !d.isActive }).then(
-                        refresh,
-                        (err) => setError(formatApiError(err)),
-                      )
+                      void updateDepartment(d.id, {
+                        isActive: !d.isActive,
+                      }).then(refresh, (err) => setError(formatApiError(err)))
                     }
                   >
                     {d.isActive ? 'Deactivate' : 'Reactivate'}
                   </button>
-                ) : (
-                  <span className="text-xs text-[#605e5c]">
-                    {d.isActive ? 'Active' : 'Inactive'}
-                  </span>
-                )}
+                ) : null}
               </li>
             ))}
           </ul>

@@ -2,6 +2,7 @@
 
 import {
   approvePettyCashVoucher,
+  createPettyCashFund,
   getDocumentDownloadUrl,
   issuePettyCashVoucher,
   listDocuments,
@@ -26,6 +27,7 @@ import {
   Banknote,
   CheckCircle2,
   Clock3,
+  Plus,
   RefreshCw,
   Search,
   Wallet,
@@ -131,6 +133,7 @@ export default function FinancePettyCashPage() {
     useState<PettyCashVoucher | null>(null);
   const [filter, setFilter] = useState<StatusFilter>('ALL');
   const [query, setQuery] = useState('');
+  const [fundModalOpen, setFundModalOpen] = useState(false);
   const sessionUser = useMemo(() => getSessionUser(), []);
 
   const load = useCallback(async () => {
@@ -233,6 +236,14 @@ export default function FinancePettyCashPage() {
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
+            <button
+              type="button"
+              onClick={() => setFundModalOpen(true)}
+              className={btnSecondary}
+            >
+              <Plus className="h-4 w-4" />
+              Imprest fund
+            </button>
             <Link href="/ess/petty-cash" className={btnSecondary}>
               ESS apply
             </Link>
@@ -306,6 +317,22 @@ export default function FinancePettyCashPage() {
         </p>
       ) : null}
 
+      {!loading && funds.length === 0 ? (
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+          <span>
+            No imprest fund yet — employee petty-cash requests cannot be created
+            until Finance opens one. Create the HQ imprest fund to start.
+          </span>
+          <button
+            type="button"
+            className={btnPrimary}
+            onClick={() => setFundModalOpen(true)}
+          >
+            Create imprest fund
+          </button>
+        </div>
+      ) : null}
+
       <div className="mb-2.5 flex flex-wrap items-end justify-between gap-2">
         <div>
           <div className="flex items-center gap-2">
@@ -336,12 +363,26 @@ export default function FinancePettyCashPage() {
         canAct={(r) => {
           const isOwn =
             !!sessionUser?.id && r.createdBy === sessionUser.id;
+          const roles = sessionUser?.roles ?? [];
+          const isSuperAdmin = roles.includes('SUPER_ADMIN');
           if (
             r.status === 'PENDING' ||
             r.status === 'APPROVED' ||
             r.status === 'ISSUED'
           ) {
             if (isOwn) return 'own';
+            if (r.status === 'PENDING') {
+              const required = r.approvalRequiredRole;
+              // Wrong-step approver: must not see a dead Approve button.
+              if (
+                required &&
+                required !== '*' &&
+                !roles.includes(required) &&
+                !isSuperAdmin
+              ) {
+                return 'role';
+              }
+            }
             return true;
           }
           return false;
@@ -441,7 +482,100 @@ export default function FinancePettyCashPage() {
           onClose={() => setReceiptsTarget(null)}
         />
       ) : null}
+
+      {fundModalOpen ? (
+        <FundModal
+          onClose={() => setFundModalOpen(false)}
+          onCreated={async () => {
+            setFundModalOpen(false);
+            await load();
+          }}
+        />
+      ) : null}
     </>
+  );
+}
+
+function FundModal({
+  onClose,
+  onCreated,
+}: {
+  onClose: () => void;
+  onCreated: () => Promise<void>;
+}) {
+  const [name, setName] = useState('HQ Petty Cash');
+  const [imprestAmount, setImprestAmount] = useState('5000000');
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function onSubmit(e: FormEvent) {
+    e.preventDefault();
+    const amount = Number(imprestAmount);
+    if (!name.trim() || !Number.isFinite(amount) || amount < 1) {
+      setError('Fund name and imprest amount (≥ 1) are required');
+      return;
+    }
+    setSubmitting(true);
+    setError(null);
+    try {
+      await createPettyCashFund({ name: name.trim(), imprestAmount: amount });
+      await onCreated();
+    } catch (err) {
+      setError(formatApiError(err));
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  return (
+    <Modal
+      open
+      title="Imprest fund"
+      description="Opens the cash float that petty-cash requests draw from. Name it “HQ Petty Cash” to make ESS requests pick it automatically."
+      onClose={onClose}
+    >
+      <form className="space-y-3" onSubmit={(e) => void onSubmit(e)}>
+        <label className="block text-sm font-medium text-[#323130]">
+          Fund name
+          <input
+            className={inputCls}
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            required
+            minLength={2}
+          />
+        </label>
+        <label className="block text-sm font-medium text-[#323130]">
+          Imprest amount (TZS)
+          <input
+            className={inputCls}
+            type="number"
+            min={1}
+            step="1"
+            value={imprestAmount}
+            onChange={(e) => setImprestAmount(e.target.value)}
+            required
+          />
+        </label>
+        <p className="text-[11px] text-[#605e5c]">
+          The balance starts at the full imprest and is debited only when cash is
+          issued against an approved voucher.
+        </p>
+        {error ? (
+          <p className="rounded-md bg-rose-50 px-3 py-2 text-sm text-rose-700">
+            {error}
+          </p>
+        ) : null}
+        <div className="flex justify-end gap-2">
+          <button type="button" className={btnSecondary} onClick={onClose}>
+            Cancel
+          </button>
+          <button type="submit" className={btnPrimary} disabled={submitting}>
+            {submitting ? 'Creating…' : 'Create fund'}
+          </button>
+        </div>
+      </form>
+    </Modal>
   );
 }
 

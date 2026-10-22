@@ -124,6 +124,13 @@ const emptyPo = (supplierId: string): PoForm => ({
 export default function ProcurementPage() {
   const sessionUser = useMemo(() => getSessionUser(), []);
   const isSuperAdmin = sessionUser?.roles?.includes('SUPER_ADMIN') ?? false;
+  // purchase-order-approval workflow step 1 is GENERAL_MANAGER — procurement
+  // officers can raise/submit but must not be offered an Approve they cannot use.
+  const canApprovePo =
+    isSuperAdmin ||
+    (sessionUser?.roles ?? []).some((r) =>
+      ['GENERAL_MANAGER', 'CEO', 'CMD'].includes(r),
+    );
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
   const [pos, setPos] = useState<PurchaseOrder[]>([]);
   const [submissions, setSubmissions] = useState<SupplierSubmission[]>([]);
@@ -150,6 +157,11 @@ export default function ProcurementPage() {
   const [docsTarget, setDocsTarget] = useState<Supplier | null>(null);
   const [docs, setDocs] = useState<DocumentObject[]>([]);
   const [docsLoading, setDocsLoading] = useState(false);
+  const [subDocsTarget, setSubDocsTarget] = useState<SupplierSubmission | null>(
+    null,
+  );
+  const [subDocs, setSubDocs] = useState<DocumentObject[]>([]);
+  const [subDocsLoading, setSubDocsLoading] = useState(false);
   const [msgTarget, setMsgTarget] = useState<Supplier | null>(null);
   const [messages, setMessages] = useState<SupplierMessage[]>([]);
   const [msgLoading, setMsgLoading] = useState(false);
@@ -477,6 +489,24 @@ export default function ProcurementPage() {
       setError(err instanceof Error ? err.message : 'Upload failed');
     } finally {
       setBusyId(null);
+    }
+  }
+
+  async function openSubmissionDocs(row: SupplierSubmission) {
+    setSubDocsTarget(row);
+    setSubDocsLoading(true);
+    setSubDocs([]);
+    try {
+      setSubDocs(
+        await listDocuments({
+          resourceType: 'SupplierSubmission',
+          resourceId: row.id,
+        }),
+      );
+    } catch {
+      setSubDocs([]);
+    } finally {
+      setSubDocsLoading(false);
     }
   }
 
@@ -1060,6 +1090,7 @@ export default function ProcurementPage() {
             setSubRejectTarget(row);
           }}
           onMarkPaid={(row) => void runMarkPaid(row)}
+          onDocs={(row) => void openSubmissionDocs(row)}
           empty={
             <ProcurementEmpty
               title="No supplier submissions"
@@ -1094,6 +1125,7 @@ export default function ProcurementPage() {
           loading={loading}
           supplierName={supplierNameMap}
           busyId={busyId}
+          canApprove={canApprovePo}
           onSubmit={(po) => void runPoSubmit(po)}
           onApprove={(po) => void runPoApprove(po)}
           toolbar={
@@ -1475,6 +1507,65 @@ export default function ProcurementPage() {
               onClick={() => void runSubmissionReject()}
             >
               Reject
+            </button>
+          </div>
+        </Modal>
+      ) : null}
+
+      {subDocsTarget ? (
+        <Modal
+          title="Submission attachments"
+          description={`${subDocsTarget.referenceNumber} · ${subDocsTarget.kind.replace(/_/g, ' ').toLowerCase()} — files uploaded by ${
+            subDocsTarget.supplierName ??
+            subDocsTarget.supplierCode ??
+            'the supplier'
+          }`}
+          onClose={() => setSubDocsTarget(null)}
+        >
+          {subDocsLoading ? (
+            <p className="text-sm text-[#605e5c]">Loading…</p>
+          ) : subDocs.length === 0 ? (
+            <p className="text-sm text-[#605e5c]">
+              The supplier has not attached any file to this submission yet.
+            </p>
+          ) : (
+            <ul className="space-y-2 text-sm">
+              {subDocs.map((d) => (
+                <li
+                  key={d.id}
+                  className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-[#edebe9] bg-[#faf9f8] px-3 py-2"
+                >
+                  <span className="min-w-0">
+                    <span className="block truncate font-medium text-[#1b1a19]">
+                      {d.fileName}
+                    </span>
+                    <span className="text-[11px] text-[#8a8886]">
+                      {(d.sizeBytes / 1024).toFixed(0)} KB ·{' '}
+                      {new Date(d.createdAt).toLocaleString()}
+                    </span>
+                  </span>
+                  <button
+                    type="button"
+                    className={btnSecondary}
+                    onClick={() =>
+                      void getDocumentDownloadUrl(d.id).then(({ url }) =>
+                        window.open(url, '_blank', 'noopener,noreferrer'),
+                      )
+                    }
+                  >
+                    Open
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+          <div className="mt-4 flex justify-end">
+            <button
+              type="button"
+              className={btnSecondary}
+              onClick={() => setSubDocsTarget(null)}
+            >
+              Close
             </button>
           </div>
         </Modal>

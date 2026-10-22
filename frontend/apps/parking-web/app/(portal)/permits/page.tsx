@@ -36,6 +36,7 @@ import {
   normalizeVehicleType,
   type VehicleKind,
 } from '../_components/parking-ui';
+import { getParkingSessionUser } from '@pssms/auth';
 
 type StatusFilter = 'ALL' | 'PENDING' | 'ACTIVE' | 'REVOKED' | 'EXPIRED' | 'SUSPENDED';
 type ViewMode = 'cards' | 'table';
@@ -62,6 +63,28 @@ const BILLING_PERIODS: { id: ParkingBillingPeriod; label: string }[] = [
 
 const fieldCls =
   'mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 outline-none focus:border-teal-500 focus:ring-2 focus:ring-teal-500/20';
+
+/** Turn backend business codes into an actionable sentence for the officer. */
+function friendlyPermitError(err: unknown, fallback: string): string {
+  const message = err instanceof Error ? err.message : fallback;
+  const code =
+    typeof err === 'object' && err && 'code' in err
+      ? String((err as { code?: unknown }).code ?? '')
+      : '';
+  if (
+    code === 'CREATOR_CANNOT_APPROVE' ||
+    /creator cannot approve/i.test(message)
+  ) {
+    return 'This permit was issued by you, so another parking officer must approve or reject it (creator ≠ approver). Sign in as a second officer (e.g. parking2@highlink.co.tz) to decide.';
+  }
+  if (code === 'VEHICLE_INACTIVE' || /inactive vehicle/i.test(message)) {
+    return 'This vehicle is inactive. Reactivate it on Vehicles before approving the permit.';
+  }
+  if (code === 'UNAUTHORIZED' || code === 'AUTH_REQUIRED') {
+    return 'Your session expired. Please sign in again.';
+  }
+  return message;
+}
 
 function formatDate(iso: string): string {
   const d = new Date(iso);
@@ -132,7 +155,13 @@ export default function PermitsPage() {
   >([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
+  const [currentUserId, setCurrentUserId] = useState<string | null>(null);
+
+  useEffect(() => {
+    setCurrentUserId(getParkingSessionUser()?.id ?? null);
+  }, []);
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('ALL');
   const [typeFilter, setTypeFilter] = useState<VehicleKind | 'ALL'>('ALL');
   const [search, setSearch] = useState('');
@@ -423,14 +452,19 @@ export default function PermitsPage() {
     });
   }, [enriched, statusFilter, typeFilter, search]);
 
+  const isOwnPermit = (p: { createdBy?: string | null }) =>
+    !!currentUserId && p.createdBy === currentUserId;
+
   async function onApprove(id: string) {
     setBusyId(id);
     setError(null);
+    setNotice(null);
     try {
       await approvePermit(id);
+      setNotice('Permit approved and now ACTIVE.');
       await load();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Approve failed');
+      setError(friendlyPermitError(err, 'Approve failed'));
     } finally {
       setBusyId(null);
     }
@@ -439,11 +473,13 @@ export default function PermitsPage() {
   async function onReject(id: string) {
     setBusyId(id);
     setError(null);
+    setNotice(null);
     try {
       await rejectPermit(id);
+      setNotice('Permit rejected.');
       await load();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Reject failed');
+      setError(friendlyPermitError(err, 'Reject failed'));
     } finally {
       setBusyId(null);
     }
@@ -687,6 +723,12 @@ export default function PermitsPage() {
             </button>
           </div>
         </form>
+      ) : null}
+
+      {notice ? (
+        <p className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
+          {notice}
+        </p>
       ) : null}
 
       {error ? (
@@ -941,26 +983,32 @@ export default function PermitsPage() {
 
                 <div className="flex flex-wrap gap-2 border-t border-slate-100 px-4 py-3">
                   {pending ? (
-                    <>
-                      <button
-                        type="button"
-                        disabled={busyId === p.id}
-                        onClick={() => void onApprove(p.id)}
-                        className="inline-flex flex-1 items-center justify-center gap-1.5 rounded-xl bg-emerald-600 px-3 py-2 text-xs font-bold text-white hover:bg-emerald-500 disabled:opacity-60"
-                      >
-                        <Check className="h-3.5 w-3.5" />
-                        {busyId === p.id ? '…' : 'Approve'}
-                      </button>
-                      <button
-                        type="button"
-                        disabled={busyId === p.id}
-                        onClick={() => void onReject(p.id)}
-                        className="inline-flex flex-1 items-center justify-center gap-1.5 rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-xs font-bold text-rose-700 hover:bg-rose-100 disabled:opacity-60"
-                      >
-                        <X className="h-3.5 w-3.5" />
-                        Reject
-                      </button>
-                    </>
+                    isOwnPermit(p) ? (
+                      <p className="flex-1 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-[11px] font-semibold text-amber-800">
+                        Awaiting a second parking officer — creator ≠ approver.
+                      </p>
+                    ) : (
+                      <>
+                        <button
+                          type="button"
+                          disabled={busyId === p.id}
+                          onClick={() => void onApprove(p.id)}
+                          className="inline-flex flex-1 items-center justify-center gap-1.5 rounded-xl bg-emerald-600 px-3 py-2 text-xs font-bold text-white hover:bg-emerald-500 disabled:opacity-60"
+                        >
+                          <Check className="h-3.5 w-3.5" />
+                          {busyId === p.id ? '…' : 'Approve'}
+                        </button>
+                        <button
+                          type="button"
+                          disabled={busyId === p.id}
+                          onClick={() => void onReject(p.id)}
+                          className="inline-flex flex-1 items-center justify-center gap-1.5 rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-xs font-bold text-rose-700 hover:bg-rose-100 disabled:opacity-60"
+                        >
+                          <X className="h-3.5 w-3.5" />
+                          Reject
+                        </button>
+                      </>
+                    )
                   ) : null}
                   {!p.invoiceId ? (
                     <button
@@ -1079,24 +1127,30 @@ export default function PermitsPage() {
                     <td className="px-4 py-3">
                       <div className="flex flex-wrap gap-1.5">
                         {p.status === 'PENDING' ? (
-                          <>
-                            <button
-                              type="button"
-                              disabled={busyId === p.id}
-                              onClick={() => void onApprove(p.id)}
-                              className="rounded-lg bg-emerald-600 px-2.5 py-1 text-[11px] font-bold text-white hover:bg-emerald-500 disabled:opacity-60"
-                            >
-                              Approve
-                            </button>
-                            <button
-                              type="button"
-                              disabled={busyId === p.id}
-                              onClick={() => void onReject(p.id)}
-                              className="rounded-lg border border-rose-200 bg-rose-50 px-2.5 py-1 text-[11px] font-bold text-rose-700 disabled:opacity-60"
-                            >
-                              Reject
-                            </button>
-                          </>
+                          isOwnPermit(p) ? (
+                            <span className="rounded-lg bg-amber-50 px-2 py-1 text-[10px] font-semibold text-amber-800 ring-1 ring-amber-200">
+                              Awaiting 2nd officer
+                            </span>
+                          ) : (
+                            <>
+                              <button
+                                type="button"
+                                disabled={busyId === p.id}
+                                onClick={() => void onApprove(p.id)}
+                                className="rounded-lg bg-emerald-600 px-2.5 py-1 text-[11px] font-bold text-white hover:bg-emerald-500 disabled:opacity-60"
+                              >
+                                Approve
+                              </button>
+                              <button
+                                type="button"
+                                disabled={busyId === p.id}
+                                onClick={() => void onReject(p.id)}
+                                className="rounded-lg border border-rose-200 bg-rose-50 px-2.5 py-1 text-[11px] font-bold text-rose-700 disabled:opacity-60"
+                              >
+                                Reject
+                              </button>
+                            </>
+                          )
                         ) : null}
                         {!p.invoiceId ? (
                           <button

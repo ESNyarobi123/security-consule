@@ -102,4 +102,14 @@ export class ServiceRequestResponseDto {
   @ApiPropertyOptional() customerName?: string | null;
   @ApiPropertyOptional() incidentId?: string | null;
   @ApiPropertyOptional() incidentNumber?: string | null;
+  /** Support desk enrichment — officer names for the detail drawer. */
+  @ApiPropertyOptional() createdByName?: string | null;
+  @ApiPropertyOptional() acknowledgedByName?: string | null;
+  @ApiPropertyOptional() resolvedByName?: string | null;
+  @ApiPropertyOptional() closedByName?: string | null;
+  /** SoD helpers: the caller cannot process a ticket they filed. */
+  @ApiPropertyOptional() isCreator?: boolean | null;
+  @ApiPropertyOptional() canProcess?: boolean | null;
+  @ApiPropertyOptional({ type: [String] })
+  allowedNextStatuses?: string[];
 }

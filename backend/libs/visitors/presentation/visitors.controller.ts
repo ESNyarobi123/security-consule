@@ -148,6 +148,19 @@ export class VisitorsController {
     return this.service.approveAppointment(id, user);
   }
 
+  @Post('appointments/:id/resend-code')
+  @ApiBearerAuth()
+  @UseGuards(PermissionsGuard)
+  @RequirePermissions('visitors.manage')
+  @ApiOperation({
+    summary:
+      'Resend (rotate) the gate code after approval and re-queue SMS/email delivery',
+  })
+  @ApiOkResponse({ type: IssueCodeResponseDto })
+  resendCode(@Param('id') id: string, @CurrentUser() user: AuthUser) {
+    return this.service.resendVerificationCode(id, user);
+  }
+
   @Post('appointments/:id/reject')
   @ApiBearerAuth()
   @UseGuards(PermissionsGuard)

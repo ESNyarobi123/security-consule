@@ -50,6 +50,11 @@ export class ApprovalInstanceResponseDto {
     description: 'Role required for the current pending step (when PENDING)',
   })
   requiredRole?: string | null;
+  @ApiPropertyOptional({
+    nullable: true,
+    description: 'Amount being approved (used for threshold steps)',
+  })
+  amount?: number | null;
 }
 
 export class WorkflowStepCatalogDto {

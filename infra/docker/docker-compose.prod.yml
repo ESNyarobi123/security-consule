@@ -183,6 +183,10 @@ services:
         npx prisma db execute --file prisma/migrations/0067_marketing_bd_pipeline/migration.sql --schema prisma/schema.prisma &&
         npx prisma db execute --file prisma/migrations/0068_support_ticket_categories/migration.sql --schema prisma/schema.prisma &&
         npx prisma db execute --file prisma/migrations/0069_risk_register/migration.sql --schema prisma/schema.prisma &&
+        npx prisma db execute --file prisma/migrations/0070_recruitment_offer_workflow/migration.sql --schema prisma/schema.prisma &&
+        npx prisma db execute --file prisma/migrations/0071_finance_receipts/migration.sql --schema prisma/schema.prisma &&
+        npx prisma db execute --file prisma/migrations/0072_marketing_commission_lifecycle/migration.sql --schema prisma/schema.prisma &&
+        npx prisma db execute --file prisma/migrations/0073_employee_branch_staff/migration.sql --schema prisma/schema.prisma &&
         if [ \"$$PSSMS_RUN_SEED\" = \"true\" ]; then npm run prisma:seed; else echo 'SKIP_SEED (set PSSMS_RUN_SEED=true to seed)'; fi
       "
     depends_on:

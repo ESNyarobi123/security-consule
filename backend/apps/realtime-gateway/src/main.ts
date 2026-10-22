@@ -13,7 +13,12 @@ async function bootstrap() {
   );
 
   app.setGlobalPrefix('api/v1');
-  app.enableCors({ origin: true, credentials: true });
+  app.enableCors({
+    origin: true,
+    credentials: true,
+    methods: ['GET', 'HEAD', 'PUT', 'PATCH', 'POST', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Authorization', 'Content-Type', 'Accept', 'X-Request-Id'],
+  });
 
   const swaggerConfig = new DocumentBuilder()
     .setTitle('PSSMS Realtime Gateway')

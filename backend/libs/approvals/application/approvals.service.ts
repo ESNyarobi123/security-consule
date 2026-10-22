@@ -15,6 +15,8 @@ import {
   MovementStatus,
   MovementType,
   PayrollCycleStatus,
+  PaymentVoucherStatus,
+  PettyCashVoucherStatus,
   PurchaseRequestStatus,
 } from '@prisma/client';
 import { PrismaService, AuthUser } from '@pssms/shared';
@@ -33,6 +35,8 @@ const IAM_CHANGE_RESOURCE = 'IamChangeRequest';
 const PAYROLL_RESOURCE = 'PayrollCycle';
 const PURCHASE_REQUEST_RESOURCE = 'PurchaseRequest';
 const MOVEMENT_RESOURCE = 'EmployeeMovement';
+const PAYMENT_VOUCHER_RESOURCE = 'PaymentVoucher';
+const PETTY_CASH_RESOURCE = 'PettyCashVoucher';
 
 type StepLike = {
   stepOrder: number;
@@ -249,6 +253,22 @@ export class ApprovalsService {
         );
       } else if (instance.resourceType === MOVEMENT_RESOURCE) {
         await this.syncEmployeeMovementOnTerminal(
+          instance.organizationId,
+          instance.resourceId,
+          status,
+          user.id,
+          dto.remarks,
+        );
+      } else if (instance.resourceType === PAYMENT_VOUCHER_RESOURCE) {
+        await this.syncPaymentVoucherOnTerminal(
+          instance.organizationId,
+          instance.resourceId,
+          status,
+          user.id,
+          dto.remarks,
+        );
+      } else if (instance.resourceType === PETTY_CASH_RESOURCE) {
+        await this.syncPettyCashOnTerminal(
           instance.organizationId,
           instance.resourceId,
           status,
@@ -955,6 +975,135 @@ export class ApprovalsService {
     }
   }
 
+  /**
+   * Portal 35.15 — payment voucher stays actionable when the GM approves or
+   * rejects it from the shared `/approvals` queue, not only from Finance.
+   */
+  private async syncPaymentVoucherOnTerminal(
+    organizationId: string,
+    voucherId: string,
+    approvalStatus: ApprovalStatus,
+    actorId: string,
+    remarks?: string,
+  ): Promise<void> {
+    if (approvalStatus === ApprovalStatus.APPROVED) {
+      const result = await this.prisma.paymentVoucher.updateMany({
+        where: {
+          id: voucherId,
+          organizationId,
+          status: PaymentVoucherStatus.PENDING_APPROVAL,
+        },
+        data: {
+          status: PaymentVoucherStatus.APPROVED,
+          approvedBy: actorId,
+        },
+      });
+      if (result.count > 0) {
+        await this.audit.record({
+          organizationId,
+          actorId,
+          action: 'payment_voucher.approved',
+          resourceType: PAYMENT_VOUCHER_RESOURCE,
+          resourceId: voucherId,
+          after: {
+            status: PaymentVoucherStatus.APPROVED,
+            via: 'approvals.act',
+          },
+        });
+      }
+      return;
+    }
+
+    if (approvalStatus === ApprovalStatus.REJECTED) {
+      const result = await this.prisma.paymentVoucher.updateMany({
+        where: {
+          id: voucherId,
+          organizationId,
+          status: PaymentVoucherStatus.PENDING_APPROVAL,
+        },
+        data: { status: PaymentVoucherStatus.REJECTED },
+      });
+      if (result.count > 0) {
+        await this.audit.record({
+          organizationId,
+          actorId,
+          action: 'payment_voucher.rejected',
+          resourceType: PAYMENT_VOUCHER_RESOURCE,
+          resourceId: voucherId,
+          after: {
+            status: PaymentVoucherStatus.REJECTED,
+            remarks: remarks?.trim() || null,
+            via: 'approvals.act',
+          },
+        });
+      }
+    }
+  }
+
+  /** Portal 35.15 — petty cash approve/reject from the shared queue. */
+  private async syncPettyCashOnTerminal(
+    organizationId: string,
+    voucherId: string,
+    approvalStatus: ApprovalStatus,
+    actorId: string,
+    remarks?: string,
+  ): Promise<void> {
+    if (approvalStatus === ApprovalStatus.APPROVED) {
+      const result = await this.prisma.pettyCashVoucher.updateMany({
+        where: {
+          id: voucherId,
+          organizationId,
+          status: PettyCashVoucherStatus.PENDING,
+        },
+        data: {
+          status: PettyCashVoucherStatus.APPROVED,
+          approvedBy: actorId,
+        },
+      });
+      if (result.count > 0) {
+        await this.audit.record({
+          organizationId,
+          actorId,
+          action: 'petty_cash.voucher.approved',
+          resourceType: PETTY_CASH_RESOURCE,
+          resourceId: voucherId,
+          after: {
+            status: PettyCashVoucherStatus.APPROVED,
+            via: 'approvals.act',
+          },
+        });
+      }
+      return;
+    }
+
+    if (approvalStatus === ApprovalStatus.REJECTED) {
+      const result = await this.prisma.pettyCashVoucher.updateMany({
+        where: {
+          id: voucherId,
+          organizationId,
+          status: PettyCashVoucherStatus.PENDING,
+        },
+        data: {
+          status: PettyCashVoucherStatus.REJECTED,
+          rejectedReason: remarks?.trim() || 'Rejected via approvals queue',
+        },
+      });
+      if (result.count > 0) {
+        await this.audit.record({
+          organizationId,
+          actorId,
+          action: 'petty_cash.voucher.rejected',
+          resourceType: PETTY_CASH_RESOURCE,
+          resourceId: voucherId,
+          after: {
+            status: PettyCashVoucherStatus.REJECTED,
+            via: 'approvals.act',
+          },
+        });
+      }
+    }
+  }
+
   async listWorkflows(organizationId: string): Promise<WorkflowCatalogDto[]> {
     const rows = await this.prisma.workflowDefinition.findMany({
       where: { organizationId },
@@ -1008,6 +1157,7 @@ export class ApprovalsService {
       currentStepOrder: number;
       createdBy: string;
       createdAt: Date;
+      amount?: { toString(): string } | number | null;
     },
     steps?: StepLike[],
   ): ApprovalInstanceResponseDto {
@@ -1025,6 +1175,7 @@ export class ApprovalsService {
       createdAt: i.createdAt,
       currentStepName: current?.name ?? null,
       requiredRole: current?.requiredRole ?? null,
+      amount: i.amount == null ? null : Number(i.amount),
     };
   }
 }

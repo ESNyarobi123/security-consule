@@ -206,6 +206,7 @@ model Branch {
   organization   Organization @relation(fields: [organizationId], references: [id])
   departments    Department[]
   sites          Site[]
+  employees      Employee[]
 
   @@unique([organizationId, code])
   @@map("branches")
@@ -480,12 +481,18 @@ model MarketingCommission {
   currency       String                     @default("TZS")
   status         MarketingCommissionStatus  @default(PENDING)
   notes          String?
-  createdBy      String                     @map("created_by")
-  accruedBy      String?                    @map("accrued_by")
-  accruedAt      DateTime?                  @map("accrued_at")
-  createdAt      DateTime                   @default(now()) @map("created_at")
-  updatedAt      DateTime                   @updatedAt @map("updated_at")
-  lead           MarketingLead              @relation(fields: [leadId], references: [id])
+  createdBy        String                     @map("created_by")
+  accruedBy        String?                    @map("accrued_by")
+  accruedAt        DateTime?                  @map("accrued_at")
+  paidBy           String?                    @map("paid_by")
+  paidAt           DateTime?                  @map("paid_at")
+  paymentReference String?                    @map("payment_reference")
+  voidedBy         String?                    @map("voided_by")
+  voidedAt         DateTime?                  @map("voided_at")
+  voidReason       String?                    @map("void_reason")
+  createdAt        DateTime                   @default(now()) @map("created_at")
+  updatedAt        DateTime                   @updatedAt @map("updated_at")
+  lead             MarketingLead              @relation(fields: [leadId], references: [id])
 
   @@index([organizationId, status])
   @@index([organizationId, leadId])
@@ -1481,12 +1488,15 @@ model Employee {
   mobileMoneyRef      String?            @map("mobile_money_ref")
   mobileMoneyProvider String?            @map("mobile_money_provider")
   department          String?
+  /** Branch posting — Branch Ops (35.23) manages only employees in its own branch. */
+  branchId            String?            @map("branch_id")
   employmentType      EmploymentType     @default(GUARD) @map("employment_type")
   status              EmployeeStatus     @default(ACTIVE)
   hireDate            DateTime?          @map("hire_date")
   createdAt           DateTime           @default(now()) @map("created_at")
   updatedAt           DateTime           @updatedAt @map("updated_at")
   createdBy           String?            @map("created_by")
+  branch              Branch?            @relation(fields: [branchId], references: [id])
   loans               EmployeeLoan[]
   payslips            PayslipSnapshot[]
   disciplineCases     DisciplineCase[]
@@ -1499,6 +1509,7 @@ model Employee {
   @@unique([organizationId, employeeNumber])
   @@index([organizationId, status])
   @@index([organizationId, userId])
+  @@index([organizationId, branchId])
   @@map("employees")
   @@schema("workforce")
 }
@@ -1671,6 +1682,24 @@ model JobApplication {
    * Portal 35.13 — hire checklist JSON [{code,label,done,completedAt}]
    */
   onboardingProgress Json?          @map("onboarding_progress")
+  /**
+   * Portal 35.13 / §14 — formal offer issued to the applicant. HR issues the
+   * terms, the applicant accepts/declines from the careers portal, and only an
+   * ACCEPTED offer can be converted to an Employee record.
+   */
+  offerStatus         JobOfferStatus? @map("offer_status")
+  offerPosition       String?         @map("offer_position")
+  offerDepartment     String?         @map("offer_department")
+  offerEmploymentType EmploymentType? @map("offer_employment_type")
+  offerSalaryAmount   Decimal?        @map("offer_salary_amount") @db.Decimal(16, 2)
+  offerCurrency       String?         @map("offer_currency")
+  offerStartDate      DateTime?       @map("offer_start_date")
+  offerMessage        String?         @map("offer_message")
+  offerIssuedAt       DateTime?       @map("offer_issued_at")
+  offerIssuedBy       String?         @map("offer_issued_by")
+  offerExpiresAt      DateTime?       @map("offer_expires_at")
+  offerRespondedAt    DateTime?       @map("offer_responded_at")
+  offerResponseReason String?         @map("offer_response_reason")
   createdAt       DateTime          @default(now()) @map("created_at")
   referenceNumber String            @map("reference_number")
   posting         JobPosting        @relation(fields: [postingId], references: [id])
@@ -2037,6 +2066,34 @@ model InvoicePayment {
 
   @@index([invoiceId])
   @@map("invoice_payments")
+  @@schema("finance")
+}
+
+/// Portal 35.15 — receipt register: captured receipt details + MinIO scan.
+/// When invoiceId is set the linked InvoicePayment is created too, so AR stays
+/// in sync; the scan itself lives in documents (resourceType FinanceReceipt).
+model FinanceReceipt {
+  id               String           @id @default(uuid())
+  organizationId   String           @map("organization_id")
+  receiptNumber    String           @map("receipt_number")
+  payerType        ReceiptPayerType @map("payer_type")
+  payerName        String           @map("payer_name")
+  customerId       String?          @map("customer_id")
+  invoiceId        String?          @map("invoice_id")
+  invoicePaymentId String?          @map("invoice_payment_id")
+  amount           Decimal          @db.Decimal(14, 2)
+  currency         String           @default("TZS")
+  paymentMethod    PaymentMethod    @map("payment_method")
+  paymentReference String?          @map("payment_reference")
+  receivedAt       DateTime         @map("received_at")
+  notes            String?
+  createdBy        String           @map("created_by")
+  createdAt        DateTime         @default(now()) @map("created_at")
+
+  @@unique([organizationId, receiptNumber])
+  @@index([organizationId, receivedAt])
+  @@index([organizationId, invoiceId])
+  @@map("finance_receipts")
   @@schema("finance")
 }
 
@@ -3468,6 +3525,18 @@ enum ApplicationStatus {
   @@schema("recruitment")
 }
 
+/**
+ * Portal 35.13 — applicant decision on the formal offer. HIRED requires ACCEPTED.
+ */
+enum JobOfferStatus {
+  PENDING
+  ACCEPTED
+  DECLINED
+  EXPIRED
+
+  @@schema("recruitment")
+}
+
 enum B2bPartnerStatus {
   PENDING
   APPROVED
@@ -3577,6 +3646,16 @@ enum PaymentMethod {
   CASH
   CHEQUE
   MOBILE_MONEY
+  OTHER
+
+  @@schema("finance")
+}
+
+/// Portal 35.15 — who paid (receipt register).
+enum ReceiptPayerType {
+  CUSTOMER
+  SUPPLIER
+  EMPLOYEE
   OTHER
 
   @@schema("finance")

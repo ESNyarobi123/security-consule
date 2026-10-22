@@ -70,7 +70,9 @@ async function coreFetch<T>(
     fetch(`${coreUrl()}${path}`, {
       ...init,
       headers: {
-        'Content-Type': 'application/json',
+        ...(init?.body != null
+          ? { 'Content-Type': 'application/json' }
+          : {}),
         ...authHeaders(authToken ?? init?.token),
         ...init?.headers,
       },
@@ -357,6 +359,61 @@ export type DeveloperSystemsMonitor = {
 
 export const getDeveloperSystems = (token?: string) =>
   coreFetch<DeveloperSystemsMonitor>('/api/v1/developer/systems', { token });
+
+// ── Connected-systems board (Portal 35.24) ──
+
+export type ConnectivityStatus =
+  | 'CONNECTED'
+  | 'CONSOLE'
+  | 'IDLE'
+  | 'DEGRADED'
+  | 'NOT_CONFIGURED'
+  | 'DEFERRED';
+
+export type ConnectivityGroup =
+  | 'PLATFORM'
+  | 'MESSAGING'
+  | 'PAYMENTS'
+  | 'DEVICES'
+  | 'DATA';
+
+export type ConnectivitySystem = {
+  code: string;
+  name: string;
+  group: ConnectivityGroup;
+  status: ConnectivityStatus;
+  live: boolean;
+  configured: boolean;
+  detail: string;
+  lastActivityAt: string | null;
+  activity24h: number;
+  failures24h: number;
+  evidence: string[];
+  href: string;
+};
+
+export type ConnectivityReport = {
+  generatedAt: string;
+  windowHours: number;
+  summary: {
+    total: number;
+    connected: number;
+    console: number;
+    idle: number;
+    degraded: number;
+    notConfigured: number;
+    deferred: number;
+    traffic24h: number;
+    failures24h: number;
+  };
+  services: PlatformServiceHealth[];
+  systems: ConnectivitySystem[];
+  notes: string[];
+};
+
+/** GET /api/v1/developer/connectivity — JWT required */
+export const getDeveloperConnectivity = (token?: string) =>
+  coreFetch<ConnectivityReport>('/api/v1/developer/connectivity', { token });
 
 export type DeveloperExportKind = 'logs' | 'webhooks' | 'outbox';
 

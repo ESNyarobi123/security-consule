@@ -69,7 +69,11 @@ export default function LoginPage() {
         );
         return;
       }
-      setParkingSession(result.tokens.accessToken, result.user);
+      setParkingSession(
+        result.tokens.accessToken,
+        result.user,
+        result.tokens.refreshToken,
+      );
       router.push('/dashboard');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Login failed');

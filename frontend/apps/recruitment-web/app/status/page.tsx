@@ -2,11 +2,15 @@
 
 import {
   getApplicationStatus,
+  respondToJobOffer,
   type ApplicationStatusLookup,
+  type JobOffer,
 } from '@pssms/api-client';
 import {
   AlertTriangle,
   BadgeCheck,
+  BriefcaseBusiness,
+  CalendarDays,
   CheckCircle2,
   Circle,
   Clock3,
@@ -15,6 +19,7 @@ import {
   MapPin,
   Search,
   ShieldCheck,
+  Wallet,
   XCircle,
 } from 'lucide-react';
 import { FormEvent, useState } from 'react';
@@ -66,18 +71,28 @@ export default function StatusLookupPage() {
   const [result, setResult] = useState<ApplicationStatusLookup | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [offerBusy, setOfferBusy] = useState(false);
+  const [offerNotice, setOfferNotice] = useState<string | null>(null);
+  const [offerError, setOfferError] = useState<string | null>(null);
+  const [declineReason, setDeclineReason] = useState('');
+  const [showDecline, setShowDecline] = useState(false);
+
+  async function lookup(ref: string, mail: string) {
+    const data = await getApplicationStatus(ref.trim(), mail.trim());
+    setResult(data);
+    return data;
+  }
 
   async function onSubmit(e: FormEvent) {
     e.preventDefault();
     setLoading(true);
     setError(null);
     setResult(null);
+    setOfferNotice(null);
+    setOfferError(null);
+    setShowDecline(false);
     try {
-      const data = await getApplicationStatus(
-        reference.trim(),
-        email.trim(),
-      );
-      setResult(data);
+      await lookup(reference, email);
     } catch (err) {
       setError(
         err instanceof Error
@@ -86,6 +101,38 @@ export default function StatusLookupPage() {
       );
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function answerOffer(decision: 'ACCEPT' | 'DECLINE') {
+    if (!result) return;
+    setOfferBusy(true);
+    setOfferError(null);
+    setOfferNotice(null);
+    try {
+      const receipt = await respondToJobOffer({
+        reference: result.referenceNumber,
+        email: email.trim(),
+        decision,
+        reason:
+          decision === 'DECLINE' ? declineReason.trim() || undefined : undefined,
+      });
+      setOfferNotice(
+        decision === 'ACCEPT'
+          ? 'Offer accepted. HIGHLINK Recruitment has been notified and will confirm your start date.'
+          : 'Offer declined. Your application has been withdrawn — thank you for telling us.',
+      );
+      setShowDecline(false);
+      setDeclineReason('');
+      const refreshed = await lookup(result.referenceNumber, email);
+      if (refreshed) setResult(refreshed);
+      void receipt;
+    } catch (err) {
+      setOfferError(
+        err instanceof Error ? err.message : 'Could not record your decision',
+      );
+    } finally {
+      setOfferBusy(false);
     }
   }
 
@@ -218,6 +265,21 @@ export default function StatusLookupPage() {
                   </p>
                 </div>
               </div>
+
+              {result.offer ? (
+                <OfferCard
+                  offer={result.offer}
+                  busy={offerBusy}
+                  notice={offerNotice}
+                  error={offerError}
+                  showDecline={showDecline}
+                  declineReason={declineReason}
+                  onDeclineReason={setDeclineReason}
+                  onToggleDecline={() => setShowDecline((v) => !v)}
+                  onAccept={() => void answerOffer('ACCEPT')}
+                  onDecline={() => void answerOffer('DECLINE')}
+                />
+              ) : null}
 
               {result.stages?.length ? (
                 <ol className="mt-5 grid gap-2 px-6 sm:grid-cols-5">
@@ -364,10 +426,229 @@ export default function StatusLookupPage() {
                   When the application was submitted and tracked in the system.
                 </span>
               </li>
+              <li className="flex gap-3">
+                <span className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-indigo-50 text-indigo-700 ring-1 ring-indigo-100">
+                  <BadgeCheck className="h-4 w-4" />
+                </span>
+                <span>
+                  Your offer terms, and the ACCEPT / DECLINE buttons while the
+                  offer is still open.
+                </span>
+              </li>
             </ul>
           </section>
         </aside>
       </div>
     </CareersShell>
+  );
+}
+
+function money(amount?: string | null, currency?: string | null) {
+  if (!amount) return 'To be confirmed';
+  const n = Number(amount);
+  if (Number.isNaN(n)) return `${currency ?? ''} ${amount}`.trim();
+  return `${currency ?? ''} ${n.toLocaleString()}`.trim();
+}
+
+function day(iso?: string | null) {
+  if (!iso) return 'To be agreed';
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return 'To be agreed';
+  return d.toLocaleDateString(undefined, {
+    day: 'numeric',
+    month: 'long',
+    year: 'numeric',
+  });
+}
+
+function OfferCard({
+  offer,
+  busy,
+  notice,
+  error,
+  showDecline,
+  declineReason,
+  onDeclineReason,
+  onToggleDecline,
+  onAccept,
+  onDecline,
+}: {
+  offer: JobOffer;
+  busy: boolean;
+  notice: string | null;
+  error: string | null;
+  showDecline: boolean;
+  declineReason: string;
+  onDeclineReason: (v: string) => void;
+  onToggleDecline: () => void;
+  onAccept: () => void;
+  onDecline: () => void;
+}) {
+  const open = Boolean(offer.canRespond);
+  const tone =
+    offer.status === 'ACCEPTED'
+      ? 'border-emerald-300 bg-emerald-50/70'
+      : offer.status === 'DECLINED'
+        ? 'border-rose-200 bg-rose-50/70'
+        : offer.status === 'EXPIRED'
+          ? 'border-slate-200 bg-slate-50'
+          : 'border-amber-300 bg-amber-50/70';
+
+  return (
+    <div className={`mx-6 mt-5 rounded-xl border p-4 ${tone}`}>
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div>
+          <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-600">
+            Formal offer
+          </p>
+          <p className="mt-1 text-lg font-semibold text-slate-900">
+            {offer.position ?? 'Offer issued'}
+          </p>
+          <p className="text-sm text-slate-600">
+            {offer.department ?? 'HIGHLINK'}
+            {offer.employmentType ? ` · ${offer.employmentType}` : ''}
+          </p>
+        </div>
+        <span
+          className={`rounded-full px-3 py-1 text-[11px] font-bold uppercase ${
+            offer.status === 'ACCEPTED'
+              ? 'bg-emerald-100 text-emerald-800'
+              : offer.status === 'DECLINED'
+                ? 'bg-rose-100 text-rose-800'
+                : offer.status === 'EXPIRED'
+                  ? 'bg-slate-200 text-slate-700'
+                  : 'bg-amber-100 text-amber-900'
+          }`}
+        >
+          {offer.status === 'PENDING' ? 'Action needed' : offer.status}
+        </span>
+      </div>
+
+      <dl className="mt-4 grid gap-3 sm:grid-cols-3">
+        <div className="rounded-lg bg-white/70 p-3 ring-1 ring-slate-200">
+          <dt className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+            <Wallet className="h-3.5 w-3.5" /> Monthly gross
+          </dt>
+          <dd className="mt-1 text-sm font-semibold text-slate-900">
+            {money(offer.salaryAmount, offer.currency)}
+          </dd>
+        </div>
+        <div className="rounded-lg bg-white/70 p-3 ring-1 ring-slate-200">
+          <dt className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+            <CalendarDays className="h-3.5 w-3.5" /> Proposed start
+          </dt>
+          <dd className="mt-1 text-sm font-semibold text-slate-900">
+            {day(offer.startDate)}
+          </dd>
+        </div>
+        <div className="rounded-lg bg-white/70 p-3 ring-1 ring-slate-200">
+          <dt className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+            <BriefcaseBusiness className="h-3.5 w-3.5" /> Respond by
+          </dt>
+          <dd className="mt-1 text-sm font-semibold text-slate-900">
+            {day(offer.expiresAt)}
+          </dd>
+        </div>
+      </dl>
+
+      {offer.message ? (
+        <p className="mt-3 whitespace-pre-line rounded-lg bg-white/70 p-3 text-sm text-slate-700 ring-1 ring-slate-200">
+          {offer.message}
+        </p>
+      ) : null}
+
+      {notice ? (
+        <p className="mt-3 rounded-lg border border-emerald-300 bg-emerald-50 px-3 py-2 text-sm text-emerald-900">
+          {notice}
+        </p>
+      ) : null}
+      {error ? (
+        <p className="mt-3 rounded-lg border border-rose-300 bg-rose-50 px-3 py-2 text-sm text-rose-900">
+          {error}
+        </p>
+      ) : null}
+
+      {open && !notice ? (
+        <div className="mt-4">
+          <p className="text-sm text-slate-700">
+            Accepting confirms you agree to the terms above. Declining withdraws
+            this application.
+          </p>
+          {showDecline ? (
+            <div className="mt-3 space-y-2">
+              <label className="block">
+                <span className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                  Reason for declining (optional)
+                </span>
+                <textarea
+                  rows={2}
+                  value={declineReason}
+                  onChange={(e) => onDeclineReason(e.target.value)}
+                  placeholder="e.g. accepted another offer, pay below expectation…"
+                  className={`${inputClass} mt-1`}
+                />
+              </label>
+              <div className="flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={onDecline}
+                  className="rounded-xl bg-rose-700 px-4 py-2.5 text-sm font-semibold text-white hover:bg-rose-600 disabled:opacity-50"
+                >
+                  {busy ? 'Sending…' : 'Confirm decline'}
+                </button>
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={onToggleDecline}
+                  className="rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-sm font-medium text-slate-700"
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          ) : (
+            <div className="mt-3 flex flex-wrap gap-2">
+              <button
+                type="button"
+                disabled={busy}
+                onClick={onAccept}
+                className="inline-flex items-center gap-1.5 rounded-xl bg-emerald-700 px-4 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-emerald-600 disabled:opacity-50"
+              >
+                <CheckCircle2 className="h-4 w-4" />
+                {busy ? 'Sending…' : 'Accept offer'}
+              </button>
+              <button
+                type="button"
+                disabled={busy}
+                onClick={onToggleDecline}
+                className="inline-flex items-center gap-1.5 rounded-xl border border-rose-300 bg-white px-4 py-2.5 text-sm font-semibold text-rose-700 hover:bg-rose-50 disabled:opacity-50"
+              >
+                <XCircle className="h-4 w-4" />
+                Decline offer
+              </button>
+            </div>
+          )}
+        </div>
+      ) : null}
+
+      {!open && offer.status === 'PENDING' ? (
+        <p className="mt-3 text-sm text-slate-600">
+          The response window has closed. Contact HIGHLINK Recruitment to re-issue
+          the offer.
+        </p>
+      ) : null}
+      {offer.status === 'ACCEPTED' ? (
+        <p className="mt-3 text-sm text-emerald-900">
+          You accepted this offer on {day(offer.respondedAt)}. HIGHLINK HR will
+          continue with onboarding.
+        </p>
+      ) : null}
+      {offer.status === 'DECLINED' ? (
+        <p className="mt-3 text-sm text-rose-900">
+          You declined this offer on {day(offer.respondedAt)}.
+        </p>
+      ) : null}
+    </div>
   );
 }

@@ -80,7 +80,9 @@ async function coreFetch<T>(
     fetch(`${coreUrl()}${path}`, {
       ...rest,
       headers: {
-        ...(skipJsonContentType || rest.body instanceof FormData
+        ...(rest.body == null ||
+        skipJsonContentType ||
+        rest.body instanceof FormData
           ? {}
           : { 'Content-Type': 'application/json' }),
         ...(await resolveAuthHeaders(access ?? token)),
@@ -136,16 +138,24 @@ export const listDocuments = (params: {
   });
 };
 
+export const DOC_MAX_BYTES = 5 * 1024 * 1024;
+
 export async function uploadDocument(params: {
   file: File;
   resourceType: string;
   resourceId: string;
   token?: string;
 }): Promise<DocumentObject> {
+  if (params.file.size > DOC_MAX_BYTES) {
+    throw new Error(
+      `File exceeds maximum size of 5MB (got ${(params.file.size / (1024 * 1024)).toFixed(1)}MB)`,
+    );
+  }
   const body = new FormData();
-  body.append('file', params.file);
+  // Fields before file — some multipart parsers only expose early fields with .file()
   body.append('resourceType', params.resourceType);
   body.append('resourceId', params.resourceId);
+  body.append('file', params.file);
   return coreFetch<DocumentObject>('/api/v1/documents/upload', {
     method: 'POST',
     body,

@@ -1,19 +1,27 @@
+import { defaultPortal } from '@pssms/permissions';
+import type { SessionUser } from '@pssms/auth';
 import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
 
 const PUBLIC = ['/login', '/auth/callback'];
 
-function mustChangePassword(request: NextRequest): boolean {
+function sessionUser(request: NextRequest): SessionUser | null {
   const raw = request.cookies.get('pssms_admin_user')?.value;
-  if (!raw) return false;
+  if (!raw) return null;
   try {
-    const user = JSON.parse(decodeURIComponent(raw)) as {
-      mustChangePassword?: boolean;
-    };
-    return user.mustChangePassword === true;
+    return JSON.parse(decodeURIComponent(raw)) as SessionUser;
   } catch {
-    return false;
+    return null;
   }
+}
+
+function mustChangePassword(request: NextRequest): boolean {
+  const user = sessionUser(request) as (SessionUser & { mustChangePassword?: boolean }) | null;
+  return user?.mustChangePassword === true;
+}
+
+function firstPortal(request: NextRequest): string {
+  return defaultPortal(sessionUser(request));
 }
 
 export function middleware(request: NextRequest) {
@@ -25,11 +33,15 @@ export function middleware(request: NextRequest) {
     return NextResponse.redirect(new URL('/change-password', request.url));
   }
 
-  if (pathname === '/login' && token) {
+  if ((pathname === '/login' || pathname === '/') && token) {
     if (forcePw) {
       return NextResponse.redirect(new URL('/change-password', request.url));
     }
-    return NextResponse.redirect(new URL('/superadmin', request.url));
+    const portal = firstPortal(request);
+    // No known portal: let the request through instead of looping on /login.
+    if (portal !== '/login') {
+      return NextResponse.redirect(new URL(portal, request.url));
+    }
   }
   if (pathname === '/change-password' && !token) {
     return NextResponse.redirect(new URL('/login', request.url));

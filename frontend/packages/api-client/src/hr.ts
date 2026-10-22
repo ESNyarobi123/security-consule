@@ -61,7 +61,11 @@ async function coreFetch<T>(
     fetch(`${coreUrl()}${path}`, {
       ...init,
       headers: {
-        'Content-Type': 'application/json',
+        // Fastify rejects an empty body when JSON content-type is set, so only
+        // advertise JSON when this request actually carries a body.
+        ...(init?.body != null
+          ? { 'Content-Type': 'application/json' }
+          : {}),
         ...authHeaders(authToken ?? init?.token),
         ...init?.headers,
       },

@@ -60,7 +60,9 @@ async function coreFetch<T>(
     fetch(`${coreUrl()}${path}`, {
       ...rest,
       headers: {
-        'Content-Type': 'application/json',
+        ...(rest.body != null
+          ? { 'Content-Type': 'application/json' }
+          : {}),
         ...authHeaders(access ?? token),
         ...(rest.headers ?? {}),
       },
@@ -215,6 +217,87 @@ export const listEssPayslips = (token?: string) =>
 
 export const getEssPayslip = (id: string, token?: string) =>
   coreFetch<EssPayslip>(`/api/v1/ess/payslips/${id}`, { token });
+
+/**
+ * Payroll portal self-service (`/payroll/me/*`).
+ * Self-scoped on the server and deliberately **not** gated by `payroll.manage`,
+ * so an employee never needs an admin to unlock their own payslips.
+ */
+export type MyPayrollPayslip = {
+  id: string;
+  cycleId: string;
+  cycleCode: string;
+  cycleStatus: string;
+  tenantType: string;
+  periodStart: string;
+  periodEnd: string;
+  employeeId?: string | null;
+  employeeNumber: string;
+  employeeName: string;
+  grossPay: number;
+  totalDeductions: number;
+  netPay: number;
+  createdAt: string;
+  inputsSnapshot?: unknown;
+  allowancesSnapshot?: unknown;
+  deductionsSnapshot?: unknown;
+  calculationResult?: {
+    lines?: Array<{
+      code: string;
+      label: string;
+      amount: number;
+      type: 'EARNING' | 'DEDUCTION';
+    }>;
+    grossPay?: number;
+    totalDeductions?: number;
+    netPay?: number;
+    meta?: Record<string, unknown>;
+  };
+};
+
+export const listMyPayrollPayslips = (token?: string) =>
+  coreFetch<MyPayrollPayslip[]>('/api/v1/payroll/me/payslips', { token });
+
+export const getMyPayrollPayslip = (id: string, token?: string) =>
+  coreFetch<MyPayrollPayslip>(`/api/v1/payroll/me/payslips/${id}`, { token });
+
+/**
+ * Payroll self-service companion data. Same self-scoping as payslips and — by
+ * design — no `ess.access` dependency, so an ordinary employee never needs an
+ * administrator to unlock their own profile, leave or loan position.
+ */
+export const getMyPayrollProfile = (token?: string) =>
+  coreFetch<EssProfile>('/api/v1/payroll/me/profile', { token });
+
+export const listMyPayrollLeaveTypes = (token?: string) =>
+  coreFetch<EssLeaveType[]>('/api/v1/payroll/me/leave-types', { token });
+
+export const listMyPayrollLeaveBalances = (token?: string) =>
+  coreFetch<EssLeaveBalance[]>('/api/v1/payroll/me/leave-balances', {
+    token,
+  });
+
+export const listMyPayrollLeaveRequests = (token?: string) =>
+  coreFetch<EssLeaveRequest[]>('/api/v1/payroll/me/leave-requests', { token });
+
+export const applyMyPayrollLeave = (
+  body: {
+    leaveTypeId: string;
+    startDate: string;
+    endDate: string;
+    days: number;
+    reason: string;
+  },
+  token?: string,
+) =>
+  coreFetch<EssLeaveRequest>('/api/v1/payroll/me/leave', {
+    method: 'POST',
+    body: JSON.stringify(body),
+    token,
+  });
+
+export const getMyPayrollLoanBalance = (token?: string) =>
+  coreFetch<EssLoanBalance>('/api/v1/payroll/me/loan-balance', { token });
 
 export const listEssLoans = (token?: string) =>
   coreFetch<EssLoan[]>('/api/v1/ess/loans', { token });

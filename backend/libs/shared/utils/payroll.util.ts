@@ -81,10 +81,16 @@ export function calculatePayslip(
   });
 
   let overtimeHours = 0;
-  if (input.hourlyRate && input.hoursWorked > standardHours) {
+  // Monthly-paid employees usually have no explicit hourly rate on the salary
+  // assignment. Derive it from the basic salary so approved attendance beyond
+  // the standard hours still produces an overtime earning line.
+  const hourlyRate =
+    input.hourlyRate ??
+    (standardHours > 0 ? input.basicSalary / standardHours : 0);
+  if (hourlyRate > 0 && input.hoursWorked > standardHours) {
     overtimeHours = round2(input.hoursWorked - standardHours);
     const overtimeAmount = round2(
-      overtimeHours * input.hourlyRate * otMultiplier,
+      overtimeHours * hourlyRate * otMultiplier,
     );
     if (overtimeAmount > 0) {
       lines.push({

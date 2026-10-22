@@ -8,6 +8,11 @@ import {
 import { FastifyReply, FastifyRequest } from 'fastify';
 import { randomUUID } from 'crypto';
 
+function humanizeCode(code: string): string {
+  const text = code.replace(/_/g, ' ').toLowerCase();
+  return text.charAt(0).toUpperCase() + text.slice(1);
+}
+
 @Catch()
 export class HttpExceptionFilter implements ExceptionFilter {
   catch(exception: unknown, host: ArgumentsHost): void {
@@ -46,6 +51,11 @@ export class HttpExceptionFilter implements ExceptionFilter {
           details = obj.message;
           message = 'Validation failed';
           code = 'VALIDATION_ERROR';
+        }
+        // Many services throw `{ error: 'APP_CODE' }` with no message.
+        // Surface a readable message instead of a scary generic 500 text.
+        if (message === 'Internal server error' && typeof rawError === 'string') {
+          message = humanizeCode(code);
         }
       }
       // Nest often returns error: "Unauthorized" — normalize only generic titles.

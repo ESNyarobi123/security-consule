@@ -117,6 +117,87 @@ export function eventSeverity(payload: Record<string, unknown>): string {
   return typeof v === 'string' && v.trim() ? v.trim().toUpperCase() : 'INFO';
 }
 
+/** Alert severity chip — CRITICAL/HIGH stand out on the dark wall. */
+export function severityChipClass(severity?: string | null): string {
+  switch ((severity ?? '').toUpperCase()) {
+    case 'CRITICAL':
+    case 'ALARM':
+      return 'bg-rose-500/20 text-rose-200 ring-rose-400/40';
+    case 'HIGH':
+      return 'bg-amber-400/20 text-amber-200 ring-amber-400/40';
+    case 'MEDIUM':
+      return 'bg-sky-400/20 text-sky-200 ring-sky-400/40';
+    case 'LOW':
+      return 'bg-emerald-400/15 text-emerald-200 ring-emerald-400/30';
+    default:
+      return 'bg-slate-400/15 text-slate-300 ring-slate-400/30';
+  }
+}
+
+export function severityDot(severity?: string | null): string {
+  switch ((severity ?? '').toUpperCase()) {
+    case 'CRITICAL':
+    case 'ALARM':
+      return '#fb7185';
+    case 'HIGH':
+      return '#f59e0b';
+    case 'MEDIUM':
+      return '#38bdf8';
+    case 'LOW':
+      return '#34d399';
+    default:
+      return '#94a3b8';
+  }
+}
+
+export function alertStatusLabel(status?: string | null): string {
+  switch ((status ?? '').toUpperCase()) {
+    case 'RECEIVED':
+      return 'Open · awaiting review';
+    case 'FAILED':
+      return 'Open · delivery failed';
+    case 'PROCESSED':
+      return 'Reviewed';
+    case 'IGNORED':
+      return 'Ignored';
+    default:
+      return status ?? '—';
+  }
+}
+
+export function formatAge(minutes?: number | null): string {
+  if (minutes == null) return '—';
+  if (minutes < 1) return 'just now';
+  if (minutes < 60) return `${minutes}m ago`;
+  const hrs = Math.floor(minutes / 60);
+  if (hrs < 24) return `${hrs}h ${minutes % 60}m ago`;
+  return `${Math.floor(hrs / 24)}d ago`;
+}
+
+/** Same palette for the light (daylight) alert inbox pages. */
+export function severityChipLight(severity?: string | null): string {
+  switch ((severity ?? '').toUpperCase()) {
+    case 'CRITICAL':
+    case 'ALARM':
+      return 'bg-rose-50 text-rose-700 ring-rose-200';
+    case 'HIGH':
+      return 'bg-amber-50 text-amber-800 ring-amber-200';
+    case 'MEDIUM':
+      return 'bg-sky-50 text-sky-800 ring-sky-200';
+    case 'LOW':
+      return 'bg-emerald-50 text-emerald-800 ring-emerald-200';
+    default:
+      return 'bg-slate-50 text-slate-700 ring-slate-200';
+  }
+}
+
+export function cameraLabel(camera?: {
+  name: string;
+  code: string;
+} | null): string {
+  return camera ? `${camera.name} (${camera.code})` : 'Unassigned camera';
+}
+
 export function formatApiError(err: unknown): string {
   const raw = err instanceof Error ? err.message : String(err);
   try {

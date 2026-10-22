@@ -11,6 +11,7 @@ import type {
   Invoice,
   VisitorAppointment,
 } from './admin';
+import { ApiEnvelope, parseApiEnvelope } from './errors';
 
 export type { CustomerContact, CustomerContactRole } from './admin';
 
@@ -18,43 +19,6 @@ const coreUrl = () =>
   process.env.NEXT_PUBLIC_CORE_API_URL ??
   process.env.NEXT_PUBLIC_API_URL ??
   'http://localhost:4001';
-
-type ApiEnvelope<T> = {
-  success: boolean;
-  data: T;
-  meta?: Record<string, unknown>;
-  error?: { code?: string; message?: string };
-};
-
-function errorMessageFromBody(text: string, fallback: string): string {
-  try {
-    const json = JSON.parse(text) as {
-      error?: { message?: string | string[] };
-      message?: string;
-    };
-    const msg = json.error?.message ?? json.message;
-    if (Array.isArray(msg)) return msg.join('; ');
-    if (typeof msg === 'string' && msg.trim()) return msg;
-  } catch {
-    /* not JSON */
-  }
-  return text.trim() || fallback;
-}
-
-async function parseEnvelope<T>(res: Response): Promise<T> {
-  const text = await res.text();
-  if (!res.ok) {
-    throw new Error(errorMessageFromBody(text, `Request failed (${res.status})`));
-  }
-  if (!text) throw new Error('Empty response from API');
-  const json = JSON.parse(text) as ApiEnvelope<T>;
-  if (json.success === false) {
-    throw new Error(
-      errorMessageFromBody(text, 'Request failed'),
-    );
-  }
-  return json.data;
-}
 
 /** Single-flight refresh so concurrent 401s share one refresh call. */
 let customerRefreshInFlight: Promise<string | null> | null = null;
@@ -97,7 +61,9 @@ async function customerFetch<T>(
     fetch(`${coreUrl()}${path}`, {
       ...init,
       headers: {
-        'Content-Type': 'application/json',
+        ...(init?.body != null
+          ? { 'Content-Type': 'application/json' }
+          : {}),
         ...customerAuthHeaders(authToken ?? init?.token),
         ...init?.headers,
       },
@@ -119,7 +85,7 @@ async function customerFetch<T>(
       }
     }
   }
-  return parseEnvelope<T>(res);
+  return parseApiEnvelope<T>(res);
 }
 
 export type CustomerProfile = {
@@ -285,7 +251,7 @@ export async function customerLogin(email: string, password: string) {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ email, password }),
   });
-  return parseEnvelope<LoginResult>(res);
+  return parseApiEnvelope<LoginResult>(res);
 }
 
 /** GET /customers/me */
@@ -311,6 +277,12 @@ export type GateCodeDelivery = {
   email?: boolean;
   sms?: boolean;
   whatsapp?: boolean;
+  /** E.164 number the SMS was queued to (null when the visitor gave no phone) */
+  smsRecipient?: string | null;
+  /** Transport the integration gateway will use for the SMS. */
+  smsProvider?: string;
+  /** False means console/credentials missing — queued but not delivered. */
+  smsLive?: boolean;
 };
 
 /** POST /visitors/appointments/:id/approve — host issues gate code */
@@ -323,6 +295,22 @@ export const approveCustomerVisitor = (id: string, token?: string) =>
     gateId?: string | null;
     delivery?: GateCodeDelivery;
   }>(`/api/v1/visitors/appointments/${id}/approve`, {
+    method: 'POST',
+    body: JSON.stringify({}),
+    token,
+  });
+
+/** POST /visitors/appointments/:id/resend-code — host re-sends the gate code */
+export const resendCustomerVisitorCode = (id: string, token?: string) =>
+  customerFetch<{
+    appointment: VisitorAppointment;
+    verificationCode: string;
+    validUntil: string;
+    siteId: string;
+    gateId?: string | null;
+    delivery?: GateCodeDelivery;
+    resent?: boolean;
+  }>(`/api/v1/visitors/appointments/${id}/resend-code`, {
     method: 'POST',
     body: JSON.stringify({}),
     token,

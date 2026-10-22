@@ -28,6 +28,11 @@ export type KpiItem = {
   value: number;
   source: 'live' | 'snapshot';
   asOf: string;
+  priorValue?: number | null;
+  deltaPct?: number | null;
+  /** True when the live query failed — `value` must not be read as a real zero. */
+  degraded?: boolean;
+  error?: string;
   breakdown?: Record<string, unknown>;
 };
 
@@ -55,6 +60,7 @@ export type ExecutiveDashboard = {
   generatedAt: string;
   period: { from: string; to: string; granularity: string };
   kpis: KpiItem[];
+  degradedKpis?: string[];
   cache: { hit: boolean; expiresAt: string | null };
 };
 

@@ -41,8 +41,9 @@ function SuccessContent() {
   return (
     <VisitorShell title="Appointment submitted" active="success">
       <p className="mt-2 text-sm text-slate-500">
-        Keep this visitor pass. You have a reference number only — the gate code
-        comes after host approval and is never shown here.
+        Keep this visitor pass. You have a reference number only — once your host
+        approves, the gate verification code is sent to your phone by SMS (and
+        email if you gave one). It is never shown at booking.
       </p>
 
       <div className="no-print mt-4 flex flex-wrap items-center gap-3">

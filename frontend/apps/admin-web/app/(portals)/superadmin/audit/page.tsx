@@ -1,8 +1,9 @@
 'use client';
 
 import { listAuditLogs, type AuditLog } from '@pssms/api-client';
-import { GlassCard, btnSecondary } from '@pssms/ui';
+import { btnSecondary } from '@pssms/ui';
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { AuditEmpty, AuditLogRoster } from '../../_components/AuditTrail';
 import { fieldCls, formatApiError } from '../_components/shared';
 
 export default function SuperAdminAuditPage() {
@@ -11,6 +12,7 @@ export default function SuperAdminAuditPage() {
   const [loading, setLoading] = useState(true);
   const [query, setQuery] = useState('');
   const [resource, setResource] = useState('all');
+  const [actor, setActor] = useState('all');
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -33,19 +35,36 @@ export default function SuperAdminAuditPage() {
     return Array.from(set).sort();
   }, [rows]);
 
+  const actors = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const r of rows) {
+      const id = r.actorId ?? 'system';
+      const label = r.actorName ?? (r.actorId ? 'Unknown user' : 'System');
+      if (!map.has(id)) map.set(id, label);
+    }
+    return Array.from(map.entries()).sort((a, b) => a[1].localeCompare(b[1]));
+  }, [rows]);
+
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
     return rows.filter((r) => {
       if (resource !== 'all' && r.resourceType !== resource) return false;
+      if (actor !== 'all') {
+        const id = r.actorId ?? 'system';
+        if (id !== actor) return false;
+      }
       if (!q) return true;
       return (
         r.action.toLowerCase().includes(q) ||
+        (r.actionLabel ?? '').toLowerCase().includes(q) ||
         r.resourceType.toLowerCase().includes(q) ||
         (r.resourceId ?? '').toLowerCase().includes(q) ||
-        (r.actorId ?? '').toLowerCase().includes(q)
+        (r.actorName ?? '').toLowerCase().includes(q) ||
+        (r.actorEmail ?? '').toLowerCase().includes(q) ||
+        (r.summary ?? '').toLowerCase().includes(q)
       );
     });
-  }, [rows, query, resource]);
+  }, [rows, query, resource, actor]);
 
   return (
     <div className="space-y-4">
@@ -55,8 +74,11 @@ export default function SuperAdminAuditPage() {
             System logs & audit controls
           </h1>
           <p className="mt-1 max-w-2xl text-sm text-[#605e5c]">
-            Append-only organization audit trail. Mutations already write here.
-            DPO/compliance registers stay on the Compliance portal.
+            Append-only organization audit trail. Every row names the officer who
+            acted, the action taken, and the fields that changed — open
+            <span className="font-semibold"> Details</span> for the full
+            before/after record. DPO/compliance registers stay on the Compliance
+            portal.
           </p>
         </div>
         <button type="button" className={btnSecondary} onClick={() => void refresh()}>
@@ -71,7 +93,7 @@ export default function SuperAdminAuditPage() {
       <div className="flex flex-wrap gap-2">
         <input
           className={fieldCls}
-          placeholder="Filter action / resource"
+          placeholder="Filter officer / action / resource"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
         />
@@ -87,45 +109,34 @@ export default function SuperAdminAuditPage() {
             </option>
           ))}
         </select>
+        <select
+          className={fieldCls}
+          value={actor}
+          onChange={(e) => setActor(e.target.value)}
+        >
+          <option value="all">All officers</option>
+          {actors.map(([id, label]) => (
+            <option key={id} value={id}>
+              {label}
+            </option>
+          ))}
+        </select>
       </div>
-      <GlassCard glow="none" className="overflow-x-auto p-0">
-        <table className="w-full min-w-[720px] text-left text-sm">
-          <thead>
-            <tr className="border-b border-[#e1dfdd] text-xs uppercase text-[#605e5c]">
-              <th className="px-3 py-2">When</th>
-              <th className="px-3 py-2">Action</th>
-              <th className="px-3 py-2">Resource</th>
-              <th className="px-3 py-2">Id</th>
-              <th className="px-3 py-2">Actor</th>
-            </tr>
-          </thead>
-          <tbody>
-            {loading && rows.length === 0 ? (
-              <tr>
-                <td className="px-3 py-4 text-[#605e5c]" colSpan={5}>
-                  Loading…
-                </td>
-              </tr>
-            ) : (
-              filtered.map((r) => (
-                <tr key={r.id} className="border-b border-[#f3f2f1]">
-                  <td className="whitespace-nowrap px-3 py-2 text-xs">
-                    {new Date(r.createdAt).toLocaleString()}
-                  </td>
-                  <td className="px-3 py-2 font-mono text-xs">{r.action}</td>
-                  <td className="px-3 py-2">{r.resourceType}</td>
-                  <td className="px-3 py-2 font-mono text-xs">
-                    {r.resourceId ? r.resourceId.slice(0, 8) : '—'}
-                  </td>
-                  <td className="px-3 py-2 font-mono text-xs">
-                    {r.actorId ? r.actorId.slice(0, 8) : '—'}
-                  </td>
-                </tr>
-              ))
-            )}
-          </tbody>
-        </table>
-      </GlassCard>
+
+      <AuditLogRoster
+        rows={filtered}
+        loading={loading}
+        empty={
+          <AuditEmpty
+            title={rows.length === 0 ? 'No audit events' : 'No matches'}
+            description={
+              rows.length === 0
+                ? 'Mutating actions across portals appear here as an append-only trail (audit.read).'
+                : 'Try another search, resource or officer filter.'
+            }
+          />
+        }
+      />
       <p className="text-xs text-[#605e5c]">
         Showing {filtered.length} of last {rows.length} events (cap 200).
       </p>

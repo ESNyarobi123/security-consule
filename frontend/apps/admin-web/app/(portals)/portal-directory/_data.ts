@@ -58,7 +58,8 @@ export const EXTERNAL_PORTALS: PortalEntry[] = [
       { email: 'store1@highlink.co.tz', role: 'STOREKEEPER' },
       { email: 'cctv1@highlink.co.tz', role: 'CCTV_OPERATOR' },
       { email: 'control1@highlink.co.tz', role: 'CONTROL_ROOM' },
-      { email: 'callcentre1@highlink.co.tz', role: 'CALL_CENTRE' },
+      { email: 'callcentre1@highlink.co.tz', role: 'CALL_CENTRE', note: 'Desk + visitor gate support' },
+      { email: 'cs1@highlink.co.tz', role: 'CUSTOMER_SUPPORT', note: 'Complaints + tickets only' },
       { email: 'compliance1@highlink.co.tz', role: 'COMPLIANCE_OFFICER' },
       { email: 'dpo1@highlink.co.tz', role: 'DPO' },
       { email: 'ciso1@highlink.co.tz', role: 'CISO' },
@@ -68,6 +69,7 @@ export const EXTERNAL_PORTALS: PortalEntry[] = [
       { email: 'ceo@highlink.co.tz', role: 'CEO' },
       { email: 'cmd@highlink.co.tz', role: 'CMD' },
       { email: 'marketing1@highlink.co.tz', role: 'MARKETING' },
+      { email: 'bd1@highlink.co.tz', role: 'MARKETING', note: 'Second BD officer — commission accruer' },
       { email: 'dev1@highlink.co.tz', role: 'DEVELOPER' },
       { email: 'gate1@highlink.co.tz', role: 'GATE_OFFICER', note: 'Also gate mobile app' },
       { email: 'guard1@highlink.co.tz', role: 'GUARD', note: 'Limited admin; primarily mobile' },
@@ -335,11 +337,11 @@ export const INTERNAL_MODULES: InternalModule[] = [
     typicalLogins: 'hr1@ · depthead1@',
   },
   {
-    href: '/ess',
-    label: 'Employee Self-Service',
+    href: '/payroll',
+    label: 'Payroll (My payslips)',
     description:
-      'Portal 35.5: own profile, attendance, leave/loan balances, payslips, equipment, notices, training, requests; apply boots/phone/cash/uniform/advance loans. Approvals act on /approvals.',
-    typicalLogins: 'Any staff with ess.access (e.g. supervisor1@ · guard1@)',
+      'Portal 35.16 self-service: own payslips, profile, leave balance/request and loan position. Open to every signed-in employee — no ess.access or admin grant needed. Payroll managers get the console tabs plus “My payslips”.',
+    typicalLogins: 'Any employee (e.g. guard1@ · supervisor1@ · accounts1@)',
   },
   {
     href: '/payroll',
@@ -447,8 +449,8 @@ export const INTERNAL_MODULES: InternalModule[] = [
     href: '/callcentre',
     label: 'Call Centre',
     description:
-      'Portal 35.20 — complaints, visitor/gate support, parking/supplier/payroll inquiry tickets, incident escalate (callcentre1@).',
-    typicalLogins: 'callcentre1@',
+      'Portal 35.20 — complaints with full description, visitor/gate support, parking/supplier/payroll inquiry tickets, incident escalate (callcentre1@ · cs1@ · it1@ helpdesk · supervisor1@).',
+    typicalLogins: 'callcentre1@ · cs1@ · it1@ · supervisor1@',
   },
   {
     href: '/marketing',

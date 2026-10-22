@@ -94,7 +94,9 @@ export class ParkingReportsService {
       where: {
         organizationId: orgId,
         isActive: true,
-        ...siteFilter,
+        // `siteScopeWhere` returns a `siteId` fragment for parking/domain models,
+        // but `Site` itself is keyed by `id`.
+        ...this.mapSiteFilterToSiteModel(siteFilter),
       },
       select: { id: true, code: true, name: true },
       orderBy: { code: 'asc' },
@@ -623,6 +625,17 @@ export class ParkingReportsService {
     });
 
     return report;
+  }
+
+  /**
+   * `siteScopeWhere()` produces a fragment keyed by `siteId` for parking tables.
+   * `Site` is keyed by `id`, so translate the fragment before querying it.
+   */
+  private mapSiteFilterToSiteModel(
+    filter: Record<string, unknown>,
+  ): Prisma.SiteWhereInput {
+    if (filter.siteId === undefined) return {};
+    return { id: filter.siteId as Prisma.SiteWhereInput['id'] };
   }
 
   private resolvePeriod(from?: string, to?: string): { from: Date; to: Date } {

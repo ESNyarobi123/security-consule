@@ -81,6 +81,7 @@ export class DashboardService {
         granularity,
       },
       kpis,
+      degradedKpis: kpis.filter((k) => k.degraded).map((k) => k.code),
       insights: insights.slice(0, 5) as unknown as Record<string, unknown>[],
       cache: { hit: false, expiresAt },
     };

@@ -129,6 +129,7 @@ export default function ViolationsPage() {
   const [sites, setSites] = useState<ParkingSiteOption[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
   const [typeFilter, setTypeFilter] = useState<TypeFilter>('ALL');
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('OPEN');
   const [vehicleFilter, setVehicleFilter] = useState<VehicleKind | 'ALL'>('ALL');
@@ -290,6 +291,9 @@ export default function ViolationsPage() {
         currency: fine != null ? 'TZS' : undefined,
       });
       setViolations((prev) => [created, ...prev]);
+      setNotice(
+        `Violation recorded for ${created.plateNumber} — ${created.status}.`,
+      );
       setPlateNumber('');
       setVehicleId('');
       setDescription('');
@@ -489,6 +493,12 @@ export default function ViolationsPage() {
             </button>
           </div>
         </form>
+      ) : null}
+
+      {notice ? (
+        <p className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
+          {notice}
+        </p>
       ) : null}
 
       {error ? (

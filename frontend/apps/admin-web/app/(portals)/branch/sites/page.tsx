@@ -32,6 +32,8 @@ import {
 import { BranchShell } from '../_components/BranchShell';
 import { SiteRoster, SitesEmpty } from '../_components/SiteRoster';
 import { formatApiError, shortId } from '../_components/shared';
+import { getSessionUser } from '@pssms/auth';
+import { hasBranchScope } from '@pssms/permissions';
 
 type StatusFilter = 'all' | 'active' | 'inactive';
 
@@ -50,6 +52,17 @@ export default function BranchSitesPage() {
   const [query, setQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
   const [branchFilter, setBranchFilter] = useState<string>('all');
+
+  const sessionUser = useMemo(() => getSessionUser(), []);
+  /**
+   * Site creation needs a branch in the caller's ACL — `SitesService.create`
+   * asserts `assertBranchAccess`, so a site-only Field Officer / Supervisor gets
+   * BRANCH_SCOPE_DENIED. Don't render a button that can only fail.
+   */
+  const canCreateSite = useMemo(
+    () => hasBranchScope(sessionUser),
+    [sessionUser],
+  );
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -75,10 +88,19 @@ export default function BranchSitesPage() {
     return map;
   }, [branches]);
 
+  /** Create-site picker — inactive org branches must not appear (same as CRM). */
+  const activeBranches = useMemo(
+    () => branches.filter((b) => b.isActive !== false),
+    [branches],
+  );
+
   const branchLabel = useCallback(
     (branchId: string) => {
       const b = branchMap.get(branchId);
-      return b ? `${b.code} — ${b.name}` : shortId(branchId);
+      if (!b) return shortId(branchId);
+      return b.isActive === false
+        ? `${b.code} — ${b.name} (inactive)`
+        : `${b.code} — ${b.name}`;
     },
     [branchMap],
   );
@@ -116,7 +138,7 @@ export default function BranchSitesPage() {
   return (
     <BranchShell
       title="Sites"
-      description="Customer / facility sites under org branches. Create requires enterprise.manage or operations.manage."
+      description="Customer / facility sites under your branch scope. Site creation is a Branch Manager / BD / Administration action."
       actions={
         <>
           <button
@@ -130,14 +152,20 @@ export default function BranchSitesPage() {
             />
             Refresh
           </button>
-          <button
-            type="button"
-            onClick={() => setCreateOpen(true)}
-            className={btnPrimary}
-          >
-            <Plus className="h-3.5 w-3.5" />
-            New site
-          </button>
+          {canCreateSite ? (
+            <button
+              type="button"
+              onClick={() => setCreateOpen(true)}
+              className={btnPrimary}
+            >
+              <Plus className="h-3.5 w-3.5" />
+              New site
+            </button>
+          ) : (
+            <span className="self-center rounded border border-slate-200 bg-slate-50 px-3 py-1.5 text-[11px] text-slate-600">
+              Read-only sites — ask your Branch Manager to add one
+            </span>
+          )}
         </>
       }
     >
@@ -252,6 +280,7 @@ export default function BranchSitesPage() {
                 {branches.map((b) => {
                   const active = branchFilter === b.id;
                   const n = rows.filter((r) => r.branchId === b.id).length;
+                  const inactive = b.isActive === false;
                   return (
                     <button
                       key={b.id}
@@ -260,10 +289,22 @@ export default function BranchSitesPage() {
                       className={`inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[11px] font-semibold transition ${
                         active
                           ? 'bg-[#0f172a] text-white shadow-sm'
-                          : 'bg-white text-[#605e5c] ring-1 ring-[#e1dfdd] hover:bg-[#f3f9fd]'
+                          : inactive
+                            ? 'bg-slate-50 text-[#a19f9d] ring-1 ring-[#e1dfdd]'
+                            : 'bg-white text-[#605e5c] ring-1 ring-[#e1dfdd] hover:bg-[#f3f9fd]'
                       }`}
+                      title={
+                        inactive
+                          ? `${b.name} (inactive — still filterable)`
+                          : b.name
+                      }
                     >
                       {b.code}
+                      {inactive ? (
+                        <span className="text-[9px] uppercase opacity-80">
+                          off
+                        </span>
+                      ) : null}
                       <span
                         className={`tabular-nums ${
                           active ? 'text-white/70' : 'text-[#a19f9d]'
@@ -297,7 +338,7 @@ export default function BranchSitesPage() {
 
       {createOpen ? (
         <CreateSiteModal
-          branches={branches}
+          branches={activeBranches}
           onClose={() => setCreateOpen(false)}
           onCreated={async () => {
             setCreateOpen(false);
@@ -327,6 +368,12 @@ function CreateSiteModal({
 
   async function onSubmit(e: FormEvent) {
     e.preventDefault();
+    if (!branchId) {
+      setError(
+        'No active branches — reactivate one under Super Admin → Organization.',
+      );
+      return;
+    }
     setSaving(true);
     setError(null);
     try {
@@ -352,6 +399,12 @@ function CreateSiteModal({
             {error}
           </p>
         ) : null}
+        {branches.length === 0 ? (
+          <p className="rounded border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+            No active branches. Reactivate under Super Admin → Organization
+            before creating a site.
+          </p>
+        ) : null}
         <label className="block text-xs font-medium text-[#605e5c]">
           Branch
           <select
@@ -359,13 +412,20 @@ function CreateSiteModal({
             value={branchId}
             onChange={(e) => setBranchId(e.target.value)}
             required
+            disabled={branches.length === 0}
           >
+            {branches.length === 0 ? (
+              <option value="">No active branches</option>
+            ) : null}
             {branches.map((b) => (
               <option key={b.id} value={b.id}>
                 {b.code} — {b.name}
               </option>
             ))}
           </select>
+          <span className="mt-1 block text-[11px] font-normal text-[#a19f9d]">
+            Active branches only. Manage under Super Admin → Organization.
+          </span>
         </label>
         <label className="block text-xs font-medium text-[#605e5c]">
           Code
@@ -398,7 +458,11 @@ function CreateSiteModal({
           <button type="button" className={btnSecondary} onClick={onClose}>
             Cancel
           </button>
-          <button type="submit" className={btnPrimary} disabled={saving}>
+          <button
+            type="submit"
+            className={btnPrimary}
+            disabled={saving || branches.length === 0 || !branchId}
+          >
             {saving ? 'Saving…' : 'Create'}
           </button>
         </div>

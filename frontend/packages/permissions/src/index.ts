@@ -4,6 +4,19 @@ export type NavItem = {
   href: string;
   label: string;
   permission: string;
+  /**
+   * Extra permissions that also grant this entry (OR). Used where one portal
+   * serves two audiences — e.g. Payroll is the payroll console for
+   * `payroll.manage` and "My payslips" for every signed-in employee.
+   */
+  alsoPermits?: string[];
+  /**
+   * Portal is open to any signed-in employee. Self-service payroll uses this:
+   * the server still returns only the caller's own records, and no
+   * administrator has to grant a permission before someone can see their own
+   * payslips, leave balance or loan position.
+   */
+  authenticated?: boolean;
   group?: string;
 };
 
@@ -28,8 +41,14 @@ export const ADMIN_PORTALS: NavItem[] = [
     group: 'Service',
   },
   { href: '/hr', label: 'HR & Employees', permission: 'hr.manage', group: 'People' },
-  { href: '/ess', label: 'My ESS', permission: 'ess.access', group: 'People' },
-  { href: '/payroll', label: 'Payroll', permission: 'payroll.manage', group: 'People' },
+  {
+    href: '/payroll',
+    label: 'Payroll',
+    permission: 'payroll.manage',
+    // Self-service payslips for every employee — no admin-granted ESS key.
+    authenticated: true,
+    group: 'People',
+  },
   { href: '/payroll/cycles', label: 'Payroll cycles', permission: 'payroll.manage', group: 'People' },
   { href: '/loans', label: 'Loans', permission: 'loans.manage', group: 'People' },
   { href: '/finance', label: 'Finance', permission: 'finance.manage', group: 'Money' },
@@ -37,7 +56,7 @@ export const ADMIN_PORTALS: NavItem[] = [
   { href: '/finance/petty-cash', label: 'Petty cash', permission: 'finance.manage', group: 'Money' },
   { href: '/finance/vouchers', label: 'Payment vouchers', permission: 'finance.manage', group: 'Money' },
   { href: '/finance/reports', label: 'Finance reports', permission: 'finance.manage', group: 'Money' },
-  { href: '/procurement', label: 'Procurement', permission: 'procurement.manage', group: 'Money' },
+  { href: '/procurement', label: 'Procurement', permission: 'procurement.manage', alsoPermits: ['inventory.manage'], group: 'Money' },
   { href: '/procurement/inventory', label: 'Inventory', permission: 'inventory.manage', group: 'Money' },
   { href: '/assets', label: 'Assets', permission: 'assets.manage', group: 'Money' },
   { href: '/assets/returns', label: 'Equipment returns', permission: 'assets.manage', group: 'Money' },
@@ -168,23 +187,32 @@ export const ADMIN_PORTALS: NavItem[] = [
     group: 'Governance',
   },
   { href: '/approvals', label: 'Approvals', permission: 'approvals.act', group: 'Governance' },
-  { href: '/callcentre', label: 'Call Centre', permission: 'visitors.manage', group: 'Service' },
+  {
+    href: '/callcentre',
+    label: 'Call Centre',
+    permission: 'support.manage',
+    alsoPermits: ['visitors.manage'],
+    group: 'Service',
+  },
   {
     href: '/callcentre/visitors',
     label: 'Visitor support',
     permission: 'visitors.manage',
+    alsoPermits: ['support.manage'],
     group: 'Service',
   },
   {
     href: '/callcentre/complaints',
     label: 'Complaints',
-    permission: 'visitors.manage',
+    permission: 'support.manage',
+    alsoPermits: ['visitors.manage'],
     group: 'Service',
   },
   {
     href: '/callcentre/tickets',
     label: 'Support tickets',
-    permission: 'visitors.manage',
+    permission: 'support.manage',
+    alsoPermits: ['visitors.manage'],
     group: 'Service',
   },
   { href: '/marketing', label: 'Marketing', permission: 'marketing.manage', group: 'Service' },
@@ -197,6 +225,12 @@ export const ADMIN_PORTALS: NavItem[] = [
     group: 'Service',
   },
   { href: '/developer', label: 'Developer', permission: 'integrations.manage', group: 'Platform' },
+  {
+    href: '/developer/connectivity',
+    label: 'Connected systems',
+    permission: 'integrations.manage',
+    group: 'Platform',
+  },
   { href: '/developer/apis', label: 'APIs', permission: 'integrations.manage', group: 'Platform' },
   { href: '/developer/systems', label: 'Systems', permission: 'integrations.manage', group: 'Platform' },
   { href: '/developer/export', label: 'Export', permission: 'integrations.manage', group: 'Platform' },
@@ -430,12 +464,121 @@ export function can(user: SessionUser | null, permission: string): boolean {
   return user.permissions.includes(permission);
 }
 
+/**
+ * Mirrors backend `ORG_WIDE_SITE_VIEW_ROLES` (libs/shared/utils/site-scope.util.ts):
+ * these roles ignore branch/site ACL rows, so they may create branch master data.
+ */
+export const ORG_WIDE_SITE_VIEW_ROLES = new Set([
+  'SUPER_ADMIN',
+  'GENERAL_MANAGER',
+  'CEO',
+  'CMD',
+  'OPERATIONS_MANAGER',
+  'REGIONAL_MANAGER',
+  'DEPARTMENT_HEAD',
+  'CISO',
+  'CONTROL_ROOM',
+  'HR_OFFICER',
+  'ACCOUNTS_OFFICER',
+  'PAYROLL_OFFICER',
+  'LEGAL',
+  'MARKETING',
+  'COMPLIANCE_OFFICER',
+  'DPO',
+  'INTERNAL_AUDITOR',
+  'DEVELOPER',
+  'IT_SUPPORT',
+  'CALL_CENTRE',
+  'CUSTOMER_SUPPORT',
+  'CCTV_OPERATOR',
+  'SECURITY_OFFICER',
+  'PARKING_OFFICER',
+]);
+
+/** True when the caller can act on branch master data (branch ACL or org-wide). */
+export function hasBranchScope(user: SessionUser | null): boolean {
+  if (!user) return false;
+  if ((user.allowedBranchIds?.length ?? 0) > 0) return true;
+  return user.roles.some((r) => ORG_WIDE_SITE_VIEW_ROLES.has(r));
+}
+
+export function navItemAllowed(
+  user: SessionUser | null,
+  item: NavItem,
+): boolean {
+  if (item.authenticated) return user != null;
+  if (can(user, item.permission)) return true;
+  return (item.alsoPermits ?? []).some((code) => can(user, code));
+}
+
 export function navForUser(user: SessionUser | null): NavItem[] {
-  return ADMIN_PORTALS.filter((item) => can(user, item.permission));
+  return ADMIN_PORTALS.filter((item) => navItemAllowed(user, item));
 }
 
 export function defaultPortal(user: SessionUser | null): string {
-  return navForUser(user)[0]?.href ?? '/login';
+  // Branch / field hierarchy lands on Portal 35.23, not the office
+  // Administration page they only inherit through `enterprise.manage`.
+  const branchOpsRoles = [
+    'BRANCH_MANAGER',
+    'FIELD_OFFICER',
+    'REGIONAL_MANAGER',
+    'TECHNICAL_MANAGER',
+    'BD_MANAGER',
+    'OPERATIONS_MANAGER',
+    'SUPERVISOR',
+  ];
+  if (
+    user?.roles.some((r) => branchOpsRoles.includes(r)) &&
+    can(user, 'operations.manage')
+  ) {
+    return '/branch';
+  }
+  // Dedicated support officers should land on the support desk, not Payroll /
+  // the ESS surface they inherit through `ess.access`.
+  if (
+    user?.roles.some((r) => ['CUSTOMER_SUPPORT', 'CALL_CENTRE'].includes(r)) &&
+    (can(user, 'support.manage') || can(user, 'visitors.manage'))
+  ) {
+    return '/callcentre';
+  }
+  // Governance officers (Portal 35.21). Everyone signed in can open the
+  // self-service Payroll/my-payslips surface, so without this they would land
+  // on "No employee profile linked" instead of the governance desk.
+  if (
+    user?.roles.some((r) =>
+      ['DPO', 'COMPLIANCE_OFFICER', 'LEGAL', 'INTERNAL_AUDITOR', 'CISO'].includes(r),
+    ) &&
+    can(user, 'audit.read')
+  ) {
+    return '/compliance';
+  }
+  // Money / delivery desks that also inherit Payroll through `authenticated`.
+  if (user?.roles.includes('ACCOUNTS_OFFICER') && can(user, 'finance.manage')) {
+    return '/finance';
+  }
+  if (user?.roles.includes('PAYROLL_OFFICER') && can(user, 'payroll.manage')) {
+    return '/payroll/cycles';
+  }
+  if (user?.roles.includes('MARKETING') && can(user, 'marketing.manage')) {
+    return '/marketing';
+  }
+  if (
+    user?.roles.includes('PROCUREMENT_OFFICER') &&
+    can(user, 'procurement.manage')
+  ) {
+    return '/procurement';
+  }
+  if (user?.roles.includes('STOREKEEPER') && can(user, 'inventory.manage')) {
+    return '/procurement/inventory';
+  }
+  if (user?.roles.includes('DEVELOPER') && can(user, 'integrations.manage')) {
+    return '/developer';
+  }
+  // Fallback: prefer a permission-gated portal over an `authenticated` one so
+  // staffing roles never land on the self-service payslip page by accident.
+  const nav = navForUser(user);
+  const gated = nav.find((item) => !item.authenticated);
+  return gated?.href ?? nav[0]?.href ?? '/login';
 }
 
 export function permissionForPath(pathname: string): string | null {
@@ -451,4 +594,23 @@ export function permissionForPath(pathname: string): string | null {
   if (pathname.startsWith('/superadmin/contracts')) return 'contracts.manage';
   if (pathname.startsWith('/superadmin')) return 'users.manage';
   return null;
+}
+
+/**
+ * Client-side route gate that understands `alsoPermits` (e.g. Payroll is open
+ * to `payroll.manage` OR `ess.access`). Returns true when no portal owns the
+ * path — the API still enforces its own permissions.
+ */
+export function pathAllows(
+  user: SessionUser | null,
+  pathname: string,
+): boolean {
+  const candidates = ADMIN_PORTALS.filter(
+    (p) => pathname === p.href || pathname.startsWith(`${p.href}/`),
+  ).sort((a, b) => b.href.length - a.href.length);
+  const item = candidates[0];
+  if (item) return navItemAllowed(user, item);
+
+  const required = permissionForPath(pathname);
+  return !required || can(user, required);
 }

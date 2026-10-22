@@ -10,7 +10,12 @@ import {
   VisitorEntryDirection,
 } from '@prisma/client';
 import { AuditService } from '@pssms/audit';
-import { AuthUser, PrismaService, siteScopeWhere } from '@pssms/shared';
+import {
+  AuthUser,
+  PrismaService,
+  resolveSiteScopeClause,
+  siteScopeWhere,
+} from '@pssms/shared';
 import { OperationsReportResponseDto } from '../presentation/dto/operations-report.dto';
 
 const OPEN_INCIDENT: IncidentStatus[] = [
@@ -59,11 +64,20 @@ export class OperationsReportsService {
     const siteFilter = siteScopeWhere(user, siteId);
     const baseWhere = { organizationId: orgId, ...siteFilter };
 
+    // `siteScopeWhere` produces a `siteId` clause for child tables; the Site
+    // model itself is keyed by `id` (this used to 500 on `siteId`).
+    const siteClause = resolveSiteScopeClause(user, siteId);
+    const siteWhere = siteClause.unrestricted
+      ? siteClause.siteId
+        ? { id: siteClause.siteId }
+        : {}
+      : { id: { in: siteClause.siteIds } };
+
     const sites = await this.prisma.site.findMany({
       where: {
         organizationId: orgId,
         isActive: true,
-        ...siteFilter,
+        ...siteWhere,
       },
       select: { id: true, code: true, name: true },
       orderBy: { code: 'asc' },

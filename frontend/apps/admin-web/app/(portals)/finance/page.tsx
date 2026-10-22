@@ -23,6 +23,21 @@ const TOPICS: { title: string; href: string; description: string }[] = [
     description: 'Issue, collect, dispute, close — including parking bills',
   },
   {
+    title: 'Receipt register (upload)',
+    href: '/finance/receipts',
+    description: 'Capture payer, amount, method + attach the scanned receipt (MinIO)',
+  },
+  {
+    title: 'Finance approvals',
+    href: '/finance/approvals',
+    description: 'Payment vouchers, petty cash and payroll waiting on a decision',
+  },
+  {
+    title: 'Payroll',
+    href: '/finance/payroll',
+    description: 'Cycle net pay, loan deductions, approval status → payroll console',
+  },
+  {
     title: 'Petty cash',
     href: '/finance/petty-cash',
     description: 'Approve → issue → retire with receipt (no issue without approval)',

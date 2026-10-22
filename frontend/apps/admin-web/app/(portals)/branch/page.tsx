@@ -1,5 +1,7 @@
 'use client';
 
+import { getSessionUser } from '@pssms/auth';
+import { can } from '@pssms/permissions';
 import {
   getBranchDeskSummary,
   listBranches,
@@ -33,6 +35,7 @@ import {
 import { formatApiError, formatDate, shortId } from './_components/shared';
 
 export default function BranchOverviewPage() {
+  const sessionUser = useMemo(() => getSessionUser(), []);
   const [branches, setBranches] = useState<
     Awaited<ReturnType<typeof listBranches>>
   >([]);
@@ -51,11 +54,11 @@ export default function BranchOverviewPage() {
     setError(null);
     try {
       const [b, s, d, sh, alerts, summary] = await Promise.all([
-        listBranches(),
-        listSites(),
-        listDeployments(),
-        listShifts(),
-        listFieldAlerts({ acknowledged: false }),
+        listBranches().catch(() => []),
+        listSites().catch(() => []),
+        listDeployments().catch(() => []),
+        listShifts().catch(() => []),
+        listFieldAlerts({ acknowledged: false }).catch(() => []),
         getBranchDeskSummary().catch(() => null),
       ]);
       setBranches(b);
@@ -137,13 +140,18 @@ export default function BranchOverviewPage() {
                   Branch Operations
                 </h1>
                 <p className="mt-1.5 max-w-2xl text-sm leading-relaxed text-slate-300">
-                  BOM / Field / Ops Mgr supervise sites, staff on post,
-                  attendance, inspections, incidents, and branch petty cash
-                  requests. Parking is a monitor — mutate stays parking-web.
-                  Marketing / CCTV technical stay their own portals.
+                  For Regional Managers, Branch Managers, Branch Operations
+                  Managers, Field Officers, Technical Managers and Business
+                  Development Managers: branch staff, sites, guard deployment,
+                  attendance, alertness, inspections, incidents, parking
+                  monitor, petty cash requests and field reports. Parking
+                  mutate stays parking-web; marketing / CCTV stay their own
+                  portals.
                 </p>
                 <div className="mt-3 flex flex-wrap gap-1.5">
-                  {HERO_CHIPS.map((chip) =>
+                  {HERO_CHIPS.filter(
+                    (chip) => !chip.permission || can(sessionUser, chip.permission),
+                  ).map((chip) =>
                     chip.href ? (
                       <Link
                         key={chip.label}
@@ -270,7 +278,9 @@ export default function BranchOverviewPage() {
             </p>
           </div>
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
-            {QUICK_LINKS.map((link) => (
+            {QUICK_LINKS.filter(
+              (link) => !link.permission || can(sessionUser, link.permission),
+            ).map((link) => (
               <QuickLinkCard key={link.href} {...link} />
             ))}
           </div>

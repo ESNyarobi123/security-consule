@@ -10,6 +10,7 @@ import { ApprovalsService } from '@pssms/approvals';
 import { AssetsService } from '@pssms/assets';
 import { FinanceOpsService } from '@pssms/finance';
 import { LeaveService } from './leave.service';
+import { SelfEmployeeService } from './self-employee.service';
 import {
   LeaveRequestResponseDto,
   LeaveTypeResponseDto,
@@ -47,6 +48,7 @@ export class EssService {
     private readonly leave: LeaveService,
     private readonly assets: AssetsService,
     private readonly financeOps: FinanceOpsService,
+    private readonly selfEmployee: SelfEmployeeService,
   ) {}
 
   async getMe(user: AuthUser): Promise<EssProfileResponseDto> {
@@ -859,28 +861,7 @@ export class EssService {
   }
 
   private async requireLinkedEmployee(user: AuthUser) {
-    const matches = await this.prisma.employee.findMany({
-      where: {
-        organizationId: user.organizationId,
-        userId: user.id,
-      },
-      take: 2,
-    });
-    if (matches.length === 0) {
-      throw new NotFoundException({
-        error: 'ESS_PROFILE_MISSING',
-        message:
-          'No employee profile is linked to this user. Ask HR to link your account.',
-      });
-    }
-    if (matches.length > 1) {
-      throw new NotFoundException({
-        error: 'ESS_PROFILE_AMBIGUOUS',
-        message:
-          'Multiple employee profiles are linked to this user. Ask HR to fix the link.',
-      });
-    }
-    return matches[0];
+    return this.selfEmployee.resolve(user, 'ESS');
   }
 
   private async nextLoanNumber(organizationId: string): Promise<string> {

@@ -74,6 +74,7 @@ export default function DashboardPage() {
   const [error, setError] = useState<string | null>(null);
   const [health, setHealth] = useState<string>('…');
   const [kpis, setKpis] = useState<KpiItem[]>([]);
+  const [degradedKpis, setDegradedKpis] = useState<string[]>([]);
   const [activeCategory, setActiveCategory] = useState('ENTERPRISE');
 
   const forceLogin = useCallback(
@@ -95,6 +96,7 @@ export default function DashboardPage() {
           getReportingHealth(accessToken),
         ]);
         setKpis(dashboard.kpis);
+        setDegradedKpis(dashboard.degradedKpis ?? []);
         setHealth(
           `${healthRes.status} · analytics ${healthRes.analyticsAi.status}`,
         );
@@ -330,6 +332,14 @@ export default function DashboardPage() {
       {error ? (
         <p className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-base text-rose-800">
           {error}
+        </p>
+      ) : null}
+
+      {degradedKpis.length > 0 ? (
+        <p className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-base text-amber-900">
+          <span className="font-semibold">Partial data:</span> these KPIs could
+          not be computed live, so their value is not a real zero —{' '}
+          {degradedKpis.join(', ')}.
         </p>
       ) : null}
 

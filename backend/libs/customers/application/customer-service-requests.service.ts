@@ -5,6 +5,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import {
+  Prisma,
   ServiceRequestCategory,
   ServiceRequestStatus,
   ServiceRequestUrgency,
@@ -76,20 +77,16 @@ export class CustomerServiceRequestsService {
       }
     }
 
-    const referenceNumber = await this.nextReference(user.organizationId);
-    const row = await this.prisma.customerServiceRequest.create({
-      data: {
-        organizationId: user.organizationId,
-        customerId,
-        referenceNumber,
-        category: dto.category,
-        urgency: dto.urgency ?? ServiceRequestUrgency.THIS_WEEK,
-        title,
-        description,
-        siteId: dto.siteId ?? null,
-        callbackPhone: dto.callbackPhone?.trim() || null,
-        createdBy: user.id,
-      },
+    const row = await this.createRow({
+      organizationId: user.organizationId,
+      customerId,
+      category: dto.category,
+      urgency: dto.urgency ?? ServiceRequestUrgency.THIS_WEEK,
+      title,
+      description,
+      siteId: dto.siteId ?? null,
+      callbackPhone: dto.callbackPhone?.trim() || null,
+      createdBy: user.id,
     });
 
     await this.audit.record({
@@ -209,7 +206,28 @@ export class CustomerServiceRequestsService {
         customer: { select: { code: true, name: true } },
       },
     });
-    return this.enrichMany(rows);
+    return this.enrichMany(rows, user);
+  }
+
+  /** Single ticket for the support-desk detail drawer. */
+  async getForStaff(
+    id: string,
+    user: AuthUser,
+  ): Promise<ServiceRequestResponseDto> {
+    const row = await this.prisma.customerServiceRequest.findFirst({
+      where: { id, organizationId: user.organizationId },
+      include: {
+        customer: { select: { code: true, name: true } },
+      },
+    });
+    if (!row) {
+      throw new NotFoundException({
+        error: 'NOT_FOUND',
+        message: 'Service request not found',
+      });
+    }
+    const [dto] = await this.enrichMany([row], user);
+    return dto;
   }
 
   async updateStatusForStaff(
@@ -306,25 +324,70 @@ export class CustomerServiceRequestsService {
       },
     });
 
-    return this.toDto(updated);
+    return this.getForStaff(updated.id, user);
   }
 
-  private async nextReference(organizationId: string): Promise<string> {
-    const latest = await this.prisma.customerServiceRequest.findFirst({
+  private async createRow(input: {
+    organizationId: string;
+    customerId: string;
+    category: ServiceRequestCategory;
+    urgency: ServiceRequestUrgency;
+    title: string;
+    description: string;
+    siteId: string | null;
+    callbackPhone: string | null;
+    createdBy: string;
+  }) {
+    // Reference numbers must be globally unique per organisation. Seeds also
+    // use non-numeric refs (SR-PARK-001, SR-SUP-001…), so always parse only
+    // the numeric SR-##### family and retry if another request won the race.
+    for (let attempt = 0; attempt < 6; attempt += 1) {
+      try {
+        return await this.prisma.customerServiceRequest.create({
+          data: {
+            ...input,
+            referenceNumber: await this.nextReference(
+              input.organizationId,
+              attempt,
+            ),
+          },
+        });
+      } catch (error) {
+        if (
+          attempt < 5 &&
+          error instanceof Prisma.PrismaClientKnownRequestError &&
+          error.code === 'P2002'
+        ) {
+          continue;
+        }
+        throw error;
+      }
+    }
+    throw new BadRequestException({
+      error: 'REFERENCE_GENERATION_FAILED',
+      message: 'Could not allocate a ticket reference, please retry',
+    });
+  }
+
+  private async nextReference(
+    organizationId: string,
+    offset = 0,
+  ): Promise<string> {
+    const rows = await this.prisma.customerServiceRequest.findMany({
       where: {
         organizationId,
         referenceNumber: { startsWith: 'SR-' },
       },
-      orderBy: { referenceNumber: 'desc' },
+      orderBy: { createdAt: 'desc' },
+      take: 500,
       select: { referenceNumber: true },
     });
-    let n = 1;
-    if (latest?.referenceNumber) {
-      const part = latest.referenceNumber.slice(3);
-      const parsed = Number.parseInt(part, 10);
-      if (!Number.isNaN(parsed)) n = parsed + 1;
+    let max = 0;
+    for (const row of rows) {
+      const match = /^SR-(\d+)$/.exec(row.referenceNumber);
+      if (match) max = Math.max(max, Number.parseInt(match[1], 10));
     }
-    return `SR-${String(n).padStart(5, '0')}`;
+    return `SR-${String(max + 1 + offset).padStart(5, '0')}`;
   }
 
   private async enrichMany(
@@ -350,9 +413,13 @@ export class CustomerServiceRequestsService {
       resolutionNotes: string | null;
       createdAt: Date;
       updatedAt: Date;
+      incidentId?: string | null;
+      incidentNumber?: string | null;
       customer?: { code: string; name: string };
     }>,
+    user?: AuthUser,
   ): Promise<ServiceRequestResponseDto[]> {
+    if (rows.length === 0) return [];
     const siteIds = [
       ...new Set(rows.map((r) => r.siteId).filter((id): id is string => !!id)),
     ];
@@ -364,15 +431,47 @@ export class CustomerServiceRequestsService {
             select: { id: true, code: true, name: true },
           });
     const siteMap = new Map(sites.map((s) => [s.id, s]));
+    const userIds = [
+      ...new Set(
+        rows
+          .flatMap((r) => [
+            r.createdBy,
+            r.acknowledgedBy,
+            r.resolvedBy,
+            r.closedBy,
+          ])
+          .filter((id): id is string => !!id),
+      ),
+    ];
+    const users =
+      user && userIds.length
+        ? await this.prisma.user.findMany({
+            where: { id: { in: userIds }, organizationId: user.organizationId },
+            select: { id: true, fullName: true },
+          })
+        : [];
+    const nameOf = new Map(users.map((u) => [u.id, u.fullName]));
 
     return rows.map((r) => {
       const site = r.siteId ? siteMap.get(r.siteId) : undefined;
+      const currentUserId = user?.id ?? null;
       return {
         ...this.toDto(r),
         siteCode: site?.code ?? null,
         siteName: site?.name ?? null,
         customerCode: r.customer?.code ?? null,
         customerName: r.customer?.name ?? null,
+        createdByName: nameOf.get(r.createdBy) ?? null,
+        acknowledgedByName: r.acknowledgedBy
+          ? nameOf.get(r.acknowledgedBy) ?? null
+          : null,
+        resolvedByName: r.resolvedBy
+          ? nameOf.get(r.resolvedBy) ?? null
+          : null,
+        closedByName: r.closedBy ? nameOf.get(r.closedBy) ?? null : null,
+        isCreator: currentUserId ? r.createdBy === currentUserId : null,
+        canProcess: currentUserId ? r.createdBy !== currentUserId : null,
+        allowedNextStatuses: STAFF_TRANSITIONS[r.status] ?? [],
       };
     });
   }

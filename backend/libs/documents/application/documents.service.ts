@@ -18,7 +18,7 @@ import {
   DocumentObjectResponseDto,
 } from '../presentation/dto/documents.dto';
 
-const MAX_BYTES = 10 * 1024 * 1024;
+const MAX_BYTES = 5 * 1024 * 1024;
 const ALLOWED_TYPES = new Set([
   'application/pdf',
   'image/png',
@@ -47,6 +47,8 @@ const PARENT_PERMISSION_BY_RESOURCE: Record<string, string> = {
   Employee: 'hr.manage',
   /** Portal 35.13 — applicant CV / certificates (staff MinIO; public apply still resumeUrl) */
   JobApplication: 'recruitment.manage',
+  /** Portal 35.15 — receipt scan attached to the finance receipt register */
+  FinanceReceipt: 'finance.manage',
 };
 
 const SUPPORTED_RESOURCE_TYPES = new Set(
@@ -96,6 +98,18 @@ async function assertResourceOwned(
     if (!voucher) {
       throw new BadRequestException(
         'PettyCashVoucher not found in your organization',
+      );
+    }
+    return;
+  }
+  if (resourceType === 'FinanceReceipt') {
+    const receipt = await prisma.financeReceipt.findFirst({
+      where: { id: resourceId, organizationId },
+      select: { id: true },
+    });
+    if (!receipt) {
+      throw new BadRequestException(
+        'FinanceReceipt not found in your organization',
       );
     }
     return;
@@ -396,7 +410,7 @@ export class DocumentsService {
     }
     if (params.buffer.length > MAX_BYTES) {
       throw new BadRequestException(
-        `File exceeds maximum size of ${MAX_BYTES} bytes`,
+        `File exceeds maximum size of 5MB (${MAX_BYTES} bytes)`,
       );
     }
 

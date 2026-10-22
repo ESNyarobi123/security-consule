@@ -7,6 +7,7 @@ import { AzureGlyph } from '@pssms/ui';
 
 export const DEVELOPER_TABS = [
   { href: '/developer', label: 'Overview', exact: true },
+  { href: '/developer/connectivity', label: 'Connected systems' },
   { href: '/developer/apis', label: 'APIs' },
   { href: '/developer/health', label: 'Health' },
   { href: '/developer/adapters', label: 'Adapters' },
@@ -82,10 +83,10 @@ export function DeveloperShell({
           );
         })}
         <Link
-          href="/devices"
+          href="/developer/systems"
           className="ml-auto whitespace-nowrap rounded-md px-3 py-1.5 text-xs font-medium text-[#0067b8] hover:bg-white/70"
         >
-          Devices →
+          Device registry →
         </Link>
       </nav>
 

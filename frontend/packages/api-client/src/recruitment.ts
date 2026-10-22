@@ -1,43 +1,14 @@
 import { authHeaders, clearSession, getRefreshToken, setTokens } from '@pssms/auth';
+import { parseApiEnvelope } from './errors';
 
 const coreUrl = () =>
   process.env.NEXT_PUBLIC_CORE_API_URL ??
   process.env.NEXT_PUBLIC_API_URL ??
   'http://localhost:4001';
 
-type ApiEnvelope<T> = {
-  success: boolean;
-  data: T;
-  meta?: Record<string, unknown>;
-  error?: { code?: string; message?: string };
-};
-
-function errorMessageFromBody(text: string, fallback: string): string {
-  try {
-    const json = JSON.parse(text) as {
-      error?: { message?: string | string[] };
-      message?: string | string[];
-    };
-    const msg = json.error?.message ?? json.message;
-    if (Array.isArray(msg)) return msg.join('; ');
-    if (typeof msg === 'string' && msg.trim()) return msg;
-  } catch {
-    /* not JSON */
-  }
-  return text.trim() || fallback;
-}
-
+/** Shared parser — keeps validation `details` visible in the portals. */
 async function parseEnvelope<T>(res: Response): Promise<T> {
-  const text = await res.text();
-  if (!res.ok) {
-    throw new Error(errorMessageFromBody(text, `Request failed (${res.status})`));
-  }
-  if (!text) throw new Error('Empty response from API');
-  const json = JSON.parse(text) as ApiEnvelope<T>;
-  if (json.success === false) {
-    throw new Error(errorMessageFromBody(text, 'Request failed'));
-  }
-  return json.data;
+  return parseApiEnvelope<T>(res);
 }
 
 export type ApplicantTrack = 'GUARD' | 'OFFICE' | 'GENERAL';
@@ -93,6 +64,26 @@ export type ApplicationStatusStage = {
   state: 'done' | 'current' | 'upcoming' | 'skipped';
 };
 
+export type JobOfferStatusValue = 'PENDING' | 'ACCEPTED' | 'DECLINED' | 'EXPIRED';
+
+/** Formal offer shown to the applicant (no officer ids). */
+export type JobOffer = {
+  status: JobOfferStatusValue;
+  position?: string | null;
+  department?: string | null;
+  employmentType?: 'GUARD' | 'SUPERVISOR' | 'ADMIN' | 'OTHER' | null;
+  salaryAmount?: string | null;
+  currency?: string | null;
+  startDate?: string | null;
+  message?: string | null;
+  issuedAt?: string | null;
+  expiresAt?: string | null;
+  respondedAt?: string | null;
+  /** True while the applicant can still ACCEPT / DECLINE */
+  canRespond?: boolean;
+  awaitingResponse?: boolean;
+};
+
 export type ApplicationStatusLookup = {
   referenceNumber: string;
   status: string;
@@ -104,6 +95,7 @@ export type ApplicationStatusLookup = {
   submittedAt: string;
   stages: ApplicationStatusStage[];
   applicantTrack?: string;
+  offer?: JobOffer | null;
   onboardingSteps?: Array<{ code: string; label: string; done: boolean }>;
 };
 
@@ -160,6 +152,36 @@ export async function getApplicationStatus(reference: string, email: string) {
   return parseEnvelope<ApplicationStatusLookup>(res);
 }
 
+export type JobOfferResponseReceipt = {
+  referenceNumber: string;
+  offerStatus: JobOfferStatusValue;
+  status: ApplicationStatusValue;
+  statusLabel: string;
+  statusHint: string;
+  respondedAt?: string | null;
+};
+
+/**
+ * Public POST /recruitment/applications/offer-response — applicant accepts or
+ * declines the offer using the same reference + email they applied with.
+ */
+export async function respondToJobOffer(body: {
+  reference: string;
+  email: string;
+  decision: 'ACCEPT' | 'DECLINE';
+  reason?: string;
+}) {
+  const res = await fetch(
+    `${coreUrl()}/api/v1/recruitment/applications/offer-response`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    },
+  );
+  return parseEnvelope<JobOfferResponseReceipt>(res);
+}
+
 // ── Module 14-A — staff HR inbox (admin-web · recruitment.manage) ─────────
 
 export type ApplicationStatusValue =
@@ -170,6 +192,11 @@ export type ApplicationStatusValue =
   | 'HIRED'
   | 'REJECTED'
   | 'WITHDRAWN';
+
+export type StaffJobOffer = JobOffer & {
+  issuedBy?: string | null;
+  responseReason?: string | null;
+};
 
 export type StaffJobApplication = {
   id: string;
@@ -189,6 +216,7 @@ export type StaffJobApplication = {
   allowedNextStatuses?: ApplicationStatusValue[];
   canHire?: boolean;
   applicantTrack?: string | null;
+  offer?: StaffJobOffer | null;
   onboardingSteps?: Array<{
     code: string;
     label: string;
@@ -196,6 +224,7 @@ export type StaffJobApplication = {
     completedAt?: string | null;
   }>;
   interviewNotification?: { email: boolean } | null;
+  offerNotification?: { email: boolean } | null;
 };
 
 export type StaffJobPosting = {
@@ -214,7 +243,7 @@ export type StaffJobPosting = {
 };
 
 export type HireApplicantBody = {
-  employeeNumber: string;
+  employeeNumber?: string;
   department?: string;
   employmentType?: 'GUARD' | 'SUPERVISOR' | 'ADMIN' | 'OTHER';
 };
@@ -233,10 +262,9 @@ async function tryStaffRefresh(): Promise<string | null> {
           body: JSON.stringify({ refreshToken: rt }),
         });
         if (!res.ok) return null;
-        const json = (await res.json()) as ApiEnvelope<{
-          accessToken: string;
-          refreshToken: string;
-        }>;
+        const json = (await res.json()) as {
+          data: { accessToken: string; refreshToken: string };
+        };
         setTokens(json.data.accessToken, json.data.refreshToken);
         return json.data.accessToken;
       } catch {
@@ -259,7 +287,9 @@ async function recruitmentStaffFetch<T>(
     fetch(`${coreUrl()}${path}`, {
       ...init,
       headers: {
-        'Content-Type': 'application/json',
+        ...(init?.body != null
+          ? { 'Content-Type': 'application/json' }
+          : {}),
         ...authHeaders(authToken ?? init?.token),
         ...init?.headers,
       },
@@ -342,6 +372,49 @@ export function hireJobApplicant(
 ) {
   return recruitmentStaffFetch<StaffJobApplication>(
     `/api/v1/recruitment/applications/${id}/hire`,
+    {
+      method: 'POST',
+      body: JSON.stringify(body),
+      token,
+    },
+  );
+}
+
+export type IssueJobOfferBody = {
+  position: string;
+  department?: string;
+  employmentType?: 'GUARD' | 'SUPERVISOR' | 'ADMIN' | 'OTHER';
+  salaryAmount?: number;
+  currency?: string;
+  startDate?: string;
+  expiresInDays?: number;
+  message?: string;
+};
+
+/** POST /recruitment/applications/:id/offer — issue / re-issue the offer */
+export function issueJobOffer(
+  id: string,
+  body: IssueJobOfferBody,
+  token?: string,
+) {
+  return recruitmentStaffFetch<StaffJobApplication>(
+    `/api/v1/recruitment/applications/${id}/offer`,
+    {
+      method: 'POST',
+      body: JSON.stringify(body),
+      token,
+    },
+  );
+}
+
+/** POST /recruitment/applications/:id/offer/response — record an offline answer */
+export function recordJobOfferResponse(
+  id: string,
+  body: { decision: 'ACCEPT' | 'DECLINE'; reason?: string },
+  token?: string,
+) {
+  return recruitmentStaffFetch<StaffJobApplication>(
+    `/api/v1/recruitment/applications/${id}/offer/response`,
     {
       method: 'POST',
       body: JSON.stringify(body),

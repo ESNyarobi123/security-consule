@@ -66,7 +66,9 @@ async function coreFetch<T>(
     fetch(`${coreUrl()}${path}`, {
       ...rest,
       headers: {
-        'Content-Type': 'application/json',
+        ...(rest.body != null
+          ? { 'Content-Type': 'application/json' }
+          : {}),
         ...authHeaders(access ?? token),
         ...(rest.headers ?? {}),
       },
@@ -962,6 +964,101 @@ export type BranchStaffRow = {
   deploymentStatus: string;
 };
 
+/** Portal 35.23 — managed branch staff register (workforce employees in scope). */
+export type BranchStaffMember = {
+  id: string;
+  employeeNumber: string;
+  fullName: string;
+  email: string | null;
+  phone: string | null;
+  department: string | null;
+  employmentType: 'GUARD' | 'SUPERVISOR' | 'ADMIN' | 'OTHER';
+  status: 'ACTIVE' | 'ON_LEAVE' | 'SUSPENDED' | 'TERMINATED';
+  hireDate: string | null;
+  branchId: string | null;
+  branchCode: string | null;
+  branchName: string | null;
+  guardId: string | null;
+  guardStatus: string | null;
+  siteId: string | null;
+  siteCode: string | null;
+  siteName: string | null;
+  hasLogin: boolean;
+  canEdit: boolean;
+};
+
+export type BranchStaffPack = {
+  rows: BranchStaffMember[];
+  branches: { id: string; code: string; name: string; isActive: boolean }[];
+  summary: {
+    total: number;
+    active: number;
+    onLeave: number;
+    suspended: number;
+    guards: number;
+  };
+  canManage: boolean;
+  notes: string[];
+};
+
+export const listBranchStaff = (
+  params?: {
+    branchId?: string;
+    status?: string;
+    employmentType?: string;
+    q?: string;
+  },
+  token?: string,
+) => {
+  const sp = new URLSearchParams();
+  if (params?.branchId) sp.set('branchId', params.branchId);
+  if (params?.status) sp.set('status', params.status);
+  if (params?.employmentType) sp.set('employmentType', params.employmentType);
+  if (params?.q) sp.set('q', params.q);
+  const q = sp.toString() ? `?${sp}` : '';
+  return coreFetch<BranchStaffPack>(`/api/v1/operations/branch-staff${q}`, {
+    token,
+  });
+};
+
+export const createBranchStaffMember = (
+  body: {
+    fullName: string;
+    employeeNumber?: string;
+    email?: string;
+    phone?: string;
+    employmentType?: 'GUARD' | 'SUPERVISOR' | 'ADMIN' | 'OTHER';
+    department?: string;
+    branchId?: string;
+    hireDate?: string;
+  },
+  token?: string,
+) =>
+  coreFetch<BranchStaffMember>('/api/v1/operations/branch-staff', {
+    method: 'POST',
+    body: JSON.stringify(body),
+    token,
+  });
+
+export const updateBranchStaffMember = (
+  id: string,
+  body: {
+    fullName?: string;
+    email?: string | null;
+    phone?: string | null;
+    employmentType?: 'GUARD' | 'SUPERVISOR' | 'ADMIN' | 'OTHER';
+    department?: string | null;
+    branchId?: string;
+    status?: 'ACTIVE' | 'ON_LEAVE' | 'SUSPENDED';
+  },
+  token?: string,
+) =>
+  coreFetch<BranchStaffMember>(`/api/v1/operations/branch-staff/${id}`, {
+    method: 'PATCH',
+    body: JSON.stringify(body),
+    token,
+  });
+
 export type BranchInspectionRow = {
   id: string;
   siteId: string;
@@ -1004,6 +1101,25 @@ export type BranchParkingMonitor = {
   }[];
   notes: string[];
 };
+
+/** Portal 35.23 — thin billable contract picker for deployments (no fees). */
+export type DeploymentContractOption = {
+  id: string;
+  contractNumber: string;
+  title: string;
+  status: string;
+  customerId: string;
+  customerCode: string;
+  customerName: string;
+  siteIds: string[];
+  sites: { id: string; code: string; name: string }[];
+};
+
+export const listDeploymentContractOptions = (token?: string) =>
+  coreFetch<{ rows: DeploymentContractOption[]; notes: string[] }>(
+    '/api/v1/operations/contract-options',
+    { token },
+  );
 
 export const getBranchDeskSummary = (token?: string) =>
   coreFetch<BranchDeskSummary>('/api/v1/operations/desk-summary', { token });

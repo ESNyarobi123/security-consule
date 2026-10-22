@@ -118,6 +118,16 @@ export class UpdateMarketingCampaignDto {
 
   @ApiPropertyOptional()
   @IsOptional()
+  @IsDateString()
+  startsAt?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsDateString()
+  endsAt?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
   @IsBoolean()
   isActive?: boolean;
 
@@ -190,6 +200,18 @@ export class PatchMarketingLeadDto {
   @ApiPropertyOptional()
   @IsOptional()
   @IsString()
+  @MinLength(2)
+  companyName?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  @MinLength(2)
+  contactName?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
   notes?: string | null;
 
   @ApiPropertyOptional()
@@ -213,6 +235,16 @@ export class PatchMarketingLeadDto {
   @IsOptional()
   @IsString()
   contactEmail?: string | null;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  referrerName?: string | null;
+
+  @ApiPropertyOptional({ enum: MARKETING_REFERRER_TYPES })
+  @IsOptional()
+  @IsIn([...MARKETING_REFERRER_TYPES])
+  referrerType?: (typeof MARKETING_REFERRER_TYPES)[number] | null;
 }
 
 export class WinMarketingLeadDto {
@@ -341,4 +373,85 @@ export class ConvertLeadContractDto {
   @IsOptional()
   @IsString()
   contractNumber?: string;
+}
+
+export class CancelMarketingSurveyDto {
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  reason?: string;
+}
+
+export class CreateMarketingCommissionDto {
+  @ApiProperty({ example: 'Asha Mwinyi' })
+  @IsString()
+  @MinLength(2)
+  beneficiary!: string;
+
+  @ApiPropertyOptional({ enum: MARKETING_REFERRER_TYPES })
+  @IsOptional()
+  @IsIn([...MARKETING_REFERRER_TYPES])
+  referrerType?: (typeof MARKETING_REFERRER_TYPES)[number];
+
+  @ApiProperty({ example: 225000 })
+  @Type(() => Number)
+  @IsNumber()
+  @Min(1)
+  amount!: number;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  notes?: string;
+}
+
+export class PatchMarketingCommissionDto {
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  @MinLength(2)
+  beneficiary?: string;
+
+  @ApiPropertyOptional({ enum: MARKETING_REFERRER_TYPES })
+  @IsOptional()
+  @IsIn([...MARKETING_REFERRER_TYPES])
+  referrerType?: (typeof MARKETING_REFERRER_TYPES)[number];
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(1)
+  amount?: number;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  notes?: string | null;
+}
+
+export class AccrueMarketingCommissionDto {
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  notes?: string;
+}
+
+export class PayMarketingCommissionDto {
+  @ApiPropertyOptional({ example: 'PV-00042' })
+  @IsOptional()
+  @IsString()
+  paymentReference?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  notes?: string;
+}
+
+export class VoidMarketingCommissionDto {
+  @ApiProperty({ example: 'Referral agreement cancelled' })
+  @IsString()
+  @MinLength(2)
+  reason!: string;
 }

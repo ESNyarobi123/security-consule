@@ -2,6 +2,7 @@
   "name": "pssms-backend",
   "version": "0.1.0",
   "private": true,
+  "packageManager": "npm@11.11.0",
   "description": "HIGHLINK PSSMS — NestJS modular monolith backend",
   "license": "UNLICENSED",
   "scripts": {

@@ -65,6 +65,16 @@ export class DeveloperIntegrationsController {
     return this.service.systemsMonitor(user);
   }
 
+  @Get('connectivity')
+  @RequirePermissions('integrations.manage')
+  @ApiOperation({
+    summary:
+      'Connected-systems board — platform services, messaging (SMS/email/WhatsApp), payments, devices and data rails with 24h traffic + failures',
+  })
+  connectivity(@CurrentUser() user: AuthUser) {
+    return this.service.connectivity(user);
+  }
+
   @Get('export')
   @RequirePermissions('integrations.manage')
   @ApiOperation({

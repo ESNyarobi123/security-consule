@@ -392,6 +392,7 @@ export function PurchaseOrderRoster({
   busyId,
   onSubmit,
   onApprove,
+  canApprove = true,
   toolbar,
   empty,
 }: {
@@ -401,6 +402,7 @@ export function PurchaseOrderRoster({
   busyId?: string | null;
   onSubmit?: (po: PurchaseOrder) => void;
   onApprove?: (po: PurchaseOrder) => void;
+  canApprove?: boolean;
   toolbar?: ReactNode;
   empty?: ReactNode;
 }) {
@@ -470,6 +472,7 @@ export function PurchaseOrderRoster({
                   <PoActions
                     status={s}
                     busy={busyId === r.id}
+                    canApprove={canApprove}
                     onSubmit={() => onSubmit?.(r)}
                     onApprove={() => onApprove?.(r)}
                   />
@@ -511,6 +514,7 @@ export function PurchaseOrderRoster({
                     <PoActions
                       status={s}
                       busy={busyId === r.id}
+                      canApprove={canApprove}
                       onSubmit={() => onSubmit?.(r)}
                       onApprove={() => onApprove?.(r)}
                     />
@@ -528,11 +532,13 @@ export function PurchaseOrderRoster({
 function PoActions({
   status,
   busy,
+  canApprove = true,
   onSubmit,
   onApprove,
 }: {
   status: string;
   busy?: boolean;
+  canApprove?: boolean;
   onSubmit: () => void;
   onApprove: () => void;
 }) {
@@ -549,6 +555,13 @@ function PoActions({
     );
   }
   if (status === 'PENDING_APPROVAL' || status === 'SUBMITTED') {
+    if (!canApprove) {
+      return (
+        <span className="text-[11px] text-[#8a8886]" title="Purchase orders are approved by the General Manager on /approvals">
+          Awaiting GM
+        </span>
+      );
+    }
     return (
       <button
         type="button"
@@ -593,6 +606,7 @@ export function SubmissionRoster({
   onApprove,
   onReject,
   onMarkPaid,
+  onDocs,
   toolbar,
   empty,
 }: {
@@ -604,6 +618,7 @@ export function SubmissionRoster({
   onApprove?: (row: SupplierSubmission) => void;
   onReject?: (row: SupplierSubmission) => void;
   onMarkPaid?: (row: SupplierSubmission) => void;
+  onDocs?: (row: SupplierSubmission) => void;
   toolbar?: ReactNode;
   empty?: ReactNode;
 }) {
@@ -676,6 +691,15 @@ export function SubmissionRoster({
                   ) : null}
                 </div>
                 <div className="flex flex-wrap justify-end gap-1">
+                  {onDocs ? (
+                    <button
+                      type="button"
+                      className={btnSecondary}
+                      onClick={() => onDocs(r)}
+                    >
+                      Documents
+                    </button>
+                  ) : null}
                   {canReject ? (
                     <button
                       type="button"

@@ -1,9 +1,6 @@
 'use client';
 
-import {
-  getMarketingReports,
-  type MarketingReport,
-} from '@pssms/api-client';
+import { getMarketingReports, type MarketingReport } from '@pssms/api-client';
 import { GlassCard, StatCard, btnSecondary } from '@pssms/ui';
 import {
   ClipboardList,
@@ -20,31 +17,46 @@ const TOPICS: { title: string; href: string; description: string }[] = [
   {
     title: 'Sales pipeline',
     href: '/marketing/pipeline',
-    description: 'Leads, site surveys, quotations, win/lose, convert to customer + DRAFT contract',
+    description:
+      'Leads, site surveys, quotations, proposals, win/lose, convert to customer + DRAFT contract',
   },
   {
     title: 'Campaigns',
     href: '/marketing/campaigns',
-    description: 'Named sources for inbound leads (not a bulk-email engine)',
+    description:
+      'Named lead sources with live attribution: leads, won, pipeline value, conversion',
   },
   {
     title: 'Referral commissions',
     href: '/marketing/commissions',
-    description: 'PENDING → ACCRUED register — payment stays on Finance 35.15',
+    description:
+      'PENDING → ACCRUED → PAID register; second officer accrues; Finance pays via 35.15',
   },
   {
     title: 'Contract approval',
     href: '/approvals',
-    description: 'Legal → GM → CEO → CMD — marketing cannot approve own convert',
+    description:
+      'Legal → GM → CEO → CMD — marketing cannot approve own convert',
   },
 ];
 
-const fmtTZS = (n: number) =>
+const fmt = (n: number) =>
   new Intl.NumberFormat('en-TZ', {
     style: 'currency',
     currency: 'TZS',
     maximumFractionDigits: 0,
   }).format(n);
+
+const STAGE_ORDER = [
+  'LEAD',
+  'QUALIFIED',
+  'SURVEY_SCHEDULED',
+  'SURVEY_DONE',
+  'QUOTED',
+  'PROPOSAL',
+  'WON',
+  'LOST',
+];
 
 export default function MarketingOverviewPage() {
   const [pack, setPack] = useState<MarketingReport | null>(null);
@@ -57,7 +69,9 @@ export default function MarketingOverviewPage() {
     try {
       setPack(await getMarketingReports());
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load marketing overview');
+      setError(
+        err instanceof Error ? err.message : 'Failed to load marketing overview',
+      );
     } finally {
       setLoading(false);
     }
@@ -66,6 +80,11 @@ export default function MarketingOverviewPage() {
   useEffect(() => {
     void load();
   }, [load]);
+
+  const maxStage = Math.max(
+    1,
+    ...STAGE_ORDER.map((s) => pack?.byStage?.[s] ?? 0),
+  );
 
   return (
     <div className="mx-auto max-w-[1400px] space-y-6">
@@ -80,9 +99,8 @@ export default function MarketingOverviewPage() {
           <p className="mt-1 max-w-3xl text-[13px] text-[#605e5c]">
             Used by Marketing / BD / sales officers on the seeded{' '}
             <code className="text-[11px]">MARKETING</code> role (
-            <code className="text-[11px]">marketing1@</code>). No extra manager
-            or sales-agent accounts. Referral partners are named on the lead.
-            Branch Managers stay Field Ops.
+            <code className="text-[11px]">marketing1@</code>). Referral partners
+            are named on the lead. Branch Managers stay Field Ops.
           </p>
         </div>
         <button type="button" className={btnSecondary} onClick={() => void load()}>
@@ -101,32 +119,91 @@ export default function MarketingOverviewPage() {
         <StatCard
           label="Open pipeline"
           value={loading ? '…' : (pack?.openPipeline ?? 0)}
-          hint="Lead through proposal"
+          hint={`${fmt(pack?.pipelineValue ?? 0)} estimated`}
           icon={<ClipboardList className="h-5 w-5" />}
           accent="blue"
         />
         <StatCard
           label="Won"
           value={loading ? '…' : (pack?.won ?? 0)}
-          hint={`${pack?.lost ?? 0} lost`}
+          hint={`${fmt(pack?.wonValue ?? 0)} · ${pack?.lost ?? 0} lost`}
           icon={<Trophy className="h-5 w-5" />}
           accent="emerald"
         />
         <StatCard
-          label="Active campaigns"
+          label="Conversion"
+          value={loading ? '…' : `${pack?.conversionRate ?? 0}%`}
+          hint={`${pack?.totalLeads ?? 0} leads · ${pack?.quotesAccepted ?? 0} accepted quotes`}
+          icon={<Target className="h-5 w-5" />}
+          accent="amber"
+        />
+        <StatCard
+          label="Campaigns"
           value={loading ? '…' : (pack?.activeCampaigns ?? 0)}
           hint={`${pack?.surveysScheduled ?? 0} surveys scheduled`}
           icon={<Megaphone className="h-5 w-5" />}
           accent="violet"
         />
+      </div>
+
+      <div className="grid gap-4 sm:grid-cols-3">
         <StatCard
-          label="Pending commissions"
-          value={loading ? '…' : fmtTZS(pack?.pendingCommissionAmount ?? 0)}
-          hint={`${pack?.pendingCommissions ?? 0} rows — accrue here, pay in Finance`}
+          label="Commissions pending"
+          value={loading ? '…' : fmt(pack?.pendingCommissionAmount ?? 0)}
+          hint={`${pack?.pendingCommissions ?? 0} rows awaiting accrual`}
           icon={<Wallet className="h-5 w-5" />}
           accent="amber"
         />
+        <StatCard
+          label="Commissions accrued"
+          value={loading ? '…' : fmt(pack?.accruedCommissionAmount ?? 0)}
+          hint="Approved by a second officer, awaiting payment"
+          icon={<Wallet className="h-5 w-5" />}
+          accent="blue"
+        />
+        <StatCard
+          label="Commissions paid"
+          value={loading ? '…' : fmt(pack?.paidCommissionAmount ?? 0)}
+          hint="Marked paid with a Finance reference"
+          icon={<Wallet className="h-5 w-5" />}
+          accent="emerald"
+        />
       </div>
+
+      {pack ? (
+        <GlassCard className="p-4">
+          <div className="mb-3 flex items-center justify-between">
+            <p className="text-sm font-semibold text-[#1b1a19]">
+              Pipeline by stage
+            </p>
+            <Link
+              href="/marketing/pipeline"
+              className="text-xs font-medium text-[#0078d4]"
+            >
+              Open pipeline →
+            </Link>
+          </div>
+          <div className="space-y-2">
+            {STAGE_ORDER.map((s) => {
+              const count = pack.byStage?.[s] ?? 0;
+              return (
+                <div key={s} className="flex items-center gap-3">
+                  <span className="w-36 text-xs text-[#605e5c]">{s}</span>
+                  <div className="h-2 flex-1 overflow-hidden rounded-full bg-[#f3f2f1]">
+                    <div
+                      className="h-full rounded-full bg-[#0078d4]"
+                      style={{ width: `${(count / maxStage) * 100}%` }}
+                    />
+                  </div>
+                  <span className="w-8 text-right text-xs font-medium text-[#1b1a19]">
+                    {count}
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+        </GlassCard>
+      ) : null}
 
       <div className="grid gap-3 md:grid-cols-2">
         {TOPICS.map((t) => (

@@ -79,7 +79,11 @@ export const KPI_TONES = {
 export type KpiTone = keyof typeof KPI_TONES;
 
 /** Visual chips in the hero band (link where useful). */
-export const HERO_CHIPS: { label: string; href?: string }[] = [
+export const HERO_CHIPS: {
+  label: string;
+  href?: string;
+  permission?: string;
+}[] = [
   { label: 'Sites', href: '/branch/sites' },
   { label: 'Access points', href: '/branch/access-points' },
   { label: 'Deployments', href: '/branch/deployments' },
@@ -88,7 +92,11 @@ export const HERO_CHIPS: { label: string; href?: string }[] = [
   { label: 'Field alerts', href: '/branch/alerts' },
   { label: 'EOB', href: '/branch/eob' },
   { label: 'Patrols', href: '/branch/patrols' },
-  { label: 'Incidents', href: '/branch/incidents' },
+  {
+    label: 'Incidents',
+    href: '/branch/incidents',
+    permission: 'incidents.manage',
+  },
   { label: 'Staff', href: '/branch/staff' },
   { label: 'Inspections', href: '/branch/inspections' },
   { label: 'Parking', href: '/branch/parking' },
@@ -102,6 +110,8 @@ export type QuickLink = {
   hint: string;
   Icon: LucideIcon;
   tone: KpiTone;
+  /** Extra gate beyond the portal's operations.manage. */
+  permission?: string;
 };
 
 export const QUICK_LINKS: QuickLink[] = [
@@ -167,11 +177,12 @@ export const QUICK_LINKS: QuickLink[] = [
     hint: 'Create, list, escalate status',
     Icon: ShieldAlert,
     tone: 'rose',
+    permission: 'incidents.manage',
   },
   {
     href: '/branch/staff',
     label: 'Staff',
-    hint: 'Guards on post (not HR hire)',
+    hint: 'Branch roster · add / edit / suspend',
     Icon: Users,
     tone: 'emerald',
   },
@@ -216,6 +227,7 @@ export const QUICK_LINKS: QuickLink[] = [
     hint: 'Roster · suspend · deployable',
     Icon: Users,
     tone: 'emerald',
+    permission: 'guards.manage',
   },
 ];
 

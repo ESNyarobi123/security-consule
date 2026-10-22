@@ -336,6 +336,17 @@ export class PettyCashVoucherResponseDto {
   @ApiProperty() status!: string;
   @ApiPropertyOptional() receiptUrl?: string | null;
   @ApiPropertyOptional() approvalInstanceId?: string | null;
+  @ApiPropertyOptional({
+    description: 'PENDING | APPROVED | REJECTED of the shared approval instance',
+  })
+  approvalStatus?: string | null;
+  @ApiPropertyOptional() approvalStepOrder?: number | null;
+  @ApiPropertyOptional() approvalCurrentStepName?: string | null;
+  @ApiPropertyOptional({
+    example: 'ACCOUNTS_OFFICER',
+    description: 'Role required to act on the current approval step',
+  })
+  approvalRequiredRole?: string | null;
   @ApiPropertyOptional() approvedBy?: string | null;
   @ApiPropertyOptional() issuedBy?: string | null;
   @ApiPropertyOptional() issuedAt?: Date | null;
@@ -391,6 +402,14 @@ export class PaymentVoucherResponseDto {
   @ApiProperty() purpose!: string;
   @ApiProperty() status!: string;
   @ApiPropertyOptional() approvalInstanceId?: string | null;
+  @ApiPropertyOptional() approvalStatus?: string | null;
+  @ApiPropertyOptional() approvalStepOrder?: number | null;
+  @ApiPropertyOptional() approvalCurrentStepName?: string | null;
+  @ApiPropertyOptional({
+    example: 'GENERAL_MANAGER',
+    description: 'Role required to act on the current approval step',
+  })
+  approvalRequiredRole?: string | null;
   @ApiPropertyOptional() approvedBy?: string | null;
   @ApiPropertyOptional() paidAt?: Date | null;
   @ApiPropertyOptional() paymentReference?: string | null;
@@ -402,6 +421,104 @@ export class PayVoucherDto {
   @ApiProperty()
   @IsString()
   paymentReference!: string;
+}
+
+/** Portal 35.15 — who paid the money being receipted. */
+export const RECEIPT_PAYER_TYPES = [
+  'CUSTOMER',
+  'SUPPLIER',
+  'EMPLOYEE',
+  'OTHER',
+] as const;
+
+export class CreateFinanceReceiptDto {
+  @ApiPropertyOptional({
+    example: 'RCP-00012',
+    description: 'Paper/channel receipt number. Auto-generated when omitted.',
+  })
+  @IsOptional()
+  @IsString()
+  @MinLength(2)
+  receiptNumber?: string;
+
+  @ApiProperty({ enum: RECEIPT_PAYER_TYPES, example: 'CUSTOMER' })
+  @IsIn([...RECEIPT_PAYER_TYPES])
+  payerType!: string;
+
+  @ApiProperty({ example: 'Demo Manufacturing Ltd' })
+  @IsString()
+  @MinLength(2)
+  payerName!: string;
+
+  @ApiPropertyOptional({ description: 'Optional CRM customer link' })
+  @IsOptional()
+  @IsUUID()
+  customerId?: string;
+
+  @ApiPropertyOptional({
+    description:
+      'Optional invoice link — records an InvoicePayment so AR stays correct',
+  })
+  @IsOptional()
+  @IsUUID()
+  invoiceId?: string;
+
+  @ApiProperty({ example: 1500000 })
+  @IsNumber()
+  @Min(0.01)
+  amount!: number;
+
+  @ApiPropertyOptional({ default: 'TZS' })
+  @IsOptional()
+  @IsString()
+  currency?: string;
+
+  @ApiProperty({ enum: PaymentMethod, example: 'BANK_TRANSFER' })
+  @IsEnum(PaymentMethod)
+  paymentMethod!: PaymentMethod;
+
+  @ApiPropertyOptional({ example: 'CRDB-TXN-88231' })
+  @IsOptional()
+  @IsString()
+  paymentReference?: string;
+
+  @ApiPropertyOptional({
+    example: '2026-10-20',
+    description: 'Date on the receipt (defaults to now)',
+  })
+  @IsOptional()
+  @IsDateString()
+  receivedAt?: string;
+
+  @ApiPropertyOptional({ example: 'Counter receipt, cashier M. Said' })
+  @IsOptional()
+  @IsString()
+  notes?: string;
+}
+
+export class FinanceReceiptResponseDto {
+  @ApiProperty() id!: string;
+  @ApiProperty() organizationId!: string;
+  @ApiProperty() receiptNumber!: string;
+  @ApiProperty() payerType!: string;
+  @ApiProperty() payerName!: string;
+  @ApiPropertyOptional() customerId?: string | null;
+  @ApiPropertyOptional() customerName?: string | null;
+  @ApiPropertyOptional() invoiceId?: string | null;
+  @ApiPropertyOptional() invoiceNumber?: string | null;
+  @ApiPropertyOptional() invoicePaymentId?: string | null;
+  @ApiProperty() amount!: number;
+  @ApiProperty() currency!: string;
+  @ApiProperty() paymentMethod!: string;
+  @ApiPropertyOptional() paymentReference?: string | null;
+  @ApiProperty() receivedAt!: Date;
+  @ApiPropertyOptional() notes?: string | null;
+  @ApiPropertyOptional({
+    description: 'MinIO attachments on this receipt (documents)',
+  })
+  attachmentCount?: number;
+  @ApiProperty() createdBy!: string;
+  @ApiProperty() createdAt!: Date;
 }
 
 export class FinanceMoneyCountDto {

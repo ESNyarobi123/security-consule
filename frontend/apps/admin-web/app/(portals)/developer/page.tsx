@@ -1,6 +1,7 @@
 'use client';
 
 import {
+  getDeveloperConnectivity,
   getPlatformServicesHealth,
   getProvidersHealth,
   listDevices,
@@ -9,6 +10,9 @@ import {
   listWebhookInbox,
   replayIntegrationOutbox,
   replayWebhookInbox,
+  type ConnectivityReport,
+  type ConnectivityStatus,
+  type ConnectivitySystem,
   type Device,
   type IntegrationOutboxEntry,
   type NotificationRow,
@@ -64,6 +68,56 @@ type OutboxStatusFilter = (typeof OUTBOX_STATUSES)[number];
 const filterSelectCls =
   'rounded-md border border-[#8a8886] bg-white px-2.5 py-1.5 text-xs text-[#323130] outline-none focus:border-[#0078d4] focus:ring-1 focus:ring-[#0078d4]';
 
+const CONNECTIVITY_STYLE: Record<
+  ConnectivityStatus,
+  { label: string; className: string }
+> = {
+  CONNECTED: {
+    label: 'Connected',
+    className: 'bg-[#dff6dd] text-[#0b5a0b] ring-[#a7e0a4]',
+  },
+  CONSOLE: {
+    label: 'Console',
+    className: 'bg-amber-50 text-amber-800 ring-amber-200',
+  },
+  IDLE: { label: 'Idle', className: 'bg-[#eff6fc] text-[#004578] ring-[#c7e0f4]' },
+  DEGRADED: {
+    label: 'Degraded',
+    className: 'bg-orange-50 text-orange-800 ring-orange-200',
+  },
+  NOT_CONFIGURED: {
+    label: 'Not configured',
+    className: 'bg-[#f3f2f1] text-[#605e5c] ring-[#e1dfdd]',
+  },
+  DEFERRED: {
+    label: 'Deferred',
+    className: 'bg-slate-100 text-slate-600 ring-slate-200',
+  },
+};
+
+function ConnectivityPill({ status }: { status: ConnectivityStatus }) {
+  const style = CONNECTIVITY_STYLE[status] ?? CONNECTIVITY_STYLE.NOT_CONFIGURED;
+  return (
+    <span
+      className={`inline-flex rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ring-1 ${style.className}`}
+    >
+      {style.label}
+    </span>
+  );
+}
+
+function lastSeen(iso: string | null): string {
+  if (!iso) return '—';
+  const diff = Date.now() - new Date(iso).getTime();
+  if (Number.isNaN(diff)) return '—';
+  const mins = Math.round(diff / 60_000);
+  if (mins < 1) return 'just now';
+  if (mins < 60) return `${mins}m ago`;
+  const hours = Math.round(mins / 60);
+  if (hours < 48) return `${hours}h ago`;
+  return `${Math.round(hours / 24)}d ago`;
+}
+
 function SectionLabel({
   title,
   href,
@@ -101,6 +155,9 @@ function SectionLabel({
 export default function DeveloperOverviewPage() {
   const [services, setServices] = useState<PlatformServiceHealth[]>([]);
   const [adapters, setAdapters] = useState<ProviderAdapterHealth[]>([]);
+  const [connectivity, setConnectivity] = useState<ConnectivityReport | null>(
+    null,
+  );
   const [providersSource, setProvidersSource] = useState('');
   const [inbox, setInbox] = useState<WebhookInboxEntry[]>([]);
   const [outbox, setOutbox] = useState<IntegrationOutboxEntry[]>([]);
@@ -117,7 +174,7 @@ export default function DeveloperOverviewPage() {
     setLoading(true);
     setError(null);
     try {
-      const [health, providers, hooks, box, notifs, deviceRows] =
+      const [health, providers, hooks, box, notifs, deviceRows, links] =
         await Promise.all([
           getPlatformServicesHealth(),
           getProvidersHealth(),
@@ -129,9 +186,11 @@ export default function DeveloperOverviewPage() {
           ),
           listNotifications(),
           listDevices(),
+          getDeveloperConnectivity(),
         ]);
       setServices(health.services);
       setAdapters(providers.adapters);
+      setConnectivity(links);
       setProvidersSource(providers.source);
       setInbox(hooks);
       setOutbox(box);
@@ -193,7 +252,7 @@ export default function DeveloperOverviewPage() {
   return (
     <DeveloperShell
       title="Integrations overview"
-      description="APIs, adapters, webhooks, environments, logs, and device systems. Console SMS/payment until vendors. WhatsApp, banks, mobile money, MQTT Nest client, and bulk import are deferred. ICT stays Super Admin — IT Support cannot open this portal."
+      description="Everything the platform is wired to, and whether it is actually talking. Open Connected systems for the evidence-based verdict per service, gateway, device system and money rail. Console SMS/payment until vendors; WhatsApp, banks, mobile money, MQTT Nest client and bulk import are deferred. Admin, Developer and ICT Manager (IT_SUPPORT) can open this portal."
       actions={
         <button
           type="button"
@@ -248,6 +307,112 @@ export default function DeveloperOverviewPage() {
           accent={outbox.length > 0 ? 'amber' : 'slate'}
         />
       </div>
+
+      {/* Connected systems — the whole-platform answer */}
+      <section className="mt-6">
+        <SectionLabel
+          title="Connected systems"
+          href="/developer/connectivity"
+          count={connectivity?.systems.length}
+          actions={
+            connectivity ? (
+              <span className="text-[11px] text-[#605e5c]">
+                {connectivity.summary.connected} connected ·{' '}
+                {connectivity.summary.console} console ·{' '}
+                {connectivity.summary.degraded} degraded ·{' '}
+                {connectivity.summary.deferred +
+                  connectivity.summary.notConfigured}{' '}
+                not wired
+              </span>
+            ) : null
+          }
+        />
+        <GlassCard className="!p-0 overflow-hidden">
+          {!connectivity || connectivity.systems.length === 0 ? (
+            <div className="p-4">
+              <PanelEmpty
+                icon={<Plug className="h-4 w-4" />}
+                title={loading ? 'Checking connections…' : 'No connectivity data'}
+                description="Open Connected systems to probe every platform service, gateway, device system and money rail."
+              />
+            </div>
+          ) : (
+            <DataTable<ConnectivitySystem>
+              keyField="code"
+              rows={connectivity.systems}
+              emptyMessage="No systems"
+              columns={[
+                {
+                  key: 'name',
+                  label: 'System',
+                  render: (row) => (
+                    <div className="min-w-0">
+                      <p className="truncate text-sm font-medium text-[#1b1a19]">
+                        {row.name}
+                      </p>
+                      <p className="font-mono text-[10px] uppercase tracking-wide text-[#605e5c]">
+                        {row.group} · {row.code}
+                      </p>
+                    </div>
+                  ),
+                },
+                {
+                  key: 'status',
+                  label: 'Status',
+                  render: (row) => <ConnectivityPill status={row.status} />,
+                },
+                {
+                  key: 'detail',
+                  label: 'Detail',
+                  render: (row) => (
+                    <span
+                      className="block max-w-[360px] truncate text-xs text-[#323130]"
+                      title={row.detail}
+                    >
+                      {row.detail}
+                    </span>
+                  ),
+                },
+                {
+                  key: 'activity24h',
+                  label: '24h',
+                  render: (row) => (
+                    <span className="text-xs text-[#605e5c]">
+                      {row.activity24h} events
+                      {row.failures24h > 0 ? (
+                        <span className="ml-1 font-medium text-orange-700">
+                          · {row.failures24h} failed
+                        </span>
+                      ) : null}
+                    </span>
+                  ),
+                },
+                {
+                  key: 'lastActivityAt',
+                  label: 'Last activity',
+                  render: (row) => (
+                    <span className="whitespace-nowrap text-xs text-[#605e5c]">
+                      {lastSeen(row.lastActivityAt)}
+                    </span>
+                  ),
+                },
+                {
+                  key: 'href',
+                  label: '',
+                  render: (row) => (
+                    <Link
+                      href={row.href}
+                      className="whitespace-nowrap text-[11px] font-medium text-[#0067b8] hover:text-[#004578]"
+                    >
+                      Open →
+                    </Link>
+                  ),
+                },
+              ]}
+            />
+          )}
+        </GlassCard>
+      </section>
 
       {/* Health */}
       <section className="mt-6">

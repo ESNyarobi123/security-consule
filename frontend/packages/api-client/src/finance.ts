@@ -61,7 +61,9 @@ async function coreFetch<T>(
     fetch(`${coreUrl()}${path}`, {
       ...rest,
       headers: {
-        'Content-Type': 'application/json',
+        ...(rest.body != null
+          ? { 'Content-Type': 'application/json' }
+          : {}),
         ...authHeaders(access ?? token),
         ...(rest.headers ?? {}),
       },
@@ -103,6 +105,10 @@ export type PettyCashVoucher = {
   status: string;
   receiptUrl?: string | null;
   approvalInstanceId?: string | null;
+  approvalStatus?: string | null;
+  approvalStepOrder?: number | null;
+  approvalCurrentStepName?: string | null;
+  approvalRequiredRole?: string | null;
   approvedBy?: string | null;
   issuedBy?: string | null;
   issuedAt?: string | null;
@@ -115,6 +121,16 @@ export type PettyCashVoucher = {
   createdBy: string;
   createdAt: string;
 };
+
+export const createPettyCashFund = (
+  body: { name: string; imprestAmount: number; branchId?: string },
+  token?: string,
+) =>
+  coreFetch<PettyCashFund>('/api/v1/finance/petty-cash/funds', {
+    method: 'POST',
+    body: JSON.stringify(body),
+    token,
+  });
 
 export const listPettyCashFunds = (token?: string) =>
   coreFetch<PettyCashFund[]>('/api/v1/finance/petty-cash/funds', { token });
@@ -180,6 +196,10 @@ export type PaymentVoucher = {
   purpose: string;
   status: string;
   approvalInstanceId?: string | null;
+  approvalStatus?: string | null;
+  approvalStepOrder?: number | null;
+  approvalCurrentStepName?: string | null;
+  approvalRequiredRole?: string | null;
   approvedBy?: string | null;
   paidAt?: string | null;
   paymentReference?: string | null;
@@ -226,6 +246,75 @@ export const payPaymentVoucher = (
   });
 
 export type FinanceMoneyCount = { count: number; amount: number };
+
+// ── Receipts (Portal 35.15) — details + MinIO scan via documents ──
+export const RECEIPT_PAYER_TYPES = [
+  'CUSTOMER',
+  'SUPPLIER',
+  'EMPLOYEE',
+  'OTHER',
+] as const;
+
+export type ReceiptPayerType = (typeof RECEIPT_PAYER_TYPES)[number];
+
+export type FinanceReceipt = {
+  id: string;
+  organizationId: string;
+  receiptNumber: string;
+  payerType: string;
+  payerName: string;
+  customerId?: string | null;
+  customerName?: string | null;
+  invoiceId?: string | null;
+  invoiceNumber?: string | null;
+  invoicePaymentId?: string | null;
+  amount: number;
+  currency: string;
+  paymentMethod: string;
+  paymentReference?: string | null;
+  receivedAt: string;
+  notes?: string | null;
+  attachmentCount?: number;
+  createdBy: string;
+  createdAt: string;
+};
+
+export type CreateFinanceReceiptBody = {
+  receiptNumber?: string;
+  payerType: ReceiptPayerType;
+  payerName: string;
+  customerId?: string;
+  invoiceId?: string;
+  amount: number;
+  currency?: string;
+  paymentMethod: string;
+  paymentReference?: string;
+  receivedAt?: string;
+  notes?: string;
+};
+
+export const listFinanceReceipts = (
+  opts?: { from?: string; to?: string; take?: number; token?: string },
+) => {
+  const params = new URLSearchParams();
+  if (opts?.from) params.set('from', opts.from);
+  if (opts?.to) params.set('to', opts.to);
+  if (opts?.take) params.set('take', String(opts.take));
+  const q = params.toString() ? `?${params}` : '';
+  return coreFetch<FinanceReceipt[]>(`/api/v1/finance/receipts${q}`, {
+    token: opts?.token,
+  });
+};
+
+export const createFinanceReceipt = (
+  body: CreateFinanceReceiptBody,
+  token?: string,
+) =>
+  coreFetch<FinanceReceipt>('/api/v1/finance/receipts', {
+    method: 'POST',
+    body: JSON.stringify(body),
+    token,
+  });
 
 export type FinanceReport = {
   from: string;

@@ -25,17 +25,23 @@ import {
 } from '@pssms/shared';
 import { MarketingService } from '../application/marketing.service';
 import {
+  AccrueMarketingCommissionDto,
+  CancelMarketingSurveyDto,
   CompleteMarketingSurveyDto,
   ConvertLeadContractDto,
   ConvertLeadCustomerDto,
   CreateMarketingCampaignDto,
+  CreateMarketingCommissionDto,
   CreateMarketingLeadDto,
   CreateMarketingQuoteDto,
   CreateMarketingSurveyDto,
   LoseMarketingLeadDto,
+  PatchMarketingCommissionDto,
   PatchMarketingLeadDto,
   PatchMarketingQuoteStatusDto,
+  PayMarketingCommissionDto,
   UpdateMarketingCampaignDto,
+  VoidMarketingCommissionDto,
   WinMarketingLeadDto,
 } from './dto/marketing.dto';
 
@@ -84,16 +90,57 @@ export class MarketingController {
   }
 
   @Get('commissions')
-  listCommissions(@CurrentUser() user: AuthUser) {
-    return this.marketing.listCommissions(user);
+  @ApiQuery({ name: 'status', required: false })
+  listCommissions(
+    @CurrentUser() user: AuthUser,
+    @Query('status') status?: string,
+  ) {
+    return this.marketing.listCommissions(user, { status });
+  }
+
+  @Post('leads/:id/commissions')
+  createCommission(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: CreateMarketingCommissionDto,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.marketing.createCommission(id, dto, user);
+  }
+
+  @Patch('commissions/:id')
+  patchCommission(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: PatchMarketingCommissionDto,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.marketing.patchCommission(id, dto, user);
   }
 
   @Post('commissions/:id/accrue')
   accrueCommission(
     @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: AccrueMarketingCommissionDto,
     @CurrentUser() user: AuthUser,
   ) {
-    return this.marketing.accrueCommission(id, user);
+    return this.marketing.accrueCommission(id, dto, user);
+  }
+
+  @Post('commissions/:id/pay')
+  payCommission(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: PayMarketingCommissionDto,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.marketing.payCommission(id, dto, user);
+  }
+
+  @Post('commissions/:id/void')
+  voidCommission(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: VoidMarketingCommissionDto,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.marketing.voidCommission(id, dto, user);
   }
 
   @Get('leads')
@@ -167,6 +214,16 @@ export class MarketingController {
     @CurrentUser() user: AuthUser,
   ) {
     return this.marketing.completeSurvey(id, surveyId, dto, user);
+  }
+
+  @Post('leads/:id/surveys/:surveyId/cancel')
+  cancelSurvey(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Param('surveyId', ParseUUIDPipe) surveyId: string,
+    @Body() dto: CancelMarketingSurveyDto,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.marketing.cancelSurvey(id, surveyId, dto, user);
   }
 
   @Post('leads/:id/quotes')

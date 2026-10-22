@@ -51,6 +51,8 @@ const PORTAL_ALLOWED_GET_EXACT = [
 const PORTAL_ALLOWED_POST_PATHS = [
   /^\/api\/v1\/visitors\/appointments\/[^/]+\/approve$/,
   /^\/api\/v1\/visitors\/appointments\/[^/]+\/reject$/,
+  /** Module 12-C — host re-sends a gate code that never arrived. */
+  /^\/api\/v1\/visitors\/appointments\/[^/]+\/resend-code$/,
   /^\/api\/v1\/auth\/change-password$/,
   /^\/api\/v1\/customers\/me\/service-requests$/,
   /^\/api\/v1\/customers\/me\/service-requests\/[^/]+\/cancel$/,

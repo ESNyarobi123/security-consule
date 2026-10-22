@@ -85,6 +85,16 @@ export class OperationsController {
     return this.desk.parkingMonitor(user);
   }
 
+  @Get('contract-options')
+  @RequirePermissions('operations.manage')
+  @ApiOperation({
+    summary:
+      'Thin billable contract picker for branch deployments (no fees — 33-B)',
+  })
+  contractOptions(@CurrentUser() user: AuthUser) {
+    return this.desk.deploymentContractOptions(user);
+  }
+
   @Get('petty-cash')
   @RequirePermissions('operations.manage')
   @ApiOperation({ summary: 'Branch-scoped petty cash requests (no issue)' })

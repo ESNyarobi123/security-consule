@@ -1,7 +1,7 @@
-import { Injectable, UnauthorizedException } from '@nestjs/common';
+import { Injectable, Logger, UnauthorizedException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { PassportStrategy } from '@nestjs/passport';
-import { AuthUser } from '@pssms/shared';
+import { AuthUser, PrismaService } from '@pssms/shared';
 import * as jwt from 'jsonwebtoken';
 import { passportJwtSecret } from 'jwks-rsa';
 import { ExtractJwt, Strategy } from 'passport-jwt';
@@ -17,12 +17,14 @@ type LocalJwtPayload = AuthUser & { sub: string; typ?: string; iss?: string };
  */
 @Injectable()
 export class JwtStrategy extends PassportStrategy(Strategy) {
+  private readonly logger = new Logger(JwtStrategy.name);
   private readonly keycloakIssuer: string | null;
 
   constructor(
     config: ConfigService,
     private readonly oidc: OidcConfigService,
     private readonly keycloakMapper: KeycloakUserMapperService,
+    private readonly prisma: PrismaService,
   ) {
     const issuer = oidc.getIssuer();
     const jwksUri = oidc.getJwksUri(issuer);
@@ -128,16 +130,18 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
           });
         }
       }
-      return this.keycloakMapper.mapToAuthUser({
-        sub: payload.sub,
-        iss: payload.iss,
-        email: payload.email,
-        preferred_username: payload.preferred_username,
-        email_verified: payload.email_verified,
-      });
+      return this.withBranchSites(
+        await this.keycloakMapper.mapToAuthUser({
+          sub: payload.sub,
+          iss: payload.iss,
+          email: payload.email,
+          preferred_username: payload.preferred_username,
+          email_verified: payload.email_verified,
+        }),
+      );
     }
 
-    return {
+    return this.withBranchSites({
       id: payload.sub ?? payload.id,
       email: payload.email,
       organizationId: payload.organizationId,
@@ -150,6 +154,44 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
       supplierId: payload.supplierId ?? null,
       b2bPartnerId: payload.b2bPartnerId ?? null,
       mustChangePassword: payload.mustChangePassword === true,
-    };
+    });
+  }
+
+  /**
+   * A7 — expand branch ACLs to live site ids on every request.
+   *
+   * The token is minted at login, so a brand-new site created by a branch
+   * manager was invisible (and unusable: gates, checkpoints, deployments,
+   * attendance) until the access token expired. Branch→site is a cheap,
+   * indexed lookup, so we resolve it per request and union it with the
+   * explicit site grants. Failure to resolve fails closed (branch-only users
+   * keep no site access rather than every site).
+   */
+  private async withBranchSites(user: AuthUser): Promise<AuthUser> {
+    const branchIds = user.allowedBranchIds ?? [];
+    if (branchIds.length === 0 || !user.organizationId) {
+      return user;
+    }
+
+    try {
+      const sites = await this.prisma.site.findMany({
+        where: {
+          organizationId: user.organizationId,
+          branchId: { in: branchIds },
+          isActive: true,
+        },
+        select: { id: true },
+      });
+      const merged = new Set<string>(user.allowedSiteIds ?? []);
+      for (const site of sites) merged.add(site.id);
+      return { ...user, allowedSiteIds: [...merged] };
+    } catch (err) {
+      this.logger.warn(
+        `Branch→site expansion failed for user ${user.id}: ${
+          err instanceof Error ? err.message : String(err)
+        }`,
+      );
+      return user;
+    }
   }
 }

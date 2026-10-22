@@ -49,7 +49,7 @@ export class DocumentsController {
   @ApiOperation({
     summary: 'Upload document to MinIO and store metadata',
     description:
-      'Multipart: file + resourceType + resourceId. Max 10MB; pdf/png/jpeg/webp. Staff: documents.manage plus parent domain permission. Supplier portal may upload on own Supplier / SupplierSubmission. Customer portal cannot upload.',
+      'Multipart: file + resourceType + resourceId. Max 5MB; pdf/png/jpeg/webp. Staff: documents.manage plus parent domain permission. Supplier portal may upload on own Supplier / SupplierSubmission. Customer portal cannot upload.',
   })
   @ApiConsumes('multipart/form-data')
   @ApiBody({
@@ -84,40 +84,66 @@ export class DocumentsController {
     @Req() req: FastifyRequest,
     @CurrentUser() user: AuthUser,
   ): Promise<DocumentObjectResponseDto> {
-    const fileFn = (
+    const partsFn = (
       req as FastifyRequest & {
-        file?: () => Promise<
-          | (MultipartFilePart & {
-              fields?: Record<string, MultipartValue | MultipartValue[]>;
-            })
-          | undefined
+        parts?: () => AsyncIterableIterator<
+          | (MultipartFilePart & { fieldname?: string })
+          | (MultipartValue & { fieldname?: string; value: unknown })
         >;
       }
-    ).file;
-    if (typeof fileFn !== 'function') {
+    ).parts;
+    if (typeof partsFn !== 'function') {
       throw new BadRequestException(
         'Multipart not enabled — restart core-api after @fastify/multipart register',
       );
     }
 
-    const part = await fileFn.call(req);
-    if (!part) {
-      throw new BadRequestException('file is required');
+    let resourceType: string | undefined;
+    let resourceId: string | undefined;
+    let fileName = 'file';
+    let contentType = 'application/octet-stream';
+    let buffer: Buffer | undefined;
+
+    try {
+      for await (const part of partsFn.call(req)) {
+        if (part.type === 'file') {
+          fileName = part.filename || 'file';
+          contentType = part.mimetype || 'application/octet-stream';
+          buffer = await part.toBuffer();
+        } else if (part.type === 'field') {
+          const name = (part as { fieldname?: string }).fieldname;
+          const value =
+            typeof part.value === 'string'
+              ? part.value
+              : part.value != null
+                ? String(part.value)
+                : undefined;
+          if (name === 'resourceType') resourceType = value;
+          if (name === 'resourceId') resourceId = value;
+        }
+      }
+    } catch (err) {
+      const code = (err as { code?: string })?.code;
+      if (code === 'FST_REQ_FILE_TOO_LARGE') {
+        throw new BadRequestException(
+          'File exceeds maximum size of 5MB (pdf, png, jpeg, or webp)',
+        );
+      }
+      throw err;
     }
 
-    const fields = part.fields ?? {};
-    const resourceType = this.fieldString(fields, 'resourceType');
-    const resourceId = this.fieldString(fields, 'resourceId');
+    if (!buffer?.length) {
+      throw new BadRequestException('file is required');
+    }
     if (!resourceType || !resourceId) {
       throw new BadRequestException(
         'resourceType and resourceId form fields are required',
       );
     }
 
-    const buffer = await part.toBuffer();
     return this.service.upload({
-      fileName: part.filename || 'file',
-      contentType: part.mimetype || 'application/octet-stream',
+      fileName,
+      contentType,
       buffer,
       resourceType,
       resourceId,

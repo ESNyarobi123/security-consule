@@ -43,10 +43,12 @@ import {
   ParkingEntryResponseDto,
   ParkingPermitResponseDto,
   ParkingPatrolObservationResponseDto,
+  ParkingRelocationResponseDto,
   ParkingSiteOptionDto,
   ParkingSpaceResponseDto,
   ParkingViolationResponseDto,
   ParkingVisitorAppointmentOptionDto,
+  RelocateParkingSpaceDto,
   ResolveParkingViolationDto,
   UpdateParkingPermitDto,
   UpdateParkingSpaceDto,
@@ -547,6 +549,20 @@ export class ParkingController {
     return this.service.allocateParkingSpace(dto, user);
   }
 
+  @Post('spaces/relocate')
+  @RequirePermissions('parking.manage')
+  @ApiOperation({
+    summary:
+      'Relocate a vehicle to another bay / zone / site in one step (releases the old bay)',
+  })
+  @ApiCreatedResponse({ type: ParkingRelocationResponseDto })
+  relocateParkingSpace(
+    @Body() dto: RelocateParkingSpaceDto,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.service.relocateVehicleSpace(dto, user);
+  }
+
   @Post('spaces/:id/release')
   @RequirePermissions('parking.manage')
   @ApiOperation({ summary: 'Release occupied parking space (Module 13-J)' })
@@ -600,6 +616,20 @@ export class ParkingController {
       observationType,
       guardId,
     });
+  }
+
+  @Get('patrol-observations/guard-options')
+  @RequireAnyPermissions('attendance.manage', 'parking.manage')
+  @ApiOperation({
+    summary:
+      'Guard picker for manual parking patrol observation (ops officers without a guard profile)',
+  })
+  @ApiQuery({ name: 'siteId', required: false })
+  listPatrolGuardOptions(
+    @CurrentUser() user: AuthUser,
+    @Query('siteId') siteId?: string,
+  ) {
+    return this.service.listPatrolGuardOptions(user, siteId);
   }
 
   @Get('reports')

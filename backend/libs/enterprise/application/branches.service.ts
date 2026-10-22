@@ -3,7 +3,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { PrismaService, AuthUser } from '@pssms/shared';
+import { PrismaService, AuthUser, ORG_WIDE_SITE_VIEW_ROLES } from '@pssms/shared';
 import { AuditService } from '@pssms/audit';
 import {
   BranchResponseDto,
@@ -46,12 +46,51 @@ export class BranchesService {
     return this.toDto(branch);
   }
 
-  async list(organizationId: string): Promise<BranchResponseDto[]> {
+  /**
+   * Branch catalogue for pickers.
+   *
+   * Branch/site-scoped staff (Branch Manager, Field Officer, BD Manager, …) must
+   * only see branches they actually operate in — otherwise a picker can offer a
+   * branch that `assertBranchAccess` will reject on submit (dead-end 403) and
+   * KPIs read as if the whole company were in scope. Org-wide roles are
+   * unchanged. Site-only users get the branches their assigned sites belong to.
+   */
+  async list(
+    organizationId: string,
+    user?: AuthUser,
+  ): Promise<BranchResponseDto[]> {
+    const scope = user ? await this.resolveBranchScope(user) : null;
+    if (scope !== null && scope.length === 0) return [];
+
     const rows = await this.prisma.branch.findMany({
-      where: { organizationId },
+      where: {
+        organizationId,
+        ...(scope !== null ? { id: { in: scope } } : {}),
+      },
       orderBy: { name: 'asc' },
     });
     return rows.map((b) => this.toDto(b));
+  }
+
+  /** `null` = org-wide; otherwise the branch ids in the caller's scope. */
+  private async resolveBranchScope(user: AuthUser): Promise<string[] | null> {
+    if (user.roles.some((r) => ORG_WIDE_SITE_VIEW_ROLES.has(r))) return null;
+
+    const allowed = new Set<string>(user.allowedBranchIds ?? []);
+    if (allowed.size === 0 && (user.allowedSiteIds ?? []).length === 0) {
+      return [];
+    }
+    if ((user.allowedSiteIds ?? []).length > 0) {
+      const sites = await this.prisma.site.findMany({
+        where: {
+          organizationId: user.organizationId,
+          id: { in: user.allowedSiteIds },
+        },
+        select: { branchId: true },
+      });
+      for (const site of sites) allowed.add(site.branchId);
+    }
+    return [...allowed];
   }
 
   async update(

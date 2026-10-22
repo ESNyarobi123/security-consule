@@ -5,21 +5,10 @@ import {
   getRefreshToken,
   setTokens,
 } from '@pssms/auth';
+import { ApiEnvelope, parseApiEnvelope } from './errors';
 
 const coreUrl = () =>
   process.env.NEXT_PUBLIC_CORE_API_URL ?? 'http://localhost:4001';
-
-export type ApiEnvelope<T> = {
-  success: boolean;
-  data: T;
-  meta?: Record<string, unknown>;
-};
-
-async function parseEnvelope<T>(res: Response): Promise<T> {
-  if (!res.ok) throw new Error(await res.text());
-  const json = (await res.json()) as ApiEnvelope<T>;
-  return json.data;
-}
 
 /** Single-flight refresh so concurrent 401s share one refresh call. */
 let refreshInFlight: Promise<string | null> | null = null;
@@ -59,11 +48,23 @@ async function coreFetch<T>(
   path: string,
   init?: RequestInit & { token?: string },
 ): Promise<T> {
+  // Action POST/PATCH/PUT endpoints take no body (approve, submit, reset…).
+  // Send `{}` instead of an empty body so a JSON content-type is never paired
+  // with zero bytes — Fastify rejects that with "Body cannot be empty".
+  const method = (init?.method ?? 'GET').toUpperCase();
+  const bodylessMutation =
+    init?.body == null &&
+    ['POST', 'PUT', 'PATCH'].includes(method);
+  const requestInit: RequestInit = bodylessMutation
+    ? { ...init, body: '{}' }
+    : (init ?? {});
   const doFetch = (authToken?: string) =>
     fetch(`${coreUrl()}${path}`, {
-      ...init,
+      ...requestInit,
       headers: {
-        'Content-Type': 'application/json',
+        ...(requestInit.body != null
+          ? { 'Content-Type': 'application/json' }
+          : {}),
         ...authHeaders(authToken ?? init?.token),
         ...init?.headers,
       },
@@ -86,7 +87,7 @@ async function coreFetch<T>(
       }
     }
   }
-  return parseEnvelope<T>(res);
+  return parseApiEnvelope<T>(res);
 }
 
 // ── Customers ──
@@ -1677,17 +1678,71 @@ export const disableMfa = (code: string, token?: string) =>
   });
 
 // ── Audit ──
+/** §35.21 — one field-level change captured between before/after snapshots. */
+export type AuditFieldChange = {
+  field: string;
+  label: string;
+  from: string | null;
+  to: string | null;
+};
+
+/**
+ * §35.21 — enriched audit entry: **who** did **what** on which record, plus
+ * the field-level delta. `before`/`after` are redacted server-side.
+ */
 export type AuditLog = {
   id: string;
+  organizationId?: string | null;
   actorId?: string | null;
+  actorName?: string | null;
+  actorEmail?: string | null;
+  actorRoles?: string[];
   action: string;
+  actionLabel?: string;
   resourceType: string;
+  resourceLabel?: string;
   resourceId?: string | null;
+  summary?: string;
+  ipAddress?: string | null;
+  requestId?: string | null;
+  changedFields?: AuditFieldChange[];
+  before?: unknown;
+  after?: unknown;
   createdAt: string;
 };
 
-export const listAuditLogs = (take = 20, token?: string) =>
-  coreFetch<AuditLog[]>(`/api/v1/audit/logs?take=${take}`, { token });
+export type AuditLogFilters = {
+  take?: number;
+  resourceType?: string;
+  resourceId?: string;
+  action?: string;
+  actorId?: string;
+  from?: string;
+  to?: string;
+};
+
+export const listAuditLogs = (
+  takeOrFilters: number | AuditLogFilters = 20,
+  token?: string,
+) => {
+  const filters: AuditLogFilters =
+    typeof takeOrFilters === 'number' ? { take: takeOrFilters } : takeOrFilters;
+  const q = new URLSearchParams();
+  for (const [key, value] of Object.entries(filters)) {
+    if (value !== undefined && value !== null && value !== '') {
+      q.set(key, String(value));
+    }
+  }
+  const qs = q.toString();
+  return coreFetch<AuditLog[]>(
+    `/api/v1/audit/logs${qs ? `?${qs}` : ''}`,
+    { token },
+  );
+};
+
+/** Single audit entry with the full before/after payload. */
+export const getAuditLog = (id: string, token?: string) =>
+  coreFetch<AuditLog>(`/api/v1/audit/logs/${id}`, { token });
 
 // ── Health ──
 /**
@@ -1733,6 +1788,7 @@ export type ApprovalInstance = {
   createdAt: string;
   currentStepName?: string | null;
   requiredRole?: string | null;
+  amount?: number | null;
 };
 
 export const listApprovalInstances = (token?: string) =>
@@ -1960,6 +2016,26 @@ export const listPayslips = (cycleId: string, token?: string) =>
 
 export const getPayslip = (id: string, token?: string) =>
   coreFetch<PayslipSnapshot>(`/api/v1/payroll/payslips/${id}`, { token });
+
+export type PayrollCycleReadiness = {
+  tenantType: string;
+  eligible: number;
+  skipped: Array<{
+    employeeNumber: string;
+    employeeName: string;
+    reason: string;
+  }>;
+  missingBankRefs: number;
+  missingMobileRefs: number;
+  generatedPayslips: number;
+  notes: string[];
+};
+
+export const getPayrollCycleReadiness = (cycleId: string, token?: string) =>
+  coreFetch<PayrollCycleReadiness>(
+    `/api/v1/payroll/cycles/${cycleId}/readiness`,
+    { token },
+  );
 
 export type PayrollRegister = {
   cycle: PayrollCycle;
@@ -2665,8 +2741,34 @@ export const approveVisitorAppointment = (id: string, token?: string) =>
       email?: boolean;
       sms?: boolean;
       whatsapp?: boolean;
+      smsRecipient?: string | null;
+      smsProvider?: string;
+      smsLive?: boolean;
     };
   }>(`/api/v1/visitors/appointments/${id}/approve`, {
+    method: 'POST',
+    body: JSON.stringify({}),
+    token,
+  });
+
+/** POST /visitors/appointments/:id/resend-code — rotate + re-queue delivery */
+export const resendVisitorGateCode = (id: string, token?: string) =>
+  coreFetch<{
+    appointment: VisitorAppointment;
+    verificationCode: string;
+    validUntil: string;
+    siteId?: string;
+    gateId?: string | null;
+    delivery?: {
+      email?: boolean;
+      sms?: boolean;
+      whatsapp?: boolean;
+      smsRecipient?: string | null;
+      smsProvider?: string;
+      smsLive?: boolean;
+    };
+    resent?: boolean;
+  }>(`/api/v1/visitors/appointments/${id}/resend-code`, {
     method: 'POST',
     body: JSON.stringify({}),
     token,
@@ -2688,6 +2790,47 @@ export const rejectVisitorAppointment = (
 
 export const listVisitorEntries = (token?: string) =>
   coreFetch<VisitorEntry[]>('/api/v1/visitors/entries', { token });
+
+/**
+ * §35.20 — read-only visitor support view for the support desk
+ * (`support.manage`). Gate approval / codes / verification stay with
+ * `visitors.manage` (Call Centre agents and gate officers).
+ */
+export type CallCentreVisitorDesk = {
+  readOnly: boolean;
+  appointments: Array<{
+    id: string;
+    referenceNumber: string;
+    visitorName: string;
+    companyName: string | null;
+    purpose: string;
+    visitKind: string | null;
+    idType: VisitorIdType | null;
+    idNumber: string | null;
+    hostName: string | null;
+    siteId: string;
+    siteCode: string | null;
+    siteName: string | null;
+    validFrom: string;
+    validUntil: string;
+    status: string;
+  }>;
+  entries: Array<{
+    id: string;
+    visitorName: string;
+    direction: string;
+    result: string;
+    denyReason: string | null;
+    recordedAt: string;
+    siteCode: string | null;
+    siteName: string | null;
+    appointmentReference: string | null;
+  }>;
+  notes: string[];
+};
+
+export const getCallCentreVisitorDesk = (token?: string) =>
+  coreFetch<CallCentreVisitorDesk>('/api/v1/callcentre/visitors', { token });
 
 /** Module 12-B — gate exit punch (staff visitors.manage). */
 export const gateExit = (body: GateExitBody, token?: string) =>
@@ -2942,11 +3085,27 @@ export type StaffServiceRequest = {
   customerName?: string | null;
   incidentId?: string | null;
   incidentNumber?: string | null;
+  createdByName?: string | null;
+  acknowledgedByName?: string | null;
+  acknowledgedAt?: string | null;
+  resolvedByName?: string | null;
+  resolvedAt?: string | null;
+  closedByName?: string | null;
+  closedAt?: string | null;
+  isCreator?: boolean | null;
+  canProcess?: boolean | null;
+  allowedNextStatuses?: string[];
 };
 
 /** GET /customers/service-requests — call centre / commercial */
 export const listStaffServiceRequests = (token?: string) =>
   coreFetch<StaffServiceRequest[]>('/api/v1/customers/service-requests', {
+    token,
+  });
+
+/** GET /customers/service-requests/:id — support desk detail drawer */
+export const getStaffServiceRequest = (id: string, token?: string) =>
+  coreFetch<StaffServiceRequest>(`/api/v1/customers/service-requests/${id}`, {
     token,
   });
 
@@ -2978,12 +3137,28 @@ export type StaffComplaint = {
   callbackPhone?: string | null;
   resolutionNotes?: string | null;
   createdAt: string;
+  updatedAt?: string | null;
   customerCode?: string | null;
   customerName?: string | null;
+  createdBy?: string | null;
+  createdByName?: string | null;
+  acknowledgedByName?: string | null;
+  acknowledgedAt?: string | null;
+  resolvedByName?: string | null;
+  resolvedAt?: string | null;
+  closedByName?: string | null;
+  closedAt?: string | null;
+  isCreator?: boolean | null;
+  canProcess?: boolean | null;
+  allowedNextStatuses?: string[];
 };
 
 export const listStaffComplaints = (token?: string) =>
   coreFetch<StaffComplaint[]>('/api/v1/customers/complaints', { token });
+
+/** GET /customers/complaints/:id — support desk detail drawer */
+export const getStaffComplaint = (id: string, token?: string) =>
+  coreFetch<StaffComplaint>(`/api/v1/customers/complaints/${id}`, { token });
 
 export const updateStaffComplaint = (
   id: string,
@@ -3018,13 +3193,21 @@ export const createStaffComplaint = (
 export type MarketingReport = {
   byStage: Record<string, number>;
   openPipeline: number;
+  totalLeads: number;
   won: number;
   lost: number;
+  pipelineValue: number;
+  wonValue: number;
+  conversionRate: number;
   activeCampaigns: number;
   surveysScheduled: number;
+  surveysCompleted: number;
   quotesSent: number;
+  quotesAccepted: number;
   pendingCommissions: number;
   pendingCommissionAmount: number;
+  accruedCommissionAmount: number;
+  paidCommissionAmount: number;
   generatedAt: string;
   notes: string[];
 };
@@ -3039,6 +3222,13 @@ export type MarketingCampaign = {
   isActive: boolean;
   notes?: string | null;
   createdAt: string;
+  totalLeads: number;
+  openLeads: number;
+  wonLeads: number;
+  lostLeads: number;
+  pipelineValue: number;
+  wonValue: number;
+  conversionRate: number;
 };
 
 export type MarketingLead = {
@@ -3076,6 +3266,7 @@ export type MarketingSurvey = {
   status: string;
   outcome?: string | null;
   officerName?: string | null;
+  notes?: string | null;
 };
 
 export type MarketingQuote = {
@@ -3085,21 +3276,44 @@ export type MarketingQuote = {
   status: string;
   amount: number;
   currency: string;
+  validUntil?: string | null;
+  serviceTypes?: string[];
+  notes?: string | null;
+  sentAt?: string | null;
   allowedNextStatuses: string[];
 };
 
 export type MarketingCommission = {
   id: string;
   leadId: string;
+  leadCode?: string | null;
+  companyName?: string | null;
   beneficiary: string;
+  referrerType?: string | null;
   amount: number;
   currency: string;
   status: string;
-  leadCode?: string;
-  companyName?: string;
+  notes?: string | null;
+  createdBy: string;
+  createdByName?: string | null;
+  accruedByName?: string | null;
+  accruedAt?: string | null;
+  paidByName?: string | null;
+  paidAt?: string | null;
+  paymentReference?: string | null;
+  voidedAt?: string | null;
+  voidedByName?: string | null;
+  voidReason?: string | null;
+  createdAt: string;
+  canAccrue: boolean;
+  canPay: boolean;
+  canEdit: boolean;
+  canVoid: boolean;
 };
 
 export type MarketingLeadDetail = MarketingLead & {
+  canConvertCustomer: boolean;
+  canConvertContract: boolean;
   surveys: MarketingSurvey[];
   quotes: MarketingQuote[];
   commissions: MarketingCommission[];
@@ -3115,13 +3329,22 @@ export const getMarketingOptions = (token?: string) =>
     stages: string[];
     referrerTypes: string[];
     quoteKinds: string[];
+    contractServices: string[];
+    commissionStatuses: string[];
   }>('/api/v1/marketing/options', { token });
 
 export const listMarketingCampaigns = (token?: string) =>
   coreFetch<MarketingCampaign[]>('/api/v1/marketing/campaigns', { token });
 
 export const createMarketingCampaign = (
-  body: { name: string; channel?: string; notes?: string; code?: string },
+  body: {
+    name: string;
+    channel?: string;
+    notes?: string;
+    code?: string;
+    startsAt?: string;
+    endsAt?: string;
+  },
   token?: string,
 ) =>
   coreFetch<MarketingCampaign>('/api/v1/marketing/campaigns', {
@@ -3132,7 +3355,14 @@ export const createMarketingCampaign = (
 
 export const updateMarketingCampaign = (
   id: string,
-  body: { isActive?: boolean; name?: string },
+  body: {
+    isActive?: boolean;
+    name?: string;
+    channel?: string;
+    notes?: string | null;
+    startsAt?: string;
+    endsAt?: string;
+  },
   token?: string,
 ) =>
   coreFetch<MarketingCampaign>(`/api/v1/marketing/campaigns/${id}`, {
@@ -3180,7 +3410,18 @@ export const createMarketingLead = (
 
 export const patchMarketingLead = (
   id: string,
-  body: { stage?: string; notes?: string },
+  body: {
+    stage?: string;
+    companyName?: string;
+    contactName?: string;
+    contactEmail?: string | null;
+    contactPhone?: string | null;
+    notes?: string | null;
+    estimatedValue?: number | null;
+    campaignId?: string | null;
+    referrerName?: string | null;
+    referrerType?: string | null;
+  },
   token?: string,
 ) =>
   coreFetch<MarketingLeadDetail>(`/api/v1/marketing/leads/${id}`, {
@@ -3213,7 +3454,12 @@ export const loseMarketingLead = (
 
 export const createMarketingSurvey = (
   leadId: string,
-  body: { siteAddress: string; scheduledAt: string; officerName?: string },
+  body: {
+    siteAddress: string;
+    scheduledAt: string;
+    officerName?: string;
+    notes?: string;
+  },
   token?: string,
 ) =>
   coreFetch<MarketingSurvey>(`/api/v1/marketing/leads/${leadId}/surveys`, {
@@ -3226,11 +3472,27 @@ export const completeMarketingSurvey = (
   leadId: string,
   surveyId: string,
   outcome: string,
+  notes?: string,
   token?: string,
 ) =>
   coreFetch<MarketingSurvey>(
     `/api/v1/marketing/leads/${leadId}/surveys/${surveyId}/complete`,
-    { method: 'POST', body: JSON.stringify({ outcome }), token },
+    {
+      method: 'POST',
+      body: JSON.stringify({ outcome, notes }),
+      token,
+    },
+  );
+
+export const cancelMarketingSurvey = (
+  leadId: string,
+  surveyId: string,
+  reason?: string,
+  token?: string,
+) =>
+  coreFetch<MarketingSurvey>(
+    `/api/v1/marketing/leads/${leadId}/surveys/${surveyId}/cancel`,
+    { method: 'POST', body: JSON.stringify({ reason }), token },
   );
 
 export const createMarketingQuote = (
@@ -3240,6 +3502,7 @@ export const createMarketingQuote = (
     amount: number;
     validUntil?: string;
     serviceTypes?: string[];
+    notes?: string;
   },
   token?: string,
 ) =>
@@ -3260,10 +3523,18 @@ export const patchMarketingQuote = (
     { method: 'PATCH', body: JSON.stringify({ status }), token },
   );
 
-export const convertMarketingCustomer = (leadId: string, token?: string) =>
+export const convertMarketingCustomer = (
+  leadId: string,
+  name?: string,
+  token?: string,
+) =>
   coreFetch<MarketingLeadDetail>(
     `/api/v1/marketing/leads/${leadId}/convert-customer`,
-    { method: 'POST', body: JSON.stringify({}), token },
+    {
+      method: 'POST',
+      body: JSON.stringify(name ? { name } : {}),
+      token,
+    },
   );
 
 export const convertMarketingContract = (
@@ -3282,13 +3553,80 @@ export const convertMarketingContract = (
     { method: 'POST', body: JSON.stringify(body), token },
   );
 
-export const listMarketingCommissions = (token?: string) =>
-  coreFetch<MarketingCommission[]>('/api/v1/marketing/commissions', { token });
+export const listMarketingCommissions = (
+  opts?: { status?: string; token?: string },
+  token?: string,
+) => {
+  const qs = new URLSearchParams();
+  if (opts?.status) qs.set('status', opts.status);
+  const q = qs.toString();
+  return coreFetch<MarketingCommission[]>(
+    `/api/v1/marketing/commissions${q ? `?${q}` : ''}`,
+    { token: token ?? opts?.token },
+  );
+};
 
-export const accrueMarketingCommission = (id: string, token?: string) =>
+export const createMarketingCommission = (
+  leadId: string,
+  body: {
+    beneficiary: string;
+    amount: number;
+    referrerType?: string;
+    notes?: string;
+  },
+  token?: string,
+) =>
+  coreFetch<MarketingCommission>(
+    `/api/v1/marketing/leads/${leadId}/commissions`,
+    { method: 'POST', body: JSON.stringify(body), token },
+  );
+
+export const patchMarketingCommission = (
+  id: string,
+  body: {
+    beneficiary?: string;
+    amount?: number;
+    referrerType?: string;
+    notes?: string | null;
+  },
+  token?: string,
+) =>
+  coreFetch<MarketingCommission>(`/api/v1/marketing/commissions/${id}`, {
+    method: 'PATCH',
+    body: JSON.stringify(body),
+    token,
+  });
+
+export const accrueMarketingCommission = (
+  id: string,
+  notes?: string,
+  token?: string,
+) =>
   coreFetch<MarketingCommission>(`/api/v1/marketing/commissions/${id}/accrue`, {
     method: 'POST',
-    body: JSON.stringify({}),
+    body: JSON.stringify({ notes }),
+    token,
+  });
+
+export const payMarketingCommission = (
+  id: string,
+  body?: { paymentReference?: string; notes?: string },
+  token?: string,
+) =>
+  coreFetch<MarketingCommission>(`/api/v1/marketing/commissions/${id}/pay`, {
+    method: 'POST',
+    body: JSON.stringify(body ?? {}),
+    token,
+  });
+
+export const voidMarketingCommission = (
+  id: string,
+  reason: string,
+  token?: string,
+) =>
+  coreFetch<MarketingCommission>(`/api/v1/marketing/commissions/${id}/void`, {
+    method: 'POST',
+    body: JSON.stringify({ reason }),
     token,
   });
 
@@ -3298,6 +3636,9 @@ export type CallCentreReport = {
   pendingVisitorAppointments: number;
   gateEntriesToday: number;
   ticketsByCategory: Record<string, number>;
+  ticketsByStatus?: Record<string, number>;
+  complaintsByStatus?: Record<string, number>;
+  escalatedTickets?: number;
   parkingInquiries: number;
   supplierInquiries: number;
   payrollInquiries: number;
@@ -3316,10 +3657,38 @@ export const getCallCentreTicketOptions = (token?: string) =>
     { token },
   );
 
+export type CallCentreComplaintOptions = {
+  categories: string[];
+  severities: string[];
+  statuses: string[];
+  notes: string[];
+};
+
+export const getCallCentreComplaintOptions = (token?: string) =>
+  coreFetch<CallCentreComplaintOptions>(
+    '/api/v1/callcentre/complaint-options',
+    { token },
+  );
+
 export const listCallCentreCustomerOptions = (token?: string) =>
   coreFetch<SupportCustomerOption[]>('/api/v1/callcentre/customer-options', {
     token,
   });
+
+export type CallCentreSiteOption = {
+  id: string;
+  code: string;
+  name: string;
+};
+
+export const listCallCentreSiteOptions = (
+  customerId: string,
+  token?: string,
+) =>
+  coreFetch<{ customerId: string; sites: CallCentreSiteOption[] }>(
+    `/api/v1/callcentre/site-options?customerId=${encodeURIComponent(customerId)}`,
+    { token },
+  );
 
 export const createCallCentreTicket = (
   body: {
@@ -3349,12 +3718,208 @@ export type CctvReport = {
   camerasTotal: number;
   camerasOnline: number;
   openAiAlerts: number;
+  criticalAiAlerts: number;
   anprToday: number;
   parkingDenies24h: number;
   visitorDenies24h: number;
   openHighFieldAlerts: number;
   openCctvAlertIncidents: number;
+  missedPatrols: number;
   generatedAt: string;
+  notes: string[];
+};
+
+export type CctvCameraView = {
+  id: string;
+  code: string;
+  name: string;
+  type: string;
+  status: string;
+  vendor: string | null;
+  model: string | null;
+  siteId: string | null;
+  gateId: string | null;
+  zone: string | null;
+  nvrChannel: string | null;
+  lastSeenAt: string | null;
+};
+
+export type CctvAlertIncident = {
+  id: string;
+  incidentNumber: string;
+  status: string;
+  severity: string;
+};
+
+/** Portal 35.22 — one CCTV_EVENT, normalised for the control room. */
+export type CctvAlert = {
+  id: string;
+  type: string;
+  status: string;
+  routedTo: string | null;
+  error: string | null;
+  capturedAt: string;
+  receivedAt: string;
+  processedAt: string | null;
+  ageMinutes: number | null;
+  open: boolean;
+  detectionType: string;
+  detectionLabel: string;
+  detectionCategory: string;
+  /** Vendor code exactly as it arrived (before alias/inference). */
+  detectionCode: string | null;
+  /** true when the vendor code was mapped by keyword inference. */
+  detectionInferred: boolean;
+  severity: string;
+  severityRank: number;
+  confidence: number | null;
+  confidencePct: number | null;
+  zone: string | null;
+  camera: CctvCameraView | null;
+  siteId: string | null;
+  siteCode: string | null;
+  siteName: string | null;
+  plateNumber: string | null;
+  objectClass: string | null;
+  personCount: number | null;
+  boundingBox: number[] | null;
+  snapshotUrl: string | null;
+  clipUrl: string | null;
+  title: string;
+  summary: string;
+  recommendedAction: string;
+  incident: CctvAlertIncident | null;
+  review: {
+    acknowledgedByName: string | null;
+    acknowledgedAt: string | null;
+    note: string | null;
+    incidentByName: string | null;
+    incidentAt: string | null;
+  };
+  payload: Record<string, unknown>;
+};
+
+export type CctvAlertInbox = {
+  rows: CctvAlert[];
+  counts: {
+    open: number;
+    critical: number;
+    high: number;
+    medium: number;
+    low: number;
+    acknowledged24h: number;
+    incidentsRecorded: number;
+  };
+  filters: {
+    status: string;
+    severity: string | null;
+    siteId: string | null;
+    deviceId: string | null;
+    from: string | null;
+    to: string | null;
+    take: number;
+  };
+  notes: string[];
+};
+
+export type CctvOverview = {
+  generatedAt: string;
+  filters: {
+    siteId: string | null;
+    siteCode: string | null;
+    siteName: string | null;
+  };
+  cameras: { total: number; online: number; offline: number };
+  aiAlerts: {
+    open: number;
+    critical: number;
+    high: number;
+    medium: number;
+    low: number;
+    latest: CctvAlert[];
+  };
+  parking: {
+    entries24h: number;
+    denies24h: number;
+    openViolations: number;
+    occupiedSpaces: number;
+    activeSpaces: number;
+    utilizationPct: number | null;
+    anprToday: number;
+    latestAnpr: (CctvSiteRow & {
+      plateNumber: string;
+      confidence: number | null;
+      decision: string;
+      capturedAt: string;
+    })[];
+    latestEntries: (CctvSiteRow & {
+      plateNumber: string;
+      direction: string;
+      decision: string;
+      recordedAt: string;
+    })[];
+  };
+  access: {
+    checkIns24h: number;
+    checkOuts24h: number;
+    visitorDenies24h: number;
+    latest: (CctvSiteRow & {
+      employeeId: string;
+      employeeName: string | null;
+      employeeNumber: string | null;
+      entryType: string;
+      accessMethod: string;
+      recordedAt: string;
+    })[];
+    latestDenies: (CctvSiteRow & {
+      visitorName: string;
+      result: string;
+      denyReason: string | null;
+      direction: string;
+      gateCode?: string | null;
+      gateName?: string | null;
+      recordedAt: string;
+    })[];
+  };
+  patrols: {
+    scans24h: number;
+    missedOpen: number;
+    latest: (CctvSiteRow & {
+      guardId: string;
+      guardName: string | null;
+      employeeNumber: string | null;
+      checkpointCode: string | null;
+      checkpointName: string | null;
+      method: string;
+      scannedAt: string;
+      remarks: string | null;
+    })[];
+  };
+  alarms: {
+    openHigh: number;
+    openTotal: number;
+    failedCameraEvents: number;
+    latest: (CctvSiteRow & {
+      alertType: string;
+      severity: string;
+      message: string;
+      escalationStage: string;
+      createdAt: string;
+    })[];
+  };
+  incidents: {
+    open: number;
+    critical: number;
+    latest: (CctvSiteRow & {
+      incidentNumber: string;
+      category: string;
+      severity: string;
+      status: string;
+      title: string;
+      occurredAt: string;
+      createdAt: string;
+    })[];
+  };
   notes: string[];
 };
 
@@ -3376,17 +3941,26 @@ export type CctvParkingMonitor = {
     direction: string;
     decision: string;
     recordedAt: string;
+    gateCode?: string | null;
+    gateName?: string | null;
+    driverName?: string | null;
+    verificationMethod?: string | null;
+    purposeOfVisit?: string | null;
   })[];
   openViolations: (CctvSiteRow & {
     plateNumber: string;
     violationType: string;
     status: string;
     createdAt: string;
+    description?: string | null;
+    officerRemarks?: string | null;
   })[];
   patrolObservations: (CctvSiteRow & {
     parkingArea: string;
     observationType: string;
+    severity?: string;
     plateNumber: string | null;
+    notes?: string | null;
     inspectedAt: string;
   })[];
   notes: string[];
@@ -3398,8 +3972,12 @@ export type CctvAccessMonitor = {
   visitorDenies24h: number;
   accessEntries: (CctvSiteRow & {
     employeeId: string;
+    employeeName?: string | null;
+    employeeNumber?: string | null;
     entryType: string;
     accessMethod: string;
+    gateCode?: string | null;
+    gateName?: string | null;
     recordedAt: string;
   })[];
   visitorDenies: (CctvSiteRow & {
@@ -3407,6 +3985,11 @@ export type CctvAccessMonitor = {
     result: string;
     denyReason: string | null;
     direction: string;
+    gateCode?: string | null;
+    gateName?: string | null;
+    referenceNumber?: string | null;
+    visitorPhone?: string | null;
+    hostName?: string | null;
     recordedAt: string;
   })[];
   notes: string[];
@@ -3415,7 +3998,12 @@ export type CctvAccessMonitor = {
 export type CctvPatrolMonitor = {
   scans: (CctvSiteRow & {
     guardId: string;
+    guardName?: string | null;
+    employeeNumber?: string | null;
     checkpointId: string;
+    checkpointCode?: string | null;
+    checkpointName?: string | null;
+    checkpointZone?: string | null;
     method: string;
     scannedAt: string;
     remarks: string | null;
@@ -3437,12 +4025,21 @@ export type CctvAlarmMonitor = {
     message: string;
     escalationStage: string;
     createdAt: string;
+    guardName?: string | null;
+    employeeNumber?: string | null;
   })[];
   failedCameraEvents: {
     id: string;
     deviceId: string;
+    cameraCode?: string | null;
+    cameraName?: string | null;
+    cameraStatus?: string | null;
+    cameraLastSeenAt?: string | null;
+    siteCode?: string | null;
+    siteName?: string | null;
     status: string;
     error: string | null;
+    capturedAt?: string;
     receivedAt: string;
   }[];
   notes: string[];
@@ -3457,12 +4054,48 @@ export type CctvIncidentMonitor = {
     title: string;
     occurredAt: string;
     createdAt: string;
+    clientEventId?: string | null;
   })[];
   notes: string[];
 };
 
 export const getCctvReports = (token?: string) =>
   coreFetch<CctvReport>('/api/v1/cctv/reports', { token });
+
+export const getCctvOverview = (siteId?: string, token?: string) =>
+  coreFetch<CctvOverview>(
+    `/api/v1/cctv/overview${siteId ? `?siteId=${encodeURIComponent(siteId)}` : ''}`,
+    { token },
+  );
+
+export const listCctvAlerts = (
+  filters?: {
+    status?: string;
+    severity?: string;
+    siteId?: string;
+    deviceId?: string;
+    from?: string;
+    to?: string;
+    q?: string;
+    take?: number;
+  },
+  token?: string,
+) => {
+  const q = new URLSearchParams();
+  if (filters?.status) q.set('status', filters.status);
+  if (filters?.severity) q.set('severity', filters.severity);
+  if (filters?.siteId) q.set('siteId', filters.siteId);
+  if (filters?.deviceId) q.set('deviceId', filters.deviceId);
+  if (filters?.from) q.set('from', filters.from);
+  if (filters?.to) q.set('to', filters.to);
+  if (filters?.q) q.set('q', filters.q);
+  if (filters?.take != null) q.set('take', String(filters.take));
+  const qs = q.toString();
+  return coreFetch<CctvAlertInbox>(
+    `/api/v1/cctv/alerts${qs ? `?${qs}` : ''}`,
+    { token },
+  );
+};
 
 export const getCctvParkingMonitor = (token?: string) =>
   coreFetch<CctvParkingMonitor>('/api/v1/cctv/parking-monitor', { token });

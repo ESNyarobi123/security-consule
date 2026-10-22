@@ -13,6 +13,7 @@ export const SUPPLIER_USER_COOKIE = 'pssms_supplier_user';
 
 export const PARKING_TOKEN_COOKIE = 'pssms_parking_token';
 export const PARKING_USER_COOKIE = 'pssms_parking_user';
+export const PARKING_REFRESH_COOKIE = 'pssms_parking_refresh';
 
 export const PARTNER_TOKEN_COOKIE = 'pssms_partner_token';
 export const PARTNER_USER_COOKIE = 'pssms_partner_user';
@@ -41,6 +42,9 @@ export type SessionUser = {
   organizationId: string;
   roles: string[];
   permissions: string[];
+  /** ABAC scope from the access token (Harden A7). Empty branch list = site-only scope. */
+  allowedBranchIds?: string[];
+  allowedSiteIds?: string[];
   customerId?: string | null;
   supplierId?: string | null;
   b2bPartnerId?: string | null;
@@ -134,6 +138,7 @@ const supplierAuth = createAuthStore({
 const parkingAuth = createAuthStore({
   tokenCookie: PARKING_TOKEN_COOKIE,
   userCookie: PARKING_USER_COOKIE,
+  refreshCookie: PARKING_REFRESH_COOKIE,
 });
 
 const partnerAuth = createAuthStore({
@@ -253,8 +258,16 @@ export function getParkingSessionUser(): SessionUser | null {
   return parkingAuth.getSessionUser();
 }
 
-export function setParkingSession(token: string, user: SessionUser) {
-  parkingAuth.setSession(token, user);
+export function getParkingRefreshToken(): string | null {
+  return parkingAuth.getRefreshToken();
+}
+
+export function setParkingSession(
+  token: string,
+  user: SessionUser,
+  refreshToken?: string,
+) {
+  parkingAuth.setSession(token, user, refreshToken);
 }
 
 export function clearParkingSession() {

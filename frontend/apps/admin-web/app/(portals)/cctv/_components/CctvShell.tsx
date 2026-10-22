@@ -7,8 +7,8 @@ import type { ReactNode } from 'react';
 import { WALL } from './shared';
 
 export const CCTV_TABS = [
-  { href: '/cctv', label: 'Wall', exact: true },
-  { href: '/cctv/alerts', label: 'Alerts' },
+  { href: '/cctv', label: 'Wall & overview', exact: true },
+  { href: '/cctv/alerts', label: 'AI alerts' },
   { href: '/cctv/parking', label: 'Parking' },
   { href: '/cctv/access', label: 'Access' },
   { href: '/cctv/patrols', label: 'Patrols' },
@@ -36,9 +36,11 @@ export function CctvShell({ children }: { children: ReactNode }) {
                 Control room monitors
               </h1>
               <p className="mt-0.5 max-w-2xl text-xs text-[#605e5c]">
-                Live parking, access, patrols, alarms, and incidents for CCTV
-                operators and Control Room. Video stays on the NVR. Field
-                mutate stays Branch Ops. Customers stay customer-web.
+                CCTV Operators, Security Monitoring Officers, Operations
+                Managers and site Supervisors monitor every area here: AI
+                alerts, parking, access, patrols, alarms and incidents. Video
+                stays on the NVR; mutate stays with the owning portal;
+                customers stay customer-web.
               </p>
             </div>
           </div>

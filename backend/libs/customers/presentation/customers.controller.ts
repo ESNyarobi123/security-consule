@@ -231,7 +231,7 @@ export class CustomersController {
 
   @Get('service-requests')
   @UseGuards(PermissionsGuard)
-  @RequireAnyPermissions('customers.manage', 'visitors.manage')
+  @RequireAnyPermissions('customers.manage', 'visitors.manage', 'support.manage')
   @ApiOperation({
     summary: 'Staff/call centre — list org service requests',
   })
@@ -240,9 +240,21 @@ export class CustomersController {
     return this.serviceRequests.listForStaff(user);
   }
 
+  @Get('service-requests/:id')
+  @UseGuards(PermissionsGuard)
+  @RequireAnyPermissions('customers.manage', 'visitors.manage', 'support.manage')
+  @ApiOperation({ summary: 'Staff/call centre — single support ticket' })
+  @ApiOkResponse({ type: ServiceRequestResponseDto })
+  getServiceRequest(
+    @Param('id', ParseUUIDPipe) id: string,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.serviceRequests.getForStaff(id, user);
+  }
+
   @Patch('service-requests/:id')
   @UseGuards(PermissionsGuard)
-  @RequireAnyPermissions('customers.manage', 'visitors.manage')
+  @RequireAnyPermissions('customers.manage', 'visitors.manage', 'support.manage')
   @ApiOperation({
     summary: 'Staff/call centre — update service request status',
     description:
@@ -365,16 +377,30 @@ export class CustomersController {
 
   @Get('complaints')
   @UseGuards(PermissionsGuard)
-  @RequireAnyPermissions('customers.manage', 'visitors.manage')
+  @RequireAnyPermissions('customers.manage', 'visitors.manage', 'support.manage')
   @ApiOperation({ summary: 'Staff/call centre — list org complaints' })
   @ApiOkResponse({ type: [ComplaintResponseDto] })
   listComplaints(@CurrentUser() user: AuthUser) {
     return this.complaints.listForStaff(user);
   }
 
+  @Get('complaints/:id')
+  @UseGuards(PermissionsGuard)
+  @RequireAnyPermissions('customers.manage', 'visitors.manage', 'support.manage')
+  @ApiOperation({
+    summary: 'Staff/call centre — complaint detail (description, timeline)',
+  })
+  @ApiOkResponse({ type: ComplaintResponseDto })
+  getComplaint(
+    @Param('id', ParseUUIDPipe) id: string,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.complaints.getForStaff(id, user);
+  }
+
   @Post('complaints')
   @UseGuards(PermissionsGuard)
-  @RequireAnyPermissions('customers.manage', 'visitors.manage')
+  @RequireAnyPermissions('customers.manage', 'visitors.manage', 'support.manage')
   @ApiOperation({
     summary: 'Staff/call centre — log a complaint for a customer',
   })
@@ -388,7 +414,7 @@ export class CustomersController {
 
   @Patch('complaints/:id')
   @UseGuards(PermissionsGuard)
-  @RequireAnyPermissions('customers.manage', 'visitors.manage')
+  @RequireAnyPermissions('customers.manage', 'visitors.manage', 'support.manage')
   @ApiOperation({
     summary: 'Staff/call centre — update complaint status',
     description:

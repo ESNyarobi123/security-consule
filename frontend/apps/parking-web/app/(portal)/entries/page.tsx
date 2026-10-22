@@ -110,6 +110,7 @@ export default function EntriesPage() {
   const [view, setView] = useState<ViewMode>('cards');
 
   const [showForm, setShowForm] = useState(true);
+  const [showAdvanced, setShowAdvanced] = useState(false);
   const [direction, setDirection] = useState<'ENTRY' | 'EXIT'>('ENTRY');
   const [lookupMode, setLookupMode] = useState<LookupMode>('plate');
   const [siteId, setSiteId] = useState('');
@@ -390,7 +391,7 @@ export default function EntriesPage() {
             </div>
           </div>
 
-          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
             <label className="block">
               <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400">
                 Site *
@@ -412,25 +413,6 @@ export default function EntriesPage() {
 
             <label className="block">
               <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400">
-                Gate (optional)
-              </span>
-              <select
-                value={gateId}
-                onChange={(e) => setGateId(e.target.value)}
-                className={fieldCls}
-                disabled={!selectedSite}
-              >
-                <option value="">— No gate —</option>
-                {(selectedSite?.gates ?? []).map((g) => (
-                  <option key={g.id} value={g.id}>
-                    {g.code} · {g.name}
-                  </option>
-                ))}
-              </select>
-            </label>
-
-            <label className="block">
-              <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400">
                 Lookup
               </span>
               <select
@@ -440,25 +422,6 @@ export default function EntriesPage() {
               >
                 <option value="plate">Plate number</option>
                 <option value="rfid">RFID tag</option>
-              </select>
-            </label>
-
-            <label className="block">
-              <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400">
-                Known vehicle (optional)
-              </span>
-              <select
-                value={vehicleId}
-                onChange={(e) => onVehiclePick(e.target.value)}
-                className={fieldCls}
-              >
-                <option value="">— Type plate / RFID —</option>
-                {vehicles.map((v) => (
-                  <option key={v.id} value={v.id}>
-                    {v.plateNumber}
-                    {v.rfidTagRef ? ` · ${v.rfidTagRef}` : ''}
-                  </option>
-                ))}
               </select>
             </label>
 
@@ -475,7 +438,8 @@ export default function EntriesPage() {
                   required
                   minLength={3}
                   placeholder="T123ABC"
-                  className={`${fieldCls} font-mono`}
+                  autoFocus
+                  className={`${fieldCls} font-mono text-base font-bold tracking-wider`}
                 />
               </label>
             ) : (
@@ -489,7 +453,8 @@ export default function EntriesPage() {
                   required
                   minLength={3}
                   placeholder="RFID-DEMO-T123"
-                  className={`${fieldCls} font-mono`}
+                  autoFocus
+                  className={`${fieldCls} font-mono text-base font-bold tracking-wider`}
                 />
               </label>
             )}
@@ -505,106 +470,150 @@ export default function EntriesPage() {
                 }
                 className={fieldCls}
               >
-                <option value="AUTO">
-                  Auto (permit / blacklist rules)
-                </option>
+                <option value="AUTO">Auto (permit / blacklist)</option>
                 <option value="ALLOW">Force ALLOW</option>
                 <option value="DENY">Force DENY</option>
               </select>
             </label>
           </div>
 
-          <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-            <label className="block">
-              <span className="text-xs font-medium uppercase tracking-wide text-slate-300">
-                Driver name
-              </span>
-              <input
-                value={driverName}
-                onChange={(e) => setDriverName(e.target.value)}
-                placeholder="Defaults from vehicle"
-                className={fieldCls}
-              />
-            </label>
-            <label className="block">
-              <span className="text-xs font-medium uppercase tracking-wide text-slate-300">
-                Driver ID
-              </span>
-              <input
-                value={driverIdRef}
-                onChange={(e) => setDriverIdRef(e.target.value)}
-                placeholder="NIDA / licence ref"
-                className={fieldCls}
-              />
-            </label>
-            <label className="block">
-              <span className="text-xs font-medium uppercase tracking-wide text-slate-300">
-                Verification method
-              </span>
-              <select
-                value={verificationMethod}
-                onChange={(e) =>
-                  setVerificationMethod(
-                    e.target.value as ParkingVerificationMethod | 'AUTO',
-                  )
-                }
-                className={fieldCls}
-              >
-                <option value="AUTO">Auto (RFID if tag else Manual)</option>
-                <option value="MANUAL">Manual</option>
-                <option value="RFID">RFID</option>
-                <option value="ANPR">ANPR</option>
-                <option value="QR">QR</option>
-                <option value="OTHER">Other</option>
-              </select>
-            </label>
-            <label className="block sm:col-span-2">
-              <span className="text-xs font-medium uppercase tracking-wide text-slate-300">
-                Purpose of visit
-              </span>
-              <input
-                value={purposeOfVisit}
-                onChange={(e) => setPurposeOfVisit(e.target.value)}
-                placeholder="Delivery, meeting, patrol…"
-                className={fieldCls}
-              />
-            </label>
-            <label className="block">
-              <span className="text-xs font-medium uppercase tracking-wide text-slate-300">
-                Parking space
-              </span>
-              <select
-                value={parkingSpaceId}
-                onChange={(e) => setParkingSpaceId(e.target.value)}
-                className={fieldCls}
-              >
-                <option value="">— Optional bay —</option>
-                {siteSpaces.map((s) => (
-                  <option key={s.id} value={s.id}>
-                    {s.code} · {s.spaceType}
-                    {s.status !== 'AVAILABLE' ? ` (${s.status})` : ''}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label className="block sm:col-span-2">
-              <span className="text-xs font-medium uppercase tracking-wide text-slate-300">
-                Visitor appointment
-              </span>
-              <select
-                value={visitorAppointmentId}
-                onChange={(e) => setVisitorAppointmentId(e.target.value)}
-                className={fieldCls}
-              >
-                <option value="">— None —</option>
-                {siteAppointments.map((a) => (
-                  <option key={a.id} value={a.id}>
-                    {a.referenceNumber} · {a.visitorName}
-                  </option>
-                ))}
-              </select>
-            </label>
-          </div>
+          <button
+            type="button"
+            onClick={() => setShowAdvanced((v) => !v)}
+            className="mt-3 inline-flex items-center gap-1.5 text-xs font-semibold text-teal-300 hover:text-teal-200"
+          >
+            {showAdvanced ? '− Hide extra details' : '+ Add extra details (gate, driver, bay, visit)'}
+          </button>
+
+          {showAdvanced ? (
+            <div className="mt-3 grid gap-3 border-t border-white/10 pt-3 sm:grid-cols-2 lg:grid-cols-3">
+              <label className="block">
+                <span className="text-xs font-medium uppercase tracking-wide text-slate-300">
+                  Gate (optional)
+                </span>
+                <select
+                  value={gateId}
+                  onChange={(e) => setGateId(e.target.value)}
+                  className={fieldCls}
+                  disabled={!selectedSite}
+                >
+                  <option value="">— No gate —</option>
+                  {(selectedSite?.gates ?? []).map((g) => (
+                    <option key={g.id} value={g.id}>
+                      {g.code} · {g.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="block">
+                <span className="text-xs font-medium uppercase tracking-wide text-slate-300">
+                  Known vehicle (optional)
+                </span>
+                <select
+                  value={vehicleId}
+                  onChange={(e) => onVehiclePick(e.target.value)}
+                  className={fieldCls}
+                >
+                  <option value="">— Type plate / RFID —</option>
+                  {vehicles.map((v) => (
+                    <option key={v.id} value={v.id}>
+                      {v.plateNumber}
+                      {v.rfidTagRef ? ` · ${v.rfidTagRef}` : ''}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="block">
+                <span className="text-xs font-medium uppercase tracking-wide text-slate-300">
+                  Driver name
+                </span>
+                <input
+                  value={driverName}
+                  onChange={(e) => setDriverName(e.target.value)}
+                  placeholder="Defaults from vehicle"
+                  className={fieldCls}
+                />
+              </label>
+              <label className="block">
+                <span className="text-xs font-medium uppercase tracking-wide text-slate-300">
+                  Driver ID
+                </span>
+                <input
+                  value={driverIdRef}
+                  onChange={(e) => setDriverIdRef(e.target.value)}
+                  placeholder="NIDA / licence ref"
+                  className={fieldCls}
+                />
+              </label>
+              <label className="block">
+                <span className="text-xs font-medium uppercase tracking-wide text-slate-300">
+                  Verification method
+                </span>
+                <select
+                  value={verificationMethod}
+                  onChange={(e) =>
+                    setVerificationMethod(
+                      e.target.value as ParkingVerificationMethod | 'AUTO',
+                    )
+                  }
+                  className={fieldCls}
+                >
+                  <option value="AUTO">Auto (RFID if tag else Manual)</option>
+                  <option value="MANUAL">Manual</option>
+                  <option value="RFID">RFID</option>
+                  <option value="ANPR">ANPR</option>
+                  <option value="QR">QR</option>
+                  <option value="OTHER">Other</option>
+                </select>
+              </label>
+              <label className="block sm:col-span-2">
+                <span className="text-xs font-medium uppercase tracking-wide text-slate-300">
+                  Purpose of visit
+                </span>
+                <input
+                  value={purposeOfVisit}
+                  onChange={(e) => setPurposeOfVisit(e.target.value)}
+                  placeholder="Delivery, meeting, patrol…"
+                  className={fieldCls}
+                />
+              </label>
+              <label className="block">
+                <span className="text-xs font-medium uppercase tracking-wide text-slate-300">
+                  Parking space
+                </span>
+                <select
+                  value={parkingSpaceId}
+                  onChange={(e) => setParkingSpaceId(e.target.value)}
+                  className={fieldCls}
+                >
+                  <option value="">— Optional bay —</option>
+                  {siteSpaces.map((s) => (
+                    <option key={s.id} value={s.id}>
+                      {s.code} · {s.spaceType}
+                      {s.status !== 'AVAILABLE' ? ` (${s.status})` : ''}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="block sm:col-span-2">
+                <span className="text-xs font-medium uppercase tracking-wide text-slate-300">
+                  Visitor appointment
+                </span>
+                <select
+                  value={visitorAppointmentId}
+                  onChange={(e) => setVisitorAppointmentId(e.target.value)}
+                  className={fieldCls}
+                >
+                  <option value="">— None —</option>
+                  {siteAppointments.map((a) => (
+                    <option key={a.id} value={a.id}>
+                      {a.referenceNumber} · {a.visitorName}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </div>
+          ) : null}
 
           <p className="mt-3 text-xs text-slate-400">
             Auto ENTRY denies blacklist / expired / no permit (violations +

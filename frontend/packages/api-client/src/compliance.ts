@@ -60,7 +60,9 @@ async function coreFetch<T>(
     fetch(`${coreUrl()}${path}`, {
       ...rest,
       headers: {
-        'Content-Type': 'application/json',
+        ...(rest.body != null
+          ? { 'Content-Type': 'application/json' }
+          : {}),
         ...authHeaders(access ?? token),
         ...(rest.headers ?? {}),
       },
@@ -125,7 +127,9 @@ export type DataBreachCase = {
   containmentNotes?: string | null;
   closedAt?: string | null;
   closedBy?: string | null;
+  closedByName?: string | null;
   createdBy: string;
+  createdByName?: string | null;
   createdAt: string;
   updatedAt: string;
 };
@@ -382,7 +386,12 @@ export type RiskRegisterItem = {
   regulatoryRef?: string | null;
   mitigation?: string | null;
   residualNotes?: string | null;
+  ownerUserId?: string | null;
+  createdBy?: string;
   createdByName?: string | null;
+  closedBy?: string | null;
+  closedByName?: string | null;
+  closedAt?: string | null;
   allowedNextStatuses: string[];
   createdAt: string;
   updatedAt: string;

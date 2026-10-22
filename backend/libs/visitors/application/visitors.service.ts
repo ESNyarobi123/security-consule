@@ -22,6 +22,8 @@ import {
   isContractorSelfScoped,
   isConsultantSelfScoped,
   isServiceProviderSelfScoped,
+  normalisePhone,
+  resolveSmsTransport,
 } from '@pssms/shared';
 import { AuditService } from '@pssms/audit';
 import {
@@ -198,11 +200,13 @@ export class VisitorsService {
         message: 'validUntil must be after validFrom',
       });
     }
+    this.assertVisitWindow(from, until);
+
+    const visitorPhone = this.resolveVisitorPhone(dto.visitorPhone);
 
     if (requireGuestFields) {
       const email = dto.visitorEmail?.trim();
-      const phone = dto.visitorPhone?.trim();
-      if (!email && !phone) {
+      if (!email && !visitorPhone) {
         throw new BadRequestException({
           error: 'VISITOR_CONTACT_REQUIRED',
           message: 'Provide email or phone so the gate code can be delivered after approval',
@@ -239,7 +243,7 @@ export class VisitorsService {
         referenceNumber,
         visitorName: dto.visitorName.trim(),
         visitorEmail: dto.visitorEmail?.trim() || null,
-        visitorPhone: dto.visitorPhone?.trim() || null,
+        visitorPhone,
         companyName: dto.companyName?.trim() || null,
         purpose: dto.purpose.trim(),
         visitKind,
@@ -424,11 +428,19 @@ export class VisitorsService {
       after: { appointment: updated, codeId: codeRecord.id },
     });
 
-    let delivery = { email: false, sms: false, whatsapp: false };
+    const site = await this.prisma.site.findFirst({
+      where: { id: updated.siteId },
+    });
+    const transport = resolveSmsTransport();
+    let delivery = {
+      email: false,
+      sms: false,
+      whatsapp: false,
+      smsRecipient: normalisePhone(updated.visitorPhone),
+      smsProvider: transport.provider,
+      smsLive: transport.live,
+    };
     try {
-      const site = await this.prisma.site.findFirst({
-        where: { id: updated.siteId },
-      });
       delivery = await this.notifications.enqueueVisitorGateCode({
         organizationId: user.organizationId,
         appointmentId: id,
@@ -455,16 +467,135 @@ export class VisitorsService {
       }
     } catch {
       // Notification enqueue must not block approval — still return the code
-      delivery = { email: false, sms: false, whatsapp: false };
+      delivery = {
+        email: false,
+        sms: false,
+        whatsapp: false,
+        smsRecipient: normalisePhone(updated.visitorPhone),
+        smsProvider: transport.provider,
+        smsLive: transport.live,
+      };
     }
 
     return {
-      appointment: this.toAppointmentDto(updated),
+      appointment: this.toAppointmentDto(updated, {
+        siteCode: site?.code ?? null,
+        siteName: site?.name ?? null,
+      }),
       verificationCode: plainCode,
       validUntil: updated.validUntil,
       siteId: updated.siteId,
       gateId: updated.gateId,
       delivery,
+    };
+  }
+
+  /**
+   * Portal 35.10 / Module 12-C — resend (rotate) the gate code for an approved
+   * visit when the SMS/email never arrived. The previous code is revoked so a
+   * leaked or mistyped number cannot be reused; delivery is re-queued with a
+   * fresh idempotency suffix so the provider actually sends again.
+   */
+  async resendVerificationCode(
+    id: string,
+    user: AuthUser,
+  ): Promise<IssueCodeResponseDto> {
+    const appointment = await this.findAppointmentOrThrow(
+      id,
+      user.organizationId,
+      user.customerId,
+    );
+
+    if (appointment.status !== AppointmentStatus.APPROVED) {
+      throw new BadRequestException({
+        error: 'APPOINTMENT_NOT_APPROVED',
+        message: 'Only an approved appointment has a gate code to resend',
+      });
+    }
+    const now = new Date();
+    if (appointment.validUntil.getTime() <= now.getTime()) {
+      throw new BadRequestException({
+        error: 'APPOINTMENT_EXPIRED',
+        message: 'This visit window has already ended — book a new appointment',
+      });
+    }
+    if (!appointment.visitorPhone?.trim() && !appointment.visitorEmail?.trim()) {
+      throw new BadRequestException({
+        error: 'VISITOR_CONTACT_REQUIRED',
+        message: 'No phone or email is stored for this visitor',
+      });
+    }
+
+    const plainCode = generateVerificationCode();
+    const secret = this.codeSecret();
+    await this.prisma.$transaction([
+      this.prisma.verificationCode.updateMany({
+        where: { appointmentId: id, revokedAt: null },
+        data: { revokedAt: now },
+      }),
+      this.prisma.verificationCode.create({
+        data: {
+          appointmentId: id,
+          codeHash: hashVerificationCode(plainCode, secret),
+          validFrom: appointment.validFrom,
+          validUntil: appointment.validUntil,
+          siteId: appointment.siteId,
+          gateId: appointment.gateId,
+        },
+      }),
+    ]);
+
+    const site = await this.prisma.site.findFirst({
+      where: { id: appointment.siteId },
+    });
+    const resendSuffix = `r${now.getTime()}`;
+    const transport = resolveSmsTransport();
+
+    let delivery = {
+      email: false,
+      sms: false,
+      whatsapp: false,
+      smsRecipient: normalisePhone(appointment.visitorPhone),
+      smsProvider: transport.provider,
+      smsLive: transport.live,
+    };
+    try {
+      const channels = await this.notifications.enqueueVisitorGateCode({
+        organizationId: user.organizationId,
+        appointmentId: id,
+        visitorPhone: appointment.visitorPhone,
+        visitorEmail: appointment.visitorEmail,
+        plainCode,
+        siteName: site?.name ?? appointment.siteId,
+        validUntil: appointment.validUntil,
+        actorId: user.id,
+        idempotencySuffix: resendSuffix,
+      });
+      delivery = { ...delivery, ...channels };
+    } catch {
+      // Keep the rotated code; ops still sees it once in the response.
+    }
+
+    await this.audit.record({
+      organizationId: user.organizationId,
+      actorId: user.id,
+      action: 'visitor.code.resent',
+      resourceType: 'VisitorAppointment',
+      resourceId: id,
+      after: { channels: delivery },
+    });
+
+    return {
+      appointment: this.toAppointmentDto(appointment, {
+        siteCode: site?.code ?? null,
+        siteName: site?.name ?? null,
+      }),
+      verificationCode: plainCode,
+      validUntil: appointment.validUntil,
+      siteId: appointment.siteId,
+      gateId: appointment.gateId,
+      delivery,
+      resent: true,
     };
   }
 
@@ -1242,6 +1373,48 @@ export class VisitorsService {
     if (isConsultantSelfScoped(user)) return 'CONSULTANT';
     if (isServiceProviderSelfScoped(user)) return 'SUPPLIER_VISIT';
     return 'VISITOR';
+  }
+
+  /**
+   * Portal 35.10 — a requested visit must be in the future and reasonably
+   * short. Rejecting past windows stops a visitor "booking" a code that the
+   * gate will refuse the moment the host approves it.
+   */
+  private assertVisitWindow(from: Date, until: Date): void {
+    const now = Date.now();
+    // 5-minute clock skew tolerance for public browsers.
+    if (from.getTime() < now - 5 * 60_000) {
+      throw new BadRequestException({
+        error: 'VISIT_WINDOW_IN_PAST',
+        message: 'The visit start time must be in the future',
+      });
+    }
+    const maxWindowMs = 30 * 24 * 60 * 60_000;
+    if (until.getTime() - from.getTime() > maxWindowMs) {
+      throw new BadRequestException({
+        error: 'VISIT_WINDOW_TOO_LONG',
+        message: 'A visit window cannot exceed 30 days',
+      });
+    }
+  }
+
+  /**
+   * Store the visitor phone in E.164 so the SMS adapter can deliver the gate
+   * code directly. An unparseable number is rejected rather than silently
+   * dropping the visitor's only delivery channel.
+   */
+  private resolveVisitorPhone(raw?: string | null): string | null {
+    const trimmed = raw?.trim();
+    if (!trimmed) return null;
+    const phone = normalisePhone(trimmed);
+    if (!phone) {
+      throw new BadRequestException({
+        error: 'INVALID_VISITOR_PHONE',
+        message:
+          'Enter a valid mobile number (e.g. 0712 345 678 or +255712345678)',
+      });
+    }
+    return phone;
   }
 
   private async assertVisitSite(

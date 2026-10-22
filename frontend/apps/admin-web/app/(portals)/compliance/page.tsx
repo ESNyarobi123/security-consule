@@ -20,7 +20,7 @@ import {
 } from 'lucide-react';
 import Link from 'next/link';
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { AuditEmpty, AuditLogRoster } from './_components/AuditLogRoster';
+import { AuditEmpty, AuditLogRoster } from '../_components/AuditTrail';
 import { ComplianceShell } from './_components/ComplianceShell';
 import { formatApiError } from './_components/shared';
 
@@ -39,6 +39,11 @@ const TOPICS = [
     title: 'Breach reports',
     href: '/compliance/breaches',
     description: 'DPO register — distinct from ops SECURITY_BREACH',
+  },
+  {
+    title: 'Audit logs',
+    href: '/compliance/audit',
+    description: 'Who did what — officer, action, changed fields',
   },
   {
     title: 'Risk register',
@@ -128,9 +133,14 @@ export default function ComplianceOverviewPage() {
       if (!q) return true;
       return (
         r.action.toLowerCase().includes(q) ||
+        (r.actionLabel ?? '').toLowerCase().includes(q) ||
         r.resourceType.toLowerCase().includes(q) ||
+        (r.resourceLabel ?? '').toLowerCase().includes(q) ||
         (r.resourceId ?? '').toLowerCase().includes(q) ||
-        (r.actorId ?? '').toLowerCase().includes(q)
+        (r.actorName ?? '').toLowerCase().includes(q) ||
+        (r.actorEmail ?? '').toLowerCase().includes(q) ||
+        (r.actorId ?? '').toLowerCase().includes(q) ||
+        (r.summary ?? '').toLowerCase().includes(q)
       );
     });
   }, [rows, query, resourceFilter]);
@@ -232,9 +242,9 @@ export default function ComplianceOverviewPage() {
           accent="violet"
         />
         <StatCard
-          label="Audit (30d)"
+          label="Audit events (30d)"
           value={pack?.auditEvents30d ?? '—'}
-          hint={`${pack?.loginFailed30d ?? 0} failed logins`}
+          hint={`${pack?.loginFailed30d ?? 0} failed logins · ${pack?.loginSuccess30d ?? 0} successful`}
           icon={<Activity className="h-5 w-5" />}
           accent="emerald"
         />
@@ -259,7 +269,8 @@ export default function ComplianceOverviewPage() {
             </span>
           </div>
           <p className="mt-0.5 text-[11px] text-[#605e5c]">
-            Append-only trail · IT helpdesk can read this strip only
+            Append-only trail · each row names the officer, the action, and the
+            changed fields · IT helpdesk can read this strip only
           </p>
         </div>
       </div>
@@ -274,7 +285,7 @@ export default function ComplianceOverviewPage() {
               <input
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
-                placeholder="Search action, resource, actor…"
+                placeholder="Search officer, action, resource, summary…"
                 className="w-full min-w-0 bg-transparent text-[13px] outline-none placeholder:text-[#a19f9d]"
               />
             </label>

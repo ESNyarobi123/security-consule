@@ -5,13 +5,20 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { DeviceEventType, IncidentSeverity } from '@prisma/client';
-import { PrismaService, AuthUser } from '@pssms/shared';
+import { PrismaService, AuthUser, assertSiteAccess } from '@pssms/shared';
 import { AuditService } from '@pssms/audit';
 import { IncidentsService } from '@pssms/incidents';
 import {
   AcknowledgeCctvEventDto,
   CreateIncidentFromEventDto,
 } from '../presentation/dto/device.dto';
+import {
+  detectionLabel,
+  detectionTypeFromPayload,
+  deriveSeverityFromPayload,
+  pickNumber,
+  pickString,
+} from './cctv-alert.util';
 
 /**
  * Module 28-A — CCTV alert triage. Operators acknowledge AI alerts or record
@@ -32,7 +39,7 @@ export class CctvTriageService {
     dto: AcknowledgeCctvEventDto,
     user: AuthUser,
   ) {
-    const event = await this.findTriagableEvent(id, user);
+    const { event } = await this.findTriagableEvent(id, user);
 
     const updated = await this.prisma.deviceEvent.update({
       where: { id: event.id },
@@ -64,7 +71,7 @@ export class CctvTriageService {
     dto: CreateIncidentFromEventDto,
     user: AuthUser,
   ) {
-    const event = await this.findTriagableEvent(id, user);
+    const { event } = await this.findTriagableEvent(id, user);
 
     const device = await this.prisma.device.findFirst({
       where: { id: event.deviceId, organizationId: user.organizationId },
@@ -79,26 +86,60 @@ export class CctvTriageService {
     }
 
     const payload = (event.payload ?? {}) as Record<string, unknown>;
-    const payloadTitle = this.firstString(payload, [
-      'title',
-      'message',
-      'alert',
-      'label',
-      'summary',
+    const detectionType = detectionTypeFromPayload(payload);
+    const label = detectionLabel(detectionType);
+    const confidence = pickNumber(payload, [
+      'confidence',
+      'score',
+      'probability',
+      'accuracy',
     ]);
+    const zone =
+      pickString(payload, ['zone', 'area', 'region', 'checkpoint']) ??
+      this.configString(device.config, 'zone');
+    const snapshotUrl = pickString(payload, [
+      'snapshot_url',
+      'snapshotUrl',
+      'imageUrl',
+      'image_url',
+      'snapshot',
+    ]);
+    const site = await this.prisma.site.findFirst({
+      where: { id: device.siteId, organizationId: user.organizationId },
+      select: { code: true, name: true },
+    });
+
+    const description =
+      dto.description?.trim() ||
+      [
+        `AI alert: ${label} (${detectionType}).`,
+        `Camera: ${device.name} (${device.code})${device.vendor ? ` · ${device.vendor}` : ''}.`,
+        `Site: ${site ? `${site.code} — ${site.name}` : device.siteId}.`,
+        zone ? `Zone: ${zone}.` : null,
+        confidence != null
+          ? `Detection confidence: ${Math.round((confidence > 1 ? confidence : confidence * 100))}%.`
+          : null,
+        snapshotUrl ? `Snapshot: ${snapshotUrl}` : null,
+        `Captured at: ${event.capturedAt.toISOString()}.`,
+        `Raw payload: ${JSON.stringify(payload).slice(0, 600)}`,
+      ]
+        .filter(Boolean)
+        .join('\n');
 
     // IncidentsService dedupes on clientEventId — replay returns the same incident.
     const incident = await this.incidents.create(
       {
         siteId: device.siteId,
         category: 'CCTV_ALERT',
-        title: dto.title?.trim() || payloadTitle || `CCTV alert — ${device.code}`,
-        description:
-          dto.description?.trim() ||
-          `Recorded from CCTV AI alert on camera ${device.code} (${device.name}). ` +
-            `Event captured ${event.capturedAt.toISOString()}. ` +
-            `Payload: ${JSON.stringify(payload).slice(0, 800)}`,
+        title:
+          dto.title?.trim() ||
+          `${label} — ${device.name} (${device.code})`.slice(0, 200),
+        description: description.slice(0, 5000),
         severity: dto.severity ?? this.mapSeverity(payload),
+        locationDescription: (zone ? `${site?.name ?? 'Site'} · ${zone}` : site?.name)?.slice(
+          0,
+          300,
+        ),
         deviceReportedAt: event.capturedAt.toISOString(),
         clientEventId: `device-event:${event.id}`,
       },
@@ -132,10 +173,19 @@ export class CctvTriageService {
     return { incident, event: updated };
   }
 
+  private configString(config: unknown, key: string): string | undefined {
+    if (!config || typeof config !== 'object' || Array.isArray(config)) {
+      return undefined;
+    }
+    const v = (config as Record<string, unknown>)[key];
+    return typeof v === 'string' && v.trim() ? v.trim() : undefined;
+  }
+
   /** Org-scoped CCTV_EVENT still open for triage (RECEIVED / FAILED). */
   private async findTriagableEvent(id: string, user: AuthUser) {
     const event = await this.prisma.deviceEvent.findFirst({
       where: { id, organizationId: user.organizationId },
+      include: { device: { select: { siteId: true } } },
     });
     if (!event) throw new NotFoundException('Device event not found');
     if (event.type !== DeviceEventType.CCTV_EVENT) {
@@ -150,24 +200,13 @@ export class CctvTriageService {
         message: `Event is already ${event.status}`,
       });
     }
-    return event;
-  }
-
-  private firstString(
-    payload: Record<string, unknown>,
-    keys: string[],
-  ): string | undefined {
-    for (const k of keys) {
-      const v = payload[k];
-      if (typeof v === 'string' && v.trim()) return v.trim();
-    }
-    return undefined;
+    // Supervisors are site-scoped; Control Room / Ops Mgr / CCTV Operator are org-wide.
+    if (event.device?.siteId) assertSiteAccess(user, event.device.siteId);
+    return { event, device: event.device };
   }
 
   private mapSeverity(payload: Record<string, unknown>): IncidentSeverity {
-    const raw = String(
-      payload.severity ?? payload.level ?? payload.priority ?? '',
-    ).toUpperCase();
+    const raw = deriveSeverityFromPayload(payload);
     if (raw === 'CRITICAL' || raw === 'ALARM') return IncidentSeverity.CRITICAL;
     if (raw === 'HIGH') return IncidentSeverity.HIGH;
     if (raw === 'LOW' || raw === 'INFO') return IncidentSeverity.LOW;

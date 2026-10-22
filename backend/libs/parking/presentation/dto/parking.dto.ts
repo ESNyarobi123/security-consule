@@ -433,6 +433,10 @@ export class ParkingPermitResponseDto {
   @ApiProperty()
   createdAt!: Date;
 
+  /** Who issued the permit — lets the UI show "waiting for a second approver". */
+  @ApiPropertyOptional({ nullable: true })
+  createdBy?: string | null;
+
   @ApiPropertyOptional({ nullable: true })
   feeAmount?: number | null;
 
@@ -1170,6 +1174,45 @@ export class AllocateParkingSpaceDto {
   permitId?: string;
 }
 
+/**
+ * Vehicle relocation (§13 — a vehicle moved to a different bay / zone / site).
+ * One call releases the current occupied bay and allocates the target bay, so
+ * the officer never has to "release then allocate" in two steps.
+ */
+export class RelocateParkingSpaceDto {
+  @ApiProperty()
+  @IsUUID()
+  vehicleId!: string;
+
+  /** Target bay. When omitted, `siteId` + optional `spaceType` picks one. */
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsUUID()
+  toSpaceId?: string;
+
+  /** Required when `toSpaceId` is omitted (AUTO relocation). */
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsUUID()
+  siteId?: string;
+
+  @ApiPropertyOptional({ enum: ParkingSpaceType })
+  @IsOptional()
+  @IsEnum(ParkingSpaceType)
+  spaceType?: ParkingSpaceType;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsUUID()
+  permitId?: string;
+
+  @ApiPropertyOptional({ example: 'Moved from Lot A to Lot B' })
+  @IsOptional()
+  @IsString()
+  reason?: string;
+}
+
+
 export class ParkingSpaceResponseDto {
   @ApiProperty()
   id!: string;
@@ -1233,6 +1276,20 @@ export class ParkingSpaceResponseDto {
 
   @ApiPropertyOptional()
   customerName?: string | null;
+}
+
+export class ParkingRelocationResponseDto {
+  @ApiProperty({ type: ParkingSpaceResponseDto })
+  from!: ParkingSpaceResponseDto;
+
+  @ApiProperty({ type: ParkingSpaceResponseDto })
+  to!: ParkingSpaceResponseDto;
+
+  @ApiProperty()
+  plateNumber!: string;
+
+  @ApiPropertyOptional({ nullable: true })
+  reason?: string | null;
 }
 
 /** Module 13-M — guard parking inspection */

@@ -137,6 +137,7 @@ export class ReportingController {
     @Query('from') from?: string,
     @Query('to') to?: string,
     @Query('siteId') siteId?: string,
+    @Query('branchId') branchId?: string,
   ) {
     const toDate = to ? new Date(to) : new Date();
     const fromDate = from
@@ -147,6 +148,7 @@ export class ReportingController {
       : undefined;
     return this.kpis.computeAll(user.organizationId, fromDate, toDate, codeList, {
       siteId,
+      branchId,
     });
   }
 
@@ -161,6 +163,8 @@ export class ReportingController {
     @CurrentUser() user: AuthUser,
     @Query('from') from?: string,
     @Query('to') to?: string,
+    @Query('siteId') siteId?: string,
+    @Query('branchId') branchId?: string,
   ) {
     const toDate = to ? new Date(to) : new Date();
     const fromDate = from
@@ -171,6 +175,7 @@ export class ReportingController {
       user.organizationId,
       fromDate,
       toDate,
+      { siteId, branchId },
     );
   }
 
@@ -181,6 +186,8 @@ export class ReportingController {
     @CurrentUser() user: AuthUser,
     @Query('from') from?: string,
     @Query('to') to?: string,
+    @Query('siteId') siteId?: string,
+    @Query('branchId') branchId?: string,
   ) {
     const toDate = to ? new Date(to) : new Date();
     const fromDate = from
@@ -191,6 +198,7 @@ export class ReportingController {
       fromDate,
       toDate,
       [code],
+      { siteId, branchId },
     );
     return items[0] ?? null;
   }

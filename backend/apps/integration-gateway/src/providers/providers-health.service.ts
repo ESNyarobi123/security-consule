@@ -1,5 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '@pssms/shared';
+import { EmailSender } from '../adapters/messaging/email-sender';
+import { SmsSender } from '../adapters/messaging/sms-sender';
 
 export type AdapterHealth = {
   code: string;
@@ -19,7 +21,11 @@ export type AdapterHealth = {
 export class ProvidersHealthService {
   private readonly logger = new Logger(ProvidersHealthService.name);
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly sms: SmsSender,
+    private readonly email: EmailSender,
+  ) {}
 
   async health(): Promise<{ checkedAt: string; adapters: AdapterHealth[] }> {
     const registered = await this.prisma.providerRegistry.findMany({
@@ -82,7 +88,29 @@ export class ProvidersHealthService {
           status: 'DISABLED',
           adapterClass: p.adapterClass,
           isEnabled: false,
-          detail: 'not implemented',
+          detail: 'not implemented — gate codes go over SMS/email',
+        };
+      }
+      if (String(p.category) === 'SMS') {
+        const smsHealth = this.sms.health();
+        return {
+          code: smsHealth.code,
+          category: 'SMS',
+          status: smsHealth.status,
+          adapterClass: 'SmsSender',
+          isEnabled: smsHealth.status === 'UP',
+          detail: smsHealth.detail,
+        };
+      }
+      if (String(p.category) === 'EMAIL') {
+        const emailHealth = this.email.health();
+        return {
+          code: emailHealth.code,
+          category: 'EMAIL',
+          status: emailHealth.status,
+          adapterClass: 'EmailSender',
+          isEnabled: emailHealth.status === 'UP',
+          detail: emailHealth.detail,
         };
       }
       return {
@@ -105,7 +133,7 @@ export class ProvidersHealthService {
         status: 'DISABLED',
         adapterClass: 'WhatsAppAdapter',
         isEnabled: false,
-        detail: 'not implemented',
+        detail: 'not implemented — gate codes go over SMS/email',
       });
     }
 

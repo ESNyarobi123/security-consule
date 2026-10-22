@@ -6,18 +6,23 @@ import {
 } from '@nestjs/common';
 import {
   InvoiceStatus,
+  PaymentMethod,
   PaymentVoucherStatus,
   PettyCashVoucherStatus,
   Prisma,
+  ReceiptPayerType,
 } from '@prisma/client';
 import { PrismaService, AuthUser } from '@pssms/shared';
 import { AuditService } from '@pssms/audit';
 import { ApprovalsService } from '@pssms/approvals';
+import { InvoicesService } from './invoices.service';
 import {
   CreateEssPettyCashVoucherDto,
+  CreateFinanceReceiptDto,
   CreatePaymentVoucherDto,
   CreatePettyCashFundDto,
   CreatePettyCashVoucherDto,
+  FinanceReceiptResponseDto,
   FinanceReportResponseDto,
   PaymentVoucherResponseDto,
   PettyCashFundResponseDto,
@@ -26,12 +31,20 @@ import {
   ReimbursePettyCashVoucherDto,
 } from '../presentation/dto/finance.dto';
 
+type ApprovalInfo = {
+  status: string;
+  stepOrder: number | null;
+  stepName: string | null;
+  requiredRole: string | null;
+};
+
 @Injectable()
 export class FinanceOpsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
     private readonly approvals: ApprovalsService,
+    private readonly invoices: InvoicesService,
   ) {}
 
   async createPettyCashFund(
@@ -158,12 +171,16 @@ export class FinanceOpsService {
   ): Promise<PettyCashVoucherResponseDto> {
     const voucher = await this.findPendingPettyOrThrow(id, user.organizationId);
     if (!voucher.approvalInstanceId) {
-      throw new BadRequestException('No approval instance');
+      throw new BadRequestException({
+        error: 'NO_APPROVAL_INSTANCE',
+        message:
+          'This voucher has no approval instance. Re-submit it from ESS so Finance/GM can approve it.',
+      });
     }
 
-    const approval = await this.approvals.act(
+    const approval = await this.actOnApproval(
       voucher.approvalInstanceId,
-      { decision: 'APPROVE' },
+      'APPROVE',
       user,
     );
 
@@ -286,10 +303,11 @@ export class FinanceOpsService {
     const voucher = await this.findPendingPettyOrThrow(id, user.organizationId);
 
     if (voucher.approvalInstanceId) {
-      await this.approvals.act(
+      await this.actOnApproval(
         voucher.approvalInstanceId,
-        { decision: 'REJECT', remarks: dto.reason },
+        'REJECT',
         user,
+        dto.reason,
       );
     }
 
@@ -577,7 +595,7 @@ export class FinanceOpsService {
       after: updated,
     });
 
-    return this.toPaymentVoucherDto(updated);
+    return (await this.toPaymentVoucherDtos([updated]))[0]!;
   }
 
   async approvePaymentVoucher(
@@ -589,12 +607,16 @@ export class FinanceOpsService {
     });
     if (!voucher) throw new NotFoundException('Payment voucher not found');
     if (!voucher.approvalInstanceId) {
-      throw new BadRequestException('No approval instance');
+      throw new BadRequestException({
+        error: 'NO_APPROVAL_INSTANCE',
+        message:
+          'This voucher has no approval instance. Re-create it so the GM approval step is started.',
+      });
     }
 
-    const approval = await this.approvals.act(
+    const approval = await this.actOnApproval(
       voucher.approvalInstanceId,
-      { decision: 'APPROVE' },
+      'APPROVE',
       user,
     );
 
@@ -610,7 +632,7 @@ export class FinanceOpsService {
           currentStepOrder: approval.currentStepOrder,
         },
       });
-      return this.toPaymentVoucherDto(voucher);
+      return (await this.toPaymentVoucherDtos([voucher]))[0]!;
     }
 
     const updated = await this.prisma.paymentVoucher.update({
@@ -630,7 +652,7 @@ export class FinanceOpsService {
       after: updated,
     });
 
-    return this.toPaymentVoucherDto(updated);
+    return (await this.toPaymentVoucherDtos([updated]))[0]!;
   }
 
   async payPaymentVoucher(
@@ -670,7 +692,7 @@ export class FinanceOpsService {
       after: updated,
     });
 
-    return this.toPaymentVoucherDto(updated);
+    return (await this.toPaymentVoucherDtos([updated]))[0]!;
   }
 
   async listPaymentVouchers(
@@ -681,7 +703,7 @@ export class FinanceOpsService {
       orderBy: { createdAt: 'desc' },
       take: 100,
     });
-    return rows.map((v) => this.toPaymentVoucherDto(v));
+    return this.toPaymentVoucherDtos(rows);
   }
 
   async getReports(
@@ -953,9 +975,15 @@ export class FinanceOpsService {
     ]);
     const branchById = new Map(branches.map((b) => [b.id, b]));
     const fundById = new Map(funds.map((f) => [f.id, f]));
+    const approvalByResource = await this.approvalInfoFor(
+      rows[0]!.organizationId,
+      'PettyCashVoucher',
+      rows.map((r) => r.id),
+    );
     return rows.map((v) => {
       const branch = v.branchId ? branchById.get(v.branchId) : undefined;
       const fund = fundById.get(v.fundId);
+      const approval = approvalByResource.get(v.id);
       return {
         id: v.id,
         organizationId: v.organizationId,
@@ -969,6 +997,10 @@ export class FinanceOpsService {
         receiptUrl: v.receiptUrl ?? null,
         status: v.status,
         approvalInstanceId: v.approvalInstanceId,
+        approvalStatus: approval?.status ?? null,
+        approvalStepOrder: approval?.stepOrder ?? null,
+        approvalCurrentStepName: approval?.stepName ?? null,
+        approvalRequiredRole: approval?.requiredRole ?? null,
         approvedBy: v.approvedBy,
         issuedBy: v.issuedBy ?? null,
         issuedAt: v.issuedAt ?? null,
@@ -984,41 +1016,361 @@ export class FinanceOpsService {
     });
   }
 
-  private toPaymentVoucherDto(v: {
-    id: string;
-    organizationId: string;
-    voucherNumber: string;
-    payeeName: string;
-    supplierId: string | null;
-    purchaseOrderId: string | null;
-    amount: Prisma.Decimal;
-    currency: string;
-    purpose: string;
-    status: PaymentVoucherStatus;
-    approvalInstanceId: string | null;
-    approvedBy: string | null;
-    paidAt: Date | null;
-    paymentReference: string | null;
-    createdAt: Date;
-    createdBy: string;
-  }): PaymentVoucherResponseDto {
-    return {
-      id: v.id,
-      organizationId: v.organizationId,
-      voucherNumber: v.voucherNumber,
-      payeeName: v.payeeName,
-      supplierId: v.supplierId,
-      purchaseOrderId: v.purchaseOrderId,
-      amount: Number(v.amount),
-      currency: v.currency,
-      purpose: v.purpose,
-      status: v.status,
-      approvalInstanceId: v.approvalInstanceId,
-      approvedBy: v.approvedBy,
-      paidAt: v.paidAt,
-      paymentReference: v.paymentReference,
-      createdBy: v.createdBy,
-      createdAt: v.createdAt,
-    };
+  /** Portal 35.15 receipts — capture details, attach a MinIO scan, optional invoice link. */
+  async createFinanceReceipt(
+    dto: CreateFinanceReceiptDto,
+    user: AuthUser,
+  ): Promise<FinanceReceiptResponseDto> {
+    let customerId = dto.customerId ?? null;
+    if (customerId) {
+      const customer = await this.prisma.customer.findFirst({
+        where: { id: customerId, organizationId: user.organizationId },
+        select: { id: true },
+      });
+      if (!customer) {
+        throw new BadRequestException({
+          error: 'INVALID_CUSTOMER',
+          message: 'Customer not found in this organisation',
+        });
+      }
+    }
+
+    let invoiceId: string | null = null;
+    let invoicePaymentId: string | null = null;
+    if (dto.invoiceId) {
+      const invoice = await this.prisma.invoice.findFirst({
+        where: { id: dto.invoiceId, organizationId: user.organizationId },
+        select: { id: true, customerId: true },
+      });
+      if (!invoice) {
+        throw new BadRequestException({
+          error: 'INVALID_INVOICE',
+          message: 'Invoice not found in this organisation',
+        });
+      }
+      if (customerId && invoice.customerId !== customerId) {
+        throw new BadRequestException({
+          error: 'INVOICE_CUSTOMER_MISMATCH',
+          message: 'The invoice belongs to a different customer',
+        });
+      }
+      customerId = invoice.customerId;
+      const recorded = await this.invoices.recordPaymentWithRef(
+        invoice.id,
+        {
+          amount: dto.amount,
+          paymentReference:
+            dto.paymentReference?.trim() ||
+            dto.receiptNumber?.trim() ||
+            'receipt',
+          paymentMethod: dto.paymentMethod,
+        },
+        user,
+      );
+      invoiceId = invoice.id;
+      invoicePaymentId = recorded.paymentId;
+    }
+
+    const receiptNumber =
+      dto.receiptNumber?.trim() ||
+      (await this.nextReceiptNumber(user.organizationId));
+
+    const existing = await this.prisma.financeReceipt.findFirst({
+      where: {
+        organizationId: user.organizationId,
+        receiptNumber,
+      },
+      select: { id: true },
+    });
+    if (existing) {
+      throw new BadRequestException({
+        error: 'RECEIPT_NUMBER_IN_USE',
+        message: `Receipt ${receiptNumber} already exists`,
+      });
+    }
+
+    const receivedAt = dto.receivedAt ? new Date(dto.receivedAt) : new Date();
+    if (Number.isNaN(receivedAt.getTime())) {
+      throw new BadRequestException({
+        error: 'INVALID_RECEIVED_AT',
+        message: 'receivedAt must be a valid date',
+      });
+    }
+
+    const receipt = await this.prisma.financeReceipt.create({
+      data: {
+        organizationId: user.organizationId,
+        receiptNumber,
+        payerType: dto.payerType as ReceiptPayerType,
+        payerName: dto.payerName.trim(),
+        customerId,
+        invoiceId,
+        invoicePaymentId,
+        amount: new Prisma.Decimal(dto.amount),
+        currency: dto.currency?.trim() || 'TZS',
+        paymentMethod: dto.paymentMethod,
+        paymentReference: dto.paymentReference?.trim() || null,
+        receivedAt,
+        notes: dto.notes?.trim() || null,
+        createdBy: user.id,
+      },
+    });
+
+    await this.audit.record({
+      organizationId: user.organizationId,
+      actorId: user.id,
+      action: 'finance.receipt.created',
+      resourceType: 'FinanceReceipt',
+      resourceId: receipt.id,
+      after: receipt,
+    });
+
+    return (await this.toFinanceReceiptDtos([receipt]))[0]!;
+  }
+
+  async listFinanceReceipts(
+    organizationId: string,
+    opts: { from?: string; to?: string; take?: number } = {},
+  ): Promise<FinanceReceiptResponseDto[]> {
+    const where: Prisma.FinanceReceiptWhereInput = { organizationId };
+    if (opts.from || opts.to) {
+      const receivedAt: Prisma.DateTimeFilter = {};
+      if (opts.from) {
+        const from = new Date(opts.from);
+        if (!Number.isNaN(from.getTime())) receivedAt.gte = from;
+      }
+      if (opts.to) {
+        const to = new Date(opts.to);
+        if (!Number.isNaN(to.getTime())) {
+          if (/^\d{4}-\d{2}-\d{2}$/.test(opts.to.trim())) {
+            to.setUTCHours(23, 59, 59, 999);
+          }
+          receivedAt.lte = to;
+        }
+      }
+      where.receivedAt = receivedAt;
+    }
+    const rows = await this.prisma.financeReceipt.findMany({
+      where,
+      orderBy: { receivedAt: 'desc' },
+      take: Math.min(Math.max(opts.take ?? 100, 1), 200),
+    });
+    return this.toFinanceReceiptDtos(rows);
+  }
+
+  private async toFinanceReceiptDtos(
+    rows: {
+      id: string;
+      organizationId: string;
+      receiptNumber: string;
+      payerType: ReceiptPayerType;
+      payerName: string;
+      customerId: string | null;
+      invoiceId: string | null;
+      invoicePaymentId: string | null;
+      amount: Prisma.Decimal;
+      currency: string;
+      paymentMethod: PaymentMethod;
+      paymentReference: string | null;
+      receivedAt: Date;
+      notes: string | null;
+      createdBy: string;
+      createdAt: Date;
+    }[],
+  ): Promise<FinanceReceiptResponseDto[]> {
+    if (rows.length === 0) return [];
+    const customerIds = [
+      ...new Set(rows.map((r) => r.customerId).filter((x): x is string => !!x)),
+    ];
+    const invoiceIds = [
+      ...new Set(rows.map((r) => r.invoiceId).filter((x): x is string => !!x)),
+    ];
+    const [customers, invoices, attachments] = await Promise.all([
+      customerIds.length
+        ? this.prisma.customer.findMany({
+            where: { id: { in: customerIds } },
+            select: { id: true, name: true },
+          })
+        : Promise.resolve([]),
+      invoiceIds.length
+        ? this.prisma.invoice.findMany({
+            where: { id: { in: invoiceIds } },
+            select: { id: true, invoiceNumber: true },
+          })
+        : Promise.resolve([]),
+      this.prisma.documentObject.groupBy({
+        by: ['resourceId'],
+        where: {
+          organizationId: rows[0]!.organizationId,
+          resourceType: 'FinanceReceipt',
+          resourceId: { in: rows.map((r) => r.id) },
+        },
+        _count: { _all: true },
+      }),
+    ]);
+    const customerById = new Map(customers.map((c) => [c.id, c.name]));
+    const invoiceById = new Map(invoices.map((i) => [i.id, i.invoiceNumber]));
+    const attachmentById = new Map(
+      attachments.map((a) => [a.resourceId, a._count._all]),
+    );
+    return rows.map((r) => ({
+      id: r.id,
+      organizationId: r.organizationId,
+      receiptNumber: r.receiptNumber,
+      payerType: r.payerType,
+      payerName: r.payerName,
+      customerId: r.customerId,
+      customerName: r.customerId ? customerById.get(r.customerId) ?? null : null,
+      invoiceId: r.invoiceId,
+      invoiceNumber: r.invoiceId ? invoiceById.get(r.invoiceId) ?? null : null,
+      invoicePaymentId: r.invoicePaymentId,
+      amount: Number(r.amount),
+      currency: r.currency,
+      paymentMethod: r.paymentMethod,
+      paymentReference: r.paymentReference,
+      receivedAt: r.receivedAt,
+      notes: r.notes,
+      attachmentCount: attachmentById.get(r.id) ?? 0,
+      createdBy: r.createdBy,
+      createdAt: r.createdAt,
+    }));
+  }
+
+  private async nextReceiptNumber(organizationId: string): Promise<string> {
+    const count = await this.prisma.financeReceipt.count({
+      where: { organizationId },
+    });
+    return `RCP-${String(count + 1).padStart(5, '0')}`;
+  }
+
+  /**
+   * Wrap approval.act so the UI gets an actionable code instead of a raw
+   * FORBIDDEN when the signed-in officer is not the current step role.
+   */
+  private async actOnApproval(
+    instanceId: string,
+    decision: 'APPROVE' | 'REJECT',
+    user: AuthUser,
+    remarks?: string,
+  ) {
+    try {
+      return await this.approvals.act(
+        instanceId,
+        { decision, remarks },
+        user,
+      );
+    } catch (err) {
+      if (err instanceof ForbiddenException) {
+        const body = err.getResponse() as
+          | string
+          | { error?: string; message?: string | string[] };
+        const code =
+          typeof body === 'object' && body?.error
+            ? body.error
+            : 'APPROVAL_ROLE_REQUIRED';
+        const raw =
+          typeof body === 'string'
+            ? body
+            : Array.isArray(body?.message)
+              ? body.message.join(', ')
+              : body?.message ?? err.message;
+        throw new ForbiddenException({
+          error: code,
+          message:
+            code === 'CREATOR_CANNOT_APPROVE'
+              ? 'Creator cannot approve their own request — another officer must decide.'
+              : `${raw} — this step must be approved by the required role (or in the Approvals queue).`,
+        });
+      }
+      throw err;
+    }
+  }
+
+  /** Current-step name/role for each resource so the UI shows where it is waiting. */
+  private async approvalInfoFor(
+    organizationId: string,
+    resourceType: string,
+    resourceIds: string[],
+  ): Promise<Map<string, ApprovalInfo>> {
+    const out = new Map<string, ApprovalInfo>();
+    if (resourceIds.length === 0) return out;
+    const instances = await this.prisma.approvalInstance.findMany({
+      where: {
+        organizationId,
+        resourceType,
+        resourceId: { in: resourceIds },
+      },
+      include: {
+        version: {
+          include: { steps: { orderBy: { stepOrder: 'asc' } } },
+        },
+      },
+    });
+    for (const i of instances) {
+      const step =
+        i.status === 'PENDING'
+          ? i.version.steps.find((s) => s.stepOrder === i.currentStepOrder)
+          : undefined;
+      out.set(i.resourceId, {
+        status: i.status,
+        stepOrder: i.status === 'PENDING' ? i.currentStepOrder : null,
+        stepName: step?.name ?? null,
+        requiredRole: step?.requiredRole ?? null,
+      });
+    }
+    return out;
+  }
+
+  private async toPaymentVoucherDtos(
+    rows: {
+      id: string;
+      organizationId: string;
+      voucherNumber: string;
+      payeeName: string;
+      supplierId: string | null;
+      purchaseOrderId: string | null;
+      amount: Prisma.Decimal;
+      currency: string;
+      purpose: string;
+      status: PaymentVoucherStatus;
+      approvalInstanceId: string | null;
+      approvedBy: string | null;
+      paidAt: Date | null;
+      paymentReference: string | null;
+      createdAt: Date;
+      createdBy: string;
+    }[],
+  ): Promise<PaymentVoucherResponseDto[]> {
+    if (rows.length === 0) return [];
+    const approvalByResource = await this.approvalInfoFor(
+      rows[0]!.organizationId,
+      'PaymentVoucher',
+      rows.map((r) => r.id),
+    );
+    return rows.map((v) => {
+      const approval = approvalByResource.get(v.id);
+      return {
+        id: v.id,
+        organizationId: v.organizationId,
+        voucherNumber: v.voucherNumber,
+        payeeName: v.payeeName,
+        supplierId: v.supplierId,
+        purchaseOrderId: v.purchaseOrderId,
+        amount: Number(v.amount),
+        currency: v.currency,
+        purpose: v.purpose,
+        status: v.status,
+        approvalInstanceId: v.approvalInstanceId,
+        approvalStatus: approval?.status ?? null,
+        approvalStepOrder: approval?.stepOrder ?? null,
+        approvalCurrentStepName: approval?.stepName ?? null,
+        approvalRequiredRole: approval?.requiredRole ?? null,
+        approvedBy: v.approvedBy,
+        paidAt: v.paidAt,
+        paymentReference: v.paymentReference,
+        createdBy: v.createdBy,
+        createdAt: v.createdAt,
+      };
+    });
   }
 }

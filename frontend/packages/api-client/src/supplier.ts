@@ -24,7 +24,7 @@ async function supplierFetch<T>(
   init?: RequestInit & { token?: string },
 ): Promise<T> {
   const headers: HeadersInit = {
-    'Content-Type': 'application/json',
+    ...(init?.body != null ? { 'Content-Type': 'application/json' } : {}),
     ...supplierAuthHeaders(init?.token),
     ...init?.headers,
   };

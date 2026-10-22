@@ -19,22 +19,29 @@ import { ContractsService } from '@pssms/contracts';
 import { AuthUser, PrismaService } from '@pssms/shared';
 import { CustomersService } from './customers.service';
 import {
+  AccrueMarketingCommissionDto,
+  CancelMarketingSurveyDto,
   CompleteMarketingSurveyDto,
   ConvertLeadContractDto,
   ConvertLeadCustomerDto,
   CreateMarketingCampaignDto,
+  CreateMarketingCommissionDto,
   CreateMarketingLeadDto,
   CreateMarketingQuoteDto,
   CreateMarketingSurveyDto,
   LoseMarketingLeadDto,
   MARKETING_CHANNELS,
+  MARKETING_CONTRACT_SERVICES,
   MARKETING_QUOTE_KINDS,
   MARKETING_REFERRER_TYPES,
   MARKETING_SOURCES,
   MARKETING_STAGES,
+  PatchMarketingCommissionDto,
   PatchMarketingLeadDto,
   PatchMarketingQuoteStatusDto,
+  PayMarketingCommissionDto,
   UpdateMarketingCampaignDto,
+  VoidMarketingCommissionDto,
   WinMarketingLeadDto,
 } from '../presentation/dto/marketing.dto';
 
@@ -96,6 +103,13 @@ const QUOTE_NEXT: Partial<
   ],
 };
 
+const COMMISSION_STATUSES: MarketingCommissionStatus[] = [
+  MarketingCommissionStatus.PENDING,
+  MarketingCommissionStatus.ACCRUED,
+  MarketingCommissionStatus.PAID,
+  MarketingCommissionStatus.VOID,
+];
+
 function money(v: Prisma.Decimal | null | undefined): number | null {
   if (v == null) return null;
   return Number(v);
@@ -134,42 +148,57 @@ export class MarketingService {
       stages: [...MARKETING_STAGES],
       referrerTypes: [...MARKETING_REFERRER_TYPES],
       quoteKinds: [...MARKETING_QUOTE_KINDS],
+      contractServices: [...MARKETING_CONTRACT_SERVICES],
+      commissionStatuses: ['PENDING', 'ACCRUED', 'PAID', 'VOID'],
     };
   }
 
   async reports(user: AuthUser) {
     this.assertStaff(user);
     const org = user.organizationId;
-    const [leads, campaigns, surveys, quotes, commissions] = await Promise.all([
-      this.prisma.marketingLead.groupBy({
-        by: ['stage'],
-        where: { organizationId: org },
-        _count: { _all: true },
-      }),
-      this.prisma.marketingCampaign.count({
-        where: { organizationId: org, isActive: true },
-      }),
-      this.prisma.marketingSiteSurvey.groupBy({
-        by: ['status'],
-        where: { organizationId: org },
-        _count: { _all: true },
-      }),
-      this.prisma.marketingQuote.groupBy({
-        by: ['status'],
-        where: { organizationId: org },
-        _count: { _all: true },
-      }),
-      this.prisma.marketingCommission.findMany({
-        where: { organizationId: org },
-        select: { status: true, amount: true },
-      }),
-    ]);
+    const [leads, campaigns, surveys, quotes, commissions, leadValues] =
+      await Promise.all([
+        this.prisma.marketingLead.groupBy({
+          by: ['stage'],
+          where: { organizationId: org },
+          _count: { _all: true },
+        }),
+        this.prisma.marketingCampaign.count({
+          where: { organizationId: org, isActive: true },
+        }),
+        this.prisma.marketingSiteSurvey.groupBy({
+          by: ['status'],
+          where: { organizationId: org },
+          _count: { _all: true },
+        }),
+        this.prisma.marketingQuote.groupBy({
+          by: ['status'],
+          where: { organizationId: org },
+          _count: { _all: true },
+        }),
+        this.prisma.marketingCommission.findMany({
+          where: { organizationId: org },
+          select: { status: true, amount: true },
+        }),
+        this.prisma.marketingLead.findMany({
+          where: { organizationId: org },
+          select: { stage: true, estimatedValue: true },
+        }),
+      ]);
 
     const byStage = Object.fromEntries(
       MARKETING_STAGES.map((s) => [s, 0]),
     ) as Record<string, number>;
     for (const row of leads) byStage[row.stage] = row._count._all;
 
+    const openStages = new Set<MarketingLeadStage>([
+      MarketingLeadStage.LEAD,
+      MarketingLeadStage.QUALIFIED,
+      MarketingLeadStage.SURVEY_SCHEDULED,
+      MarketingLeadStage.SURVEY_DONE,
+      MarketingLeadStage.QUOTED,
+      MarketingLeadStage.PROPOSAL,
+    ]);
     const openPipeline =
       byStage.LEAD +
       byStage.QUALIFIED +
@@ -178,30 +207,60 @@ export class MarketingService {
       byStage.QUOTED +
       byStage.PROPOSAL;
 
-    const pendingCommissionAmount = commissions
-      .filter((c) => c.status === MarketingCommissionStatus.PENDING)
-      .reduce((s, c) => s + Number(c.amount), 0);
+    const totalLeads = leadValues.length;
+    const pipelineValue = leadValues
+      .filter((l) => openStages.has(l.stage))
+      .reduce((s, l) => s + Number(l.estimatedValue ?? 0), 0);
+    const wonValue = leadValues
+      .filter((l) => l.stage === MarketingLeadStage.WON)
+      .reduce((s, l) => s + Number(l.estimatedValue ?? 0), 0);
+
+    const sumByStatus = (status: MarketingCommissionStatus) =>
+      commissions
+        .filter((c) => c.status === status)
+        .reduce((s, c) => s + Number(c.amount), 0);
+
+    const pendingCommissionAmount = sumByStatus(
+      MarketingCommissionStatus.PENDING,
+    );
+    const accruedCommissionAmount = sumByStatus(
+      MarketingCommissionStatus.ACCRUED,
+    );
+    const paidCommissionAmount = sumByStatus(MarketingCommissionStatus.PAID);
 
     const pack = {
       byStage,
       openPipeline,
+      totalLeads,
       won: byStage.WON,
       lost: byStage.LOST,
+      pipelineValue,
+      wonValue,
+      conversionRate:
+        totalLeads > 0 ? Number(((byStage.WON / totalLeads) * 100).toFixed(1)) : 0,
       activeCampaigns: campaigns,
       surveysScheduled:
         surveys.find((s) => s.status === MarketingSurveyStatus.SCHEDULED)
           ?._count._all ?? 0,
+      surveysCompleted:
+        surveys.find((s) => s.status === MarketingSurveyStatus.COMPLETED)
+          ?._count._all ?? 0,
       quotesSent:
         quotes.find((q) => q.status === MarketingQuoteStatus.SENT)?._count
+          ._all ?? 0,
+      quotesAccepted:
+        quotes.find((q) => q.status === MarketingQuoteStatus.ACCEPTED)?._count
           ._all ?? 0,
       pendingCommissions: commissions.filter(
         (c) => c.status === MarketingCommissionStatus.PENDING,
       ).length,
       pendingCommissionAmount,
+      accruedCommissionAmount,
+      paidCommissionAmount,
       generatedAt: new Date().toISOString(),
       notes: [
         'Live Prisma counts — not KPI forecasts.',
-        'Commission PAID stays on Finance (35.15); this register is accrue-only.',
+        'Commission register: PENDING → ACCRUED (another officer) → PAID; Finance still pays outside this portal.',
         'Contract conversion creates DRAFT only; Legal→GM→CEO→CMD on /approvals (creator ≠ approver).',
       ],
     };
@@ -211,19 +270,72 @@ export class MarketingService {
       actorId: user.id,
       action: 'marketing.reports.generated',
       resourceType: 'MarketingReport',
-      after: { openPipeline: pack.openPipeline, won: pack.won },
+      after: {
+        openPipeline: pack.openPipeline,
+        won: pack.won,
+        pipelineValue: pack.pipelineValue,
+      },
     });
     return pack;
   }
 
   async listCampaigns(user: AuthUser) {
     this.assertStaff(user);
-    const rows = await this.prisma.marketingCampaign.findMany({
-      where: { organizationId: user.organizationId },
-      orderBy: { createdAt: 'desc' },
-      take: 200,
-    });
-    return rows.map((r) => this.campaignDto(r));
+    const [rows, leadStats] = await Promise.all([
+      this.prisma.marketingCampaign.findMany({
+        where: { organizationId: user.organizationId },
+        orderBy: { createdAt: 'desc' },
+        take: 200,
+      }),
+      this.prisma.marketingLead.groupBy({
+        by: ['campaignId', 'stage'],
+        where: {
+          organizationId: user.organizationId,
+          campaignId: { not: null },
+        },
+        _count: { _all: true },
+        _sum: { estimatedValue: true },
+      }),
+    ]);
+
+    const stats = new Map<
+      string,
+      {
+        leads: number;
+        won: number;
+        lost: number;
+        open: number;
+        pipelineValue: number;
+        wonValue: number;
+      }
+    >();
+    for (const row of leadStats) {
+      if (!row.campaignId) continue;
+      const cur =
+        stats.get(row.campaignId) ??
+        {
+          leads: 0,
+          won: 0,
+          lost: 0,
+          open: 0,
+          pipelineValue: 0,
+          wonValue: 0,
+        };
+      cur.leads += row._count._all;
+      const value = Number(row._sum.estimatedValue ?? 0);
+      if (row.stage === MarketingLeadStage.WON) {
+        cur.won += row._count._all;
+        cur.wonValue += value;
+      } else if (row.stage === MarketingLeadStage.LOST) {
+        cur.lost += row._count._all;
+      } else {
+        cur.open += row._count._all;
+        cur.pipelineValue += value;
+      }
+      stats.set(row.campaignId, cur);
+    }
+
+    return rows.map((r) => this.campaignDto(r, stats.get(r.id)));
   }
 
   async createCampaign(dto: CreateMarketingCampaignDto, user: AuthUser) {
@@ -274,6 +386,8 @@ export class MarketingService {
       data: {
         name: dto.name?.trim(),
         channel: dto.channel,
+        startsAt: dto.startsAt ? new Date(dto.startsAt) : undefined,
+        endsAt: dto.endsAt ? new Date(dto.endsAt) : undefined,
         isActive: dto.isActive,
         notes: dto.notes === undefined ? undefined : dto.notes?.trim() || null,
       },
@@ -363,6 +477,25 @@ export class MarketingService {
           })
         : null,
     ]);
+
+    const commissionUserIds = [
+      ...new Set(
+        commissions
+          .flatMap((c) => [c.createdBy, c.accruedBy, c.paidBy])
+          .filter(Boolean) as string[],
+      ),
+    ];
+    const commissionUsers = commissionUserIds.length
+      ? await this.prisma.user.findMany({
+          where: {
+            id: { in: commissionUserIds },
+            organizationId: user.organizationId,
+          },
+          select: { id: true, fullName: true },
+        })
+      : [];
+    const nameMap = new Map(commissionUsers.map((u) => [u.id, u.fullName]));
+
     return {
       ...this.leadDto(lead, {
         campaignCode: campaign?.code ?? null,
@@ -370,9 +503,23 @@ export class MarketingService {
         ownerName: owner?.fullName ?? null,
         allowedNextStages: STAGE_NEXT[lead.stage],
       }),
+      canConvertCustomer: lead.stage !== MarketingLeadStage.LOST,
+      canConvertContract:
+        lead.stage === MarketingLeadStage.WON && Boolean(lead.customerId),
       surveys: surveys.map((s) => this.surveyDto(s)),
       quotes: quotes.map((q) => this.quoteDto(q)),
-      commissions: commissions.map((c) => this.commissionDto(c)),
+      commissions: commissions.map((c) =>
+        this.commissionDto(c, {
+          leadCode: lead.code,
+          companyName: lead.companyName,
+          createdByName: nameMap.get(c.createdBy) ?? null,
+          accruedByName: c.accruedBy
+            ? nameMap.get(c.accruedBy) ?? null
+            : null,
+          paidByName: c.paidBy ? nameMap.get(c.paidBy) ?? null : null,
+          currentUserId: user.id,
+        }),
+      ),
     };
   }
 
@@ -423,6 +570,8 @@ export class MarketingService {
       where: { id: existing.id },
       data: {
         stage,
+        companyName: dto.companyName?.trim(),
+        contactName: dto.contactName?.trim(),
         notes: dto.notes === undefined ? undefined : dto.notes?.trim() || null,
         estimatedValue:
           dto.estimatedValue === undefined
@@ -438,6 +587,12 @@ export class MarketingService {
           dto.contactEmail === undefined
             ? undefined
             : dto.contactEmail?.trim() || null,
+        referrerName:
+          dto.referrerName === undefined
+            ? undefined
+            : dto.referrerName?.trim() || null,
+        referrerType:
+          dto.referrerType === undefined ? undefined : dto.referrerType,
       },
     });
     await this.audit.record({
@@ -460,6 +615,13 @@ export class MarketingService {
       dto.commissionBeneficiary?.trim() ||
       existing.referrerName?.trim() ||
       null;
+    if (dto.commissionAmount && dto.commissionAmount > 0 && !beneficiary) {
+      throw new BadRequestException({
+        error: 'COMMISSION_BENEFICIARY_REQUIRED',
+        message:
+          'Add a commission beneficiary (or a referrer on the lead) before winning with a commission amount',
+      });
+    }
     const now = new Date();
     await this.prisma.$transaction(async (tx) => {
       await tx.marketingLead.update({
@@ -585,6 +747,43 @@ export class MarketingService {
     return this.surveyDto(row);
   }
 
+  async cancelSurvey(
+    leadId: string,
+    surveyId: string,
+    dto: CancelMarketingSurveyDto,
+    user: AuthUser,
+  ) {
+    this.assertStaff(user);
+    const lead = await this.requireLead(leadId, user);
+    const survey = await this.prisma.marketingSiteSurvey.findFirst({
+      where: {
+        id: surveyId,
+        leadId: lead.id,
+        organizationId: user.organizationId,
+      },
+    });
+    if (!survey) throw new NotFoundException('Survey not found');
+    if (survey.status !== MarketingSurveyStatus.SCHEDULED) {
+      throw new BadRequestException({ error: 'SURVEY_NOT_SCHEDULED' });
+    }
+    const row = await this.prisma.marketingSiteSurvey.update({
+      where: { id: survey.id },
+      data: {
+        status: MarketingSurveyStatus.CANCELLED,
+        notes: dto.reason?.trim() || survey.notes,
+      },
+    });
+    await this.audit.record({
+      organizationId: user.organizationId,
+      actorId: user.id,
+      action: 'marketing.survey.cancelled',
+      resourceType: 'MarketingSiteSurvey',
+      resourceId: row.id,
+      after: { reason: dto.reason?.trim() || null },
+    });
+    return this.surveyDto(row);
+  }
+
   async createQuote(
     leadId: string,
     dto: CreateMarketingQuoteDto,
@@ -658,6 +857,14 @@ export class MarketingService {
             : quote.decidedAt,
       },
     });
+    if (next === MarketingQuoteStatus.ACCEPTED) {
+      await this.advanceIfAhead(
+        lead,
+        quote.kind === MarketingQuoteKind.PROPOSAL
+          ? MarketingLeadStage.PROPOSAL
+          : MarketingLeadStage.QUOTED,
+      );
+    }
     await this.audit.record({
       organizationId: user.organizationId,
       actorId: user.id,
@@ -714,6 +921,12 @@ export class MarketingService {
     this.assertStaff(user);
     const lead = await this.requireLead(leadId, user);
     this.rejectTerminal(lead.stage, true);
+    if (lead.stage !== MarketingLeadStage.WON) {
+      throw new BadRequestException({
+        error: 'LEAD_NOT_WON',
+        message: 'Mark the lead won before converting a contract',
+      });
+    }
     if (!lead.customerId) {
       throw new BadRequestException({
         error: 'CUSTOMER_REQUIRED_FOR_CONTRACT',
@@ -759,27 +972,110 @@ export class MarketingService {
     return this.getLead(leadId, user);
   }
 
-  async listCommissions(user: AuthUser) {
+  async listCommissions(user: AuthUser, opts?: { status?: string }) {
     this.assertStaff(user);
+    if (opts?.status && !COMMISSION_STATUSES.includes(opts.status as never)) {
+      throw new BadRequestException({ error: 'INVALID_COMMISSION_STATUS' });
+    }
     const rows = await this.prisma.marketingCommission.findMany({
-      where: { organizationId: user.organizationId },
+      where: {
+        organizationId: user.organizationId,
+        ...(opts?.status
+          ? { status: opts.status as MarketingCommissionStatus }
+          : {}),
+      },
       include: { lead: { select: { code: true, companyName: true } } },
       orderBy: { createdAt: 'desc' },
       take: 200,
     });
-    return rows.map((r) => ({
-      ...this.commissionDto(r),
-      leadCode: r.lead.code,
-      companyName: r.lead.companyName,
-    }));
+    return this.enrichCommissions(rows, user);
   }
 
-  async accrueCommission(id: string, user: AuthUser) {
+  async createCommission(
+    leadId: string,
+    dto: CreateMarketingCommissionDto,
+    user: AuthUser,
+  ) {
     this.assertStaff(user);
-    const row = await this.prisma.marketingCommission.findFirst({
-      where: { id, organizationId: user.organizationId },
+    const lead = await this.requireLead(leadId, user);
+    if (lead.stage === MarketingLeadStage.LOST) {
+      throw new BadRequestException({ error: 'LEAD_LOST' });
+    }
+    const row = await this.prisma.marketingCommission.create({
+      data: {
+        organizationId: user.organizationId,
+        leadId: lead.id,
+        beneficiary: dto.beneficiary.trim(),
+        referrerType: dto.referrerType ?? lead.referrerType,
+        amount: dto.amount,
+        currency: lead.currency,
+        notes: dto.notes?.trim() || null,
+        createdBy: user.id,
+      },
     });
-    if (!row) throw new NotFoundException('Commission not found');
+    await this.audit.record({
+      organizationId: user.organizationId,
+      actorId: user.id,
+      action: 'marketing.commission.created',
+      resourceType: 'MarketingCommission',
+      resourceId: row.id,
+      after: {
+        leadId: lead.id,
+        beneficiary: row.beneficiary,
+        amount: Number(row.amount),
+      },
+    });
+    return this.commissionDto(row, {
+      leadCode: lead.code,
+      companyName: lead.companyName,
+      currentUserId: user.id,
+    });
+  }
+
+  async patchCommission(
+    id: string,
+    dto: PatchMarketingCommissionDto,
+    user: AuthUser,
+  ) {
+    this.assertStaff(user);
+    const row = await this.requireCommission(id, user);
+    if (row.status !== MarketingCommissionStatus.PENDING) {
+      throw new BadRequestException({ error: 'COMMISSION_NOT_PENDING' });
+    }
+    const updated = await this.prisma.marketingCommission.update({
+      where: { id: row.id },
+      data: {
+        beneficiary: dto.beneficiary?.trim(),
+        referrerType: dto.referrerType,
+        amount: dto.amount,
+        notes: dto.notes === undefined ? undefined : dto.notes?.trim() || null,
+      },
+    });
+    await this.audit.record({
+      organizationId: user.organizationId,
+      actorId: user.id,
+      action: 'marketing.commission.updated',
+      resourceType: 'MarketingCommission',
+      resourceId: updated.id,
+      before: { amount: Number(row.amount), beneficiary: row.beneficiary },
+      after: {
+        amount: Number(updated.amount),
+        beneficiary: updated.beneficiary,
+      },
+    });
+    return this.commissionDto(updated, {
+      leadCode: (await this.requireLead(updated.leadId, user)).code,
+      currentUserId: user.id,
+    });
+  }
+
+  async accrueCommission(
+    id: string,
+    dto: AccrueMarketingCommissionDto,
+    user: AuthUser,
+  ) {
+    this.assertStaff(user);
+    const row = await this.requireCommission(id, user);
     if (row.status !== MarketingCommissionStatus.PENDING) {
       throw new BadRequestException({ error: 'COMMISSION_NOT_PENDING' });
     }
@@ -792,6 +1088,9 @@ export class MarketingService {
         status: MarketingCommissionStatus.ACCRUED,
         accruedBy: user.id,
         accruedAt: new Date(),
+        notes: dto.notes?.trim()
+          ? [row.notes, dto.notes.trim()].filter(Boolean).join('\n')
+          : undefined,
       },
     });
     await this.audit.record({
@@ -800,8 +1099,125 @@ export class MarketingService {
       action: 'marketing.commission.accrued',
       resourceType: 'MarketingCommission',
       resourceId: updated.id,
+      after: { amount: Number(updated.amount) },
     });
-    return this.commissionDto(updated);
+    return this.commissionDto(updated, { currentUserId: user.id });
+  }
+
+  async payCommission(
+    id: string,
+    dto: PayMarketingCommissionDto,
+    user: AuthUser,
+  ) {
+    this.assertStaff(user);
+    const row = await this.requireCommission(id, user);
+    if (row.status !== MarketingCommissionStatus.ACCRUED) {
+      throw new BadRequestException({ error: 'COMMISSION_NOT_ACCRUED' });
+    }
+    const updated = await this.prisma.marketingCommission.update({
+      where: { id: row.id },
+      data: {
+        status: MarketingCommissionStatus.PAID,
+        paidBy: user.id,
+        paidAt: new Date(),
+        paymentReference: dto.paymentReference?.trim() || null,
+        notes: dto.notes?.trim()
+          ? [row.notes, dto.notes.trim()].filter(Boolean).join('\n')
+          : undefined,
+      },
+    });
+    await this.audit.record({
+      organizationId: user.organizationId,
+      actorId: user.id,
+      action: 'marketing.commission.paid',
+      resourceType: 'MarketingCommission',
+      resourceId: updated.id,
+      after: {
+        amount: Number(updated.amount),
+        paymentReference: updated.paymentReference,
+      },
+    });
+    return this.commissionDto(updated, { currentUserId: user.id });
+  }
+
+  async voidCommission(
+    id: string,
+    dto: VoidMarketingCommissionDto,
+    user: AuthUser,
+  ) {
+    this.assertStaff(user);
+    const row = await this.requireCommission(id, user);
+    if (
+      row.status !== MarketingCommissionStatus.PENDING &&
+      row.status !== MarketingCommissionStatus.ACCRUED
+    ) {
+      throw new BadRequestException({ error: 'COMMISSION_NOT_VOIDABLE' });
+    }
+    if (
+      row.status === MarketingCommissionStatus.ACCRUED &&
+      row.accruedBy === user.id
+    ) {
+      throw new ForbiddenException({ error: 'ACCRUER_CANNOT_VOID' });
+    }
+    const updated = await this.prisma.marketingCommission.update({
+      where: { id: row.id },
+      data: {
+        status: MarketingCommissionStatus.VOID,
+        voidedBy: user.id,
+        voidedAt: new Date(),
+        voidReason: dto.reason.trim(),
+      },
+    });
+    await this.audit.record({
+      organizationId: user.organizationId,
+      actorId: user.id,
+      action: 'marketing.commission.voided',
+      resourceType: 'MarketingCommission',
+      resourceId: updated.id,
+      after: { reason: dto.reason.trim() },
+    });
+    return this.commissionDto(updated, { currentUserId: user.id });
+  }
+
+  private async requireCommission(id: string, user: AuthUser) {
+    const row = await this.prisma.marketingCommission.findFirst({
+      where: { id, organizationId: user.organizationId },
+    });
+    if (!row) throw new NotFoundException('Commission not found');
+    return row;
+  }
+
+  private async enrichCommissions(
+    rows: (Prisma.MarketingCommissionGetPayload<{
+      include: { lead: { select: { code: true; companyName: true } } };
+    }>)[],
+    user: AuthUser,
+  ) {
+    const ids = [
+      ...new Set(
+        rows
+          .flatMap((r) => [r.createdBy, r.accruedBy, r.paidBy, r.voidedBy])
+          .filter(Boolean) as string[],
+      ),
+    ];
+    const users = ids.length
+      ? await this.prisma.user.findMany({
+          where: { id: { in: ids }, organizationId: user.organizationId },
+          select: { id: true, fullName: true },
+        })
+      : [];
+    const names = new Map(users.map((u) => [u.id, u.fullName]));
+    return rows.map((r) =>
+      this.commissionDto(r, {
+        leadCode: r.lead.code,
+        companyName: r.lead.companyName,
+        createdByName: names.get(r.createdBy) ?? null,
+        accruedByName: r.accruedBy ? names.get(r.accruedBy) ?? null : null,
+        paidByName: r.paidBy ? names.get(r.paidBy) ?? null : null,
+        voidedByName: r.voidedBy ? names.get(r.voidedBy) ?? null : null,
+        currentUserId: user.id,
+      }),
+    );
   }
 
   private async requireCampaign(id: string, user: AuthUser) {
@@ -856,17 +1272,27 @@ export class MarketingService {
     }
   }
 
-  private campaignDto(r: {
-    id: string;
-    code: string;
-    name: string;
-    channel: string;
-    startsAt: Date | null;
-    endsAt: Date | null;
-    isActive: boolean;
-    notes: string | null;
-    createdAt: Date;
-  }) {
+  private campaignDto(
+    r: {
+      id: string;
+      code: string;
+      name: string;
+      channel: string;
+      startsAt: Date | null;
+      endsAt: Date | null;
+      isActive: boolean;
+      notes: string | null;
+      createdAt: Date;
+    },
+    stats?: {
+      leads: number;
+      won: number;
+      lost: number;
+      open: number;
+      pipelineValue: number;
+      wonValue: number;
+    },
+  ) {
     return {
       id: r.id,
       code: r.code,
@@ -877,6 +1303,16 @@ export class MarketingService {
       isActive: r.isActive,
       notes: r.notes,
       createdAt: r.createdAt.toISOString(),
+      totalLeads: stats?.leads ?? 0,
+      openLeads: stats?.open ?? 0,
+      wonLeads: stats?.won ?? 0,
+      lostLeads: stats?.lost ?? 0,
+      pipelineValue: stats?.pipelineValue ?? 0,
+      wonValue: stats?.wonValue ?? 0,
+      conversionRate:
+        stats && stats.leads > 0
+          ? Number(((stats.won / stats.leads) * 100).toFixed(1))
+          : 0,
     };
   }
 
@@ -999,29 +1435,71 @@ export class MarketingService {
     };
   }
 
-  private commissionDto(r: {
-    id: string;
-    leadId: string;
-    beneficiary: string;
-    referrerType: string | null;
-    amount: Prisma.Decimal;
-    currency: string;
-    status: string;
-    notes: string | null;
-    accruedAt: Date | null;
-    createdAt: Date;
-  }) {
+  private commissionDto(
+    r: {
+      id: string;
+      leadId: string;
+      beneficiary: string;
+      referrerType: string | null;
+      amount: Prisma.Decimal;
+      currency: string;
+      status: string;
+      notes: string | null;
+      createdBy: string;
+      accruedBy: string | null;
+      accruedAt: Date | null;
+      paidBy: string | null;
+      paidAt: Date | null;
+      paymentReference: string | null;
+      voidedBy: string | null;
+      voidedAt: Date | null;
+      voidReason: string | null;
+      createdAt: Date;
+    },
+    extra?: {
+      leadCode?: string | null;
+      companyName?: string | null;
+      createdByName?: string | null;
+      accruedByName?: string | null;
+      paidByName?: string | null;
+      voidedByName?: string | null;
+      currentUserId?: string;
+    },
+  ) {
+    const canAccrue =
+      r.status === MarketingCommissionStatus.PENDING &&
+      r.createdBy !== extra?.currentUserId;
     return {
       id: r.id,
       leadId: r.leadId,
+      leadCode: extra?.leadCode ?? null,
+      companyName: extra?.companyName ?? null,
       beneficiary: r.beneficiary,
       referrerType: r.referrerType,
       amount: Number(r.amount),
       currency: r.currency,
       status: r.status,
       notes: r.notes,
+      createdBy: r.createdBy,
+      createdByName: extra?.createdByName ?? null,
+      accruedBy: r.accruedBy,
+      accruedByName: extra?.accruedByName ?? null,
       accruedAt: r.accruedAt?.toISOString() ?? null,
+      paidBy: r.paidBy,
+      paidByName: extra?.paidByName ?? null,
+      paidAt: r.paidAt?.toISOString() ?? null,
+      paymentReference: r.paymentReference,
+      voidedAt: r.voidedAt?.toISOString() ?? null,
+      voidedByName: extra?.voidedByName ?? null,
+      voidReason: r.voidReason,
       createdAt: r.createdAt.toISOString(),
+      canAccrue,
+      canPay: r.status === MarketingCommissionStatus.ACCRUED,
+      canEdit: r.status === MarketingCommissionStatus.PENDING,
+      canVoid:
+        r.status === MarketingCommissionStatus.PENDING ||
+        (r.status === MarketingCommissionStatus.ACCRUED &&
+          r.accruedBy !== extra?.currentUserId),
     };
   }
 }

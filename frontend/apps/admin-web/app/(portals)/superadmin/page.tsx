@@ -277,19 +277,25 @@ export default function SuperadminPage() {
         ) : (
           <ul className="divide-y divide-[#edebe9] text-sm">
             {audit.slice(0, 8).map((row) => (
-              <li
-                key={row.id}
-                className="flex flex-wrap items-center justify-between gap-2 py-2"
-              >
-                <span className="font-mono text-xs text-[#323130]">
-                  {row.action}
-                </span>
-                <span className="text-xs text-[#605e5c]">
-                  {row.resourceType}
-                  {row.createdAt
-                    ? ` · ${new Date(row.createdAt).toLocaleString()}`
-                    : ''}
-                </span>
+              <li key={row.id} className="py-2">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <span className="text-xs font-semibold text-[#323130]">
+                    {row.actionLabel ?? row.action}
+                    <span className="ml-1.5 font-mono text-[10px] font-normal text-[#8a8886]">
+                      {row.action}
+                    </span>
+                  </span>
+                  <span className="text-xs text-[#605e5c]">
+                    {row.resourceType}
+                    {row.createdAt
+                      ? ` · ${new Date(row.createdAt).toLocaleString()}`
+                      : ''}
+                  </span>
+                </div>
+                <p className="mt-0.5 text-[11px] text-[#605e5c]">
+                  {row.actorName ?? 'System'}
+                  {row.actorEmail ? ` · ${row.actorEmail}` : ''}
+                </p>
               </li>
             ))}
           </ul>

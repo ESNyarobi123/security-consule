@@ -23,7 +23,7 @@ import {
   btnSecondary,
   inputCls,
 } from '@pssms/ui';
-import { FileText, Plus, RefreshCw } from 'lucide-react';
+import { Eye, FileText, Plus, RefreshCw, X } from 'lucide-react';
 import { FormEvent, useCallback, useEffect, useMemo, useState } from 'react';
 import { ComplianceShell } from '../_components/ComplianceShell';
 import { formatApiError, formatDate, norm } from '../_components/shared';
@@ -35,6 +35,7 @@ export default function CompliancePoliciesPage() {
   const [busyId, setBusyId] = useState<string | null>(null);
   const [createOpen, setCreateOpen] = useState(false);
   const [rejectTarget, setRejectTarget] = useState<PolicyDocument | null>(null);
+  const [detail, setDetail] = useState<PolicyDocument | null>(null);
   const sessionUser = useMemo(() => getSessionUser(), []);
   const canMutatePolicy = can(sessionUser, 'compliance.manage');
 
@@ -150,7 +151,7 @@ export default function CompliancePoliciesPage() {
               },
               {
                 key: 'id',
-                label: '',
+                label: 'Actions',
                 render: (r) => {
                   const status = norm(r.status);
                   const busy = busyId === r.id;
@@ -161,76 +162,81 @@ export default function CompliancePoliciesPage() {
                   const isSuperAdmin =
                     sessionUser?.roles?.includes('SUPER_ADMIN') ?? false;
 
+                  let action: React.ReactNode = null;
                   if (!canMutatePolicy) {
-                    return (
-                      <span className="text-[11px] text-[#a19f9d]">View only</span>
+                    action = (
+                      <span className="text-[11px] text-[#a19f9d]">
+                        View only
+                      </span>
                     );
-                  }
-
-                  if (status === 'draft' || status === 'rejected') {
-                    return (
+                  } else if (status === 'draft' || status === 'rejected') {
+                    action = (
                       <button
                         type="button"
                         className={btnPrimary}
                         disabled={busy}
-                        onClick={() =>
-                          void act(r.id, () => submitPolicy(r.id))
-                        }
+                        onClick={() => void act(r.id, () => submitPolicy(r.id))}
                       >
                         Submit
                       </button>
                     );
-                  }
-
-                  if (status === 'pending_approval') {
-                    if (isOwn && !isSuperAdmin) {
-                      return (
+                  } else if (status === 'pending_approval') {
+                    action =
+                      isOwn && !isSuperAdmin ? (
                         <span className="text-[11px] text-[#a19f9d]">
                           Awaiting other approver
                         </span>
+                      ) : (
+                        <div className="flex flex-wrap gap-1">
+                          <button
+                            type="button"
+                            className={btnPrimary}
+                            disabled={busy}
+                            onClick={() =>
+                              void act(r.id, () => approvePolicy(r.id))
+                            }
+                          >
+                            Approve
+                          </button>
+                          <button
+                            type="button"
+                            className={btnSecondary}
+                            disabled={busy}
+                            onClick={() => setRejectTarget(r)}
+                          >
+                            Reject
+                          </button>
+                        </div>
                       );
-                    }
-                    return (
-                      <div className="flex flex-wrap gap-1">
-                        <button
-                          type="button"
-                          className={btnPrimary}
-                          disabled={busy}
-                          onClick={() =>
-                            void act(r.id, () => approvePolicy(r.id))
-                          }
-                        >
-                          Approve
-                        </button>
-                        <button
-                          type="button"
-                          className={btnSecondary}
-                          disabled={busy}
-                          onClick={() => setRejectTarget(r)}
-                        >
-                          Reject
-                        </button>
-                      </div>
-                    );
-                  }
-
-                  if (status === 'published') {
-                    return (
+                  } else if (status === 'published') {
+                    action = (
                       <button
                         type="button"
                         className={btnSecondary}
                         disabled={busy}
-                        onClick={() =>
-                          void act(r.id, () => archivePolicy(r.id))
-                        }
+                        onClick={() => void act(r.id, () => archivePolicy(r.id))}
                       >
                         Archive
                       </button>
                     );
+                  } else {
+                    action = (
+                      <span className="text-[11px] text-[#a19f9d]">—</span>
+                    );
                   }
 
                   return (
-                    <span className="text-[11px] text-[#a19f9d]">—</span>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <button
+                        type="button"
+                        className="inline-flex items-center gap-1 rounded-md border border-[#e1dfdd] bg-white px-2 py-1 text-xs font-semibold text-[#0067b8] hover:bg-[#f3f9fd]"
+                        onClick={() => setDetail(r)}
+                      >
+                        <Eye className="h-3 w-3" />
+                        Policy details
+                      </button>
+                      {action}
+                    </div>
                   );
                 },
               },
@@ -258,6 +264,58 @@ export default function CompliancePoliciesPage() {
             await refresh();
           }}
         />
+      ) : null}
+
+      {detail ? (
+        <Modal
+          title={`${detail.code} · ${detail.title}`}
+          description={`${detail.category.replace(/_/g, ' ')} · ${detail.status.replace(/_/g, ' ')}`}
+          size="lg"
+          onClose={() => setDetail(null)}
+        >
+          <div className="space-y-4">
+            <div className="flex flex-wrap items-center gap-2">
+              <StatusBadge status={detail.status} />
+              <span className="rounded-full bg-[#eff6fc] px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-[#0067b8] ring-1 ring-[#c7e0f4]">
+                {detail.category.replace(/_/g, ' ')}
+              </span>
+              <span className="text-[11px] text-[#605e5c]">
+                Published {formatDate(detail.publishedAt)}
+              </span>
+            </div>
+
+            {detail.summary ? (
+              <div className="rounded-lg border border-[#e1dfdd] bg-[#faf9f8] p-3">
+                <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-[#8a8886]">
+                  Summary
+                </p>
+                <p className="mt-1 whitespace-pre-wrap text-[13px] leading-relaxed text-[#1b1a19]">
+                  {detail.summary}
+                </p>
+              </div>
+            ) : null}
+
+            <div>
+              <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-[#8a8886]">
+                Policy text
+              </p>
+              <p className="mt-1 max-h-[46vh] overflow-auto whitespace-pre-wrap rounded-md border border-[#e1dfdd] bg-white px-3 py-2 text-[13px] leading-relaxed text-[#1b1a19]">
+                {detail.body || '—'}
+              </p>
+            </div>
+
+            <div className="flex justify-end">
+              <button
+                type="button"
+                className={btnSecondary}
+                onClick={() => setDetail(null)}
+              >
+                <X className="h-3.5 w-3.5" />
+                Close
+              </button>
+            </div>
+          </div>
+        </Modal>
       ) : null}
     </ComplianceShell>
   );

@@ -1,35 +1,13 @@
 import type { VisitorAppointment } from './admin';
+import { parseApiEnvelope } from './errors';
 
 const coreUrl = () =>
   process.env.NEXT_PUBLIC_CORE_API_URL ??
   process.env.NEXT_PUBLIC_API_URL ??
   'http://localhost:4001';
 
-type ApiEnvelope<T> = {
-  success: boolean;
-  data: T;
-  meta?: Record<string, unknown>;
-};
-
 async function parseEnvelope<T>(res: Response): Promise<T> {
-  if (!res.ok) {
-    const text = await res.text();
-    try {
-      const json = JSON.parse(text) as {
-        error?: { code?: string; message?: string };
-        message?: string | string[];
-      };
-      const msg = Array.isArray(json.message)
-        ? json.message.join(', ')
-        : json.error?.message ?? json.message ?? text;
-      throw new Error(msg);
-    } catch (e) {
-      if (e instanceof Error && e.message !== text) throw e;
-      throw new Error(text || `Request failed ${res.status}`);
-    }
-  }
-  const json = (await res.json()) as ApiEnvelope<T>;
-  return json.data;
+  return parseApiEnvelope<T>(res);
 }
 
 export type VisitorPublicHost = {
@@ -90,8 +68,11 @@ export async function getVisitorPublicConfig(): Promise<VisitorPublicConfig | nu
   try {
     res = await fetch(`${coreUrl()}/api/v1/visitors/public-config`);
   } catch {
-    // Network / CORS — caller falls back to NEXT_PUBLIC_* env.
-    return null;
+    // Network / CORS — the caller falls back to NEXT_PUBLIC_* env, and if that
+    // is empty it must show *this* reason instead of "portal not configured".
+    throw new Error(
+      `Cannot reach the visitor service at ${coreUrl()}. Check the API is running and allows this origin.`,
+    );
   }
   if (!res.ok) {
     const text = await res.text();

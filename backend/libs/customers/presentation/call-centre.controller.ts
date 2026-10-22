@@ -5,6 +5,7 @@ import {
   Param,
   ParseUUIDPipe,
   Post,
+  Query,
   UseGuards,
 } from '@nestjs/common';
 import {
@@ -18,7 +19,7 @@ import {
   AuthUser,
   CurrentUser,
   PermissionsGuard,
-  RequirePermissions,
+  RequireAnyPermissions,
 } from '@pssms/shared';
 import { CallCentreService } from '../application/call-centre.service';
 import {
@@ -30,7 +31,7 @@ import {
 @ApiBearerAuth()
 @Controller('callcentre')
 @UseGuards(PermissionsGuard)
-@RequirePermissions('visitors.manage')
+@RequireAnyPermissions('support.manage', 'visitors.manage')
 export class CallCentreController {
   constructor(private readonly desk: CallCentreService) {}
 
@@ -38,6 +39,14 @@ export class CallCentreController {
   @ApiOperation({ summary: 'Support ticket category catalog (Portal 35.20)' })
   ticketOptions() {
     return this.desk.ticketOptions();
+  }
+
+  @Get('complaint-options')
+  @ApiOperation({
+    summary: 'Complaint category / severity catalog (Portal 35.20)',
+  })
+  complaintOptions() {
+    return this.desk.complaintOptions();
   }
 
   @Get('customer-options')
@@ -48,10 +57,29 @@ export class CallCentreController {
     return this.desk.customerOptions(user);
   }
 
+  @Get('site-options')
+  @ApiOperation({
+    summary: 'Active sites for a customer (ticket escalation binding)',
+  })
+  siteOptions(
+    @CurrentUser() user: AuthUser,
+    @Query('customerId') customerId: string,
+  ) {
+    return this.desk.siteOptions(user, customerId);
+  }
+
   @Get('reports')
   @ApiOkResponse({ description: 'Live support-desk counts' })
   reports(@CurrentUser() user: AuthUser) {
     return this.desk.reports(user);
+  }
+
+  @Get('visitors')
+  @ApiOperation({
+    summary: 'Read-only visitor support view (support.manage)',
+  })
+  visitorDesk(@CurrentUser() user: AuthUser) {
+    return this.desk.visitorDesk(user);
   }
 
   @Post('tickets')

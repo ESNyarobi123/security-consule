@@ -84,6 +84,7 @@ export class CreateVisitorAppointmentDto {
   @ApiPropertyOptional()
   @IsOptional()
   @IsString()
+  @MaxLength(32)
   visitorPhone?: string;
 
   @ApiPropertyOptional()
@@ -313,6 +314,23 @@ export class GateCodeDeliveryDto {
     description: 'WHATSAPP VISITOR_GATE_CODE queued (console adapter OK)',
   })
   whatsapp?: boolean;
+
+  @ApiPropertyOptional({
+    description: 'E.164 number the SMS was queued to (null when no phone)',
+  })
+  smsRecipient?: string | null;
+
+  @ApiPropertyOptional({
+    description:
+      'SMS transport the integration gateway will use (console|beem|nextsms|africastalking|twilio|generic)',
+  })
+  smsProvider?: string;
+
+  @ApiPropertyOptional({
+    description:
+      'False when the SMS is only logged (console) or vendor credentials are missing — queued ≠ delivered',
+  })
+  smsLive?: boolean;
 }
 
 export class IssueCodeResponseDto {
@@ -336,6 +354,11 @@ export class IssueCodeResponseDto {
     description: 'Channels queued for the plain gate code (12-C)',
   })
   delivery?: GateCodeDeliveryDto;
+
+  @ApiPropertyOptional({
+    description: 'True when an existing approved visit had its code rotated',
+  })
+  resent?: boolean;
 }
 
 export class VisitorEntryResponseDto {

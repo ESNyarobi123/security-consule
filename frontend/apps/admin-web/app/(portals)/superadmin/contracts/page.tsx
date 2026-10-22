@@ -460,7 +460,13 @@ export default function ContractsPage() {
   async function onUploadDoc(e: FormEvent) {
     e.preventDefault();
     if (!docsFor || !docsFile) {
-      setDocsError('Choose a file (pdf, png, jpeg, or webp — max 10MB)');
+      setDocsError('Choose a file (pdf, png, jpeg, or webp — max 5MB)');
+      return;
+    }
+    if (docsFile.size > 5 * 1024 * 1024) {
+      setDocsError(
+        `File is too large (${(docsFile.size / (1024 * 1024)).toFixed(1)}MB). Maximum is 5MB.`,
+      );
       return;
     }
     setDocsUploading(true);
@@ -1279,7 +1285,7 @@ export default function ContractsPage() {
       {docsFor ? (
         <Modal
           title={`Contract documents — ${docsFor.contractNumber}`}
-          description="Signed agreements and amendments (pdf/png/jpeg/webp ≤10MB). Customer portal can view these read-only."
+          description="Signed agreements and amendments (pdf/png/jpeg/webp ≤5MB). Customer portal can view these read-only."
           onClose={() => {
             setDocsFor(null);
             setDocs([]);

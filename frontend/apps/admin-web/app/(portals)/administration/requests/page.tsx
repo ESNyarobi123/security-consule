@@ -71,7 +71,7 @@ export default function AdministrationRequestsPage() {
           Approvals queue
         </Link>
         <Link href="/ess/requests" className={btnSecondary}>
-          My ESS requests
+          My self-service requests
         </Link>
         {canHr ? (
           <Link href="/hr/leave" className={btnSecondary}>
@@ -90,7 +90,7 @@ export default function AdministrationRequestsPage() {
         {!canAct ? (
           <p className="mt-2 text-sm text-[#605e5c]">
             Listing the company queue needs approvals.act (GM, Department Head,
-            and designated approvers). Use My ESS for your own submissions.
+            and designated approvers). Use the Payroll → My payslips / self-service pages for your own submissions.
           </p>
         ) : loading ? (
           <p className="mt-2 text-sm text-[#605e5c]">Loading…</p>

@@ -27,12 +27,16 @@ import {
   CreateJobApplicationDto,
   CreateJobPostingDto,
   HireApplicantDto,
+  IssueJobOfferDto,
   JobApplicationReceiptDto,
   JobApplicationPublicStatusDto,
   JobApplicationResponseDto,
+  JobOfferResponseReceiptDto,
   JobPostingPublicDto,
   JobPostingResponseDto,
+  RecordOfferResponseDto,
   RecruitmentPublicConfigDto,
+  RespondToJobOfferDto,
   UpdateApplicationStatusDto,
   UpdateOnboardingStepDto,
 } from './dto/recruitment.dto';
@@ -167,7 +171,8 @@ export class RecruitmentController {
   @ApiBearerAuth()
   @RequirePermissions('recruitment.manage')
   @ApiOperation({
-    summary: 'Hire OFFERED applicant → Employee (Module 14-A)',
+    summary:
+      'Hire OFFERED applicant whose offer was ACCEPTED → Employee (Module 14)',
   })
   @ApiOkResponse({ type: JobApplicationResponseDto })
   hire(
@@ -176,6 +181,54 @@ export class RecruitmentController {
     @CurrentUser() user: AuthUser,
   ) {
     return this.service.hireApplicant(id, dto, user);
+  }
+
+  @Post('applications/:id/offer')
+  @ApiBearerAuth()
+  @RequirePermissions('recruitment.manage')
+  @ApiOperation({
+    summary:
+      'Issue / re-issue the formal offer (terms) and email the applicant (Module 14)',
+  })
+  @ApiCreatedResponse({ type: JobApplicationResponseDto })
+  issueOffer(
+    @Param('id') id: string,
+    @Body() dto: IssueJobOfferDto,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.service.issueOffer(id, dto, user);
+  }
+
+  @Post('applications/:id/offer/response')
+  @ApiBearerAuth()
+  @RequirePermissions('recruitment.manage')
+  @ApiOperation({
+    summary:
+      'Record an applicant decision received by phone / in person (Module 14)',
+  })
+  @ApiCreatedResponse({ type: JobApplicationResponseDto })
+  recordOfferResponse(
+    @Param('id') id: string,
+    @Body() dto: RecordOfferResponseDto,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.service.recordOfferResponse(id, dto, user);
+  }
+
+  @Public()
+  @Post('applications/offer-response')
+  @ApiOperation({
+    summary:
+      'Public offer accept / decline by reference + email (Portal 35.13)',
+  })
+  @ApiCreatedResponse({ type: JobOfferResponseReceiptDto })
+  respondToOffer(@Body() dto: RespondToJobOfferDto) {
+    return this.service.respondToOfferPublic(
+      dto.reference,
+      dto.email,
+      dto.decision,
+      dto.reason,
+    );
   }
 
   @Patch('applications/:id/onboarding')

@@ -6,7 +6,7 @@ import {
 } from '@nestjs/common';
 import { OutboxStatus, WebhookInboxStatus, DeviceType, DeviceStatus, DeviceEventType, DeviceEventStatus, DeviceConnection } from '@prisma/client';
 import { AuditService } from '@pssms/audit';
-import { AuthUser, PrismaService } from '@pssms/shared';
+import { AuthUser, PrismaService, resolveSmsTransport } from '@pssms/shared';
 import { Socket } from 'net';
 
 const WEBHOOK_INBOX_SAFE_SELECT = {
@@ -107,6 +107,56 @@ export type ProviderPingResult = {
   ok: boolean;
   detail: string;
   latencyMs: number | null;
+};
+
+/**
+ * Connected-systems verdict used by `/developer/connectivity` (Portal 35.24).
+ *
+ * Every status is evidence-based — no fake "UP" for a vendor that is not
+ * wired. `CONSOLE` means the code path works but nothing leaves the machine
+ * (dev adapters), `IDLE` means wired and healthy with no traffic in 24h.
+ */
+export type ConnectivityStatus =
+  | 'CONNECTED'
+  | 'CONSOLE'
+  | 'IDLE'
+  | 'DEGRADED'
+  | 'NOT_CONFIGURED'
+  | 'DEFERRED';
+
+export type ConnectivitySystem = {
+  code: string;
+  name: string;
+  group: 'PLATFORM' | 'MESSAGING' | 'PAYMENTS' | 'DEVICES' | 'DATA';
+  status: ConnectivityStatus;
+  /** True only when a real transport/vendor is doing the work. */
+  live: boolean;
+  configured: boolean;
+  detail: string;
+  lastActivityAt: string | null;
+  activity24h: number;
+  failures24h: number;
+  evidence: string[];
+  href: string;
+};
+
+export type ConnectivityReport = {
+  generatedAt: string;
+  windowHours: number;
+  summary: {
+    total: number;
+    connected: number;
+    console: number;
+    idle: number;
+    degraded: number;
+    notConfigured: number;
+    deferred: number;
+    traffic24h: number;
+    failures24h: number;
+  };
+  services: ServiceHealthItem[];
+  systems: ConnectivitySystem[];
+  notes: string[];
 };
 
 type ProbeTarget = {
@@ -330,6 +380,572 @@ export class DeveloperIntegrationsService {
     };
   }
 
+  /**
+   * Portal 35.24 — "is everything connected and actually working?"
+   *
+   * One evidence-based answer per integration: platform services probed live,
+   * messaging channels judged from the transport config + 24h delivery rows,
+   * device systems judged from the device registry (`status`, `lastSeenAt`),
+   * and money rails judged from their adapter config. Nothing is reported as
+   * CONNECTED unless a real transport is doing the work.
+   */
+  async connectivity(user: AuthUser): Promise<ConnectivityReport> {
+    const org = user.organizationId;
+    const since = new Date(Date.now() - 24 * 60 * 60 * 1000);
+    const smsTransport = resolveSmsTransport();
+
+    const [
+      health,
+      notificationGroups,
+      logGroups,
+      webhookGroups,
+      outboxGroups,
+      deviceGroups,
+      anpr24h,
+      lastAnpr,
+      lastDeviceEvent,
+      lastPayment,
+      gatewayRows,
+    ] = await Promise.all([
+      this.listPlatformHealth(),
+      this.prisma.notification.groupBy({
+        by: ['channel', 'status'],
+        where: { organizationId: org, createdAt: { gte: since } },
+        _count: { _all: true },
+        _max: { createdAt: true },
+      }),
+      this.prisma.integrationRequestLog.groupBy({
+        by: ['provider', 'statusCode'],
+        where: {
+          createdAt: { gte: since },
+          OR: [{ organizationId: org }, { organizationId: null }],
+        },
+        _count: { _all: true },
+        _max: { createdAt: true },
+      }),
+      this.prisma.webhookInbox.groupBy({
+        by: ['status'],
+        where: {
+          createdAt: { gte: since },
+          OR: [{ organizationId: org }, { organizationId: null }],
+        },
+        _count: { _all: true },
+        _max: { createdAt: true },
+      }),
+      this.prisma.integrationOutbox.groupBy({
+        by: ['status'],
+        where: { organizationId: org, createdAt: { gte: since } },
+        _count: { _all: true },
+      }),
+      this.prisma.device.groupBy({
+        by: ['type', 'status'],
+        where: { organizationId: org },
+        _count: { _all: true },
+        _max: { lastSeenAt: true },
+      }),
+      this.prisma.anprResult.count({
+        where: { organizationId: org, capturedAt: { gte: since } },
+      }),
+      this.prisma.anprResult.findFirst({
+        where: { organizationId: org },
+        orderBy: { capturedAt: 'desc' },
+        select: { capturedAt: true },
+      }),
+      this.prisma.deviceEvent.findFirst({
+        where: { organizationId: org },
+        orderBy: { receivedAt: 'desc' },
+        select: { receivedAt: true },
+      }),
+      this.prisma.invoicePayment.findFirst({
+        where: { organizationId: org },
+        orderBy: { recordedAt: 'desc' },
+        select: { recordedAt: true },
+      }),
+      this.prisma.providerRegistry.findMany({ orderBy: { code: 'asc' } }),
+    ]);
+
+    // ── helpers ───────────────────────────────────────────────────────────
+    const channelStats = (channel: string) => {
+      let sent = 0;
+      let failed = 0;
+      let last: Date | null = null;
+      for (const row of notificationGroups) {
+        if (String(row.channel) !== channel) continue;
+        const count = row._count?._all ?? 0;
+        if (String(row.status) === 'SENT') sent += count;
+        if (String(row.status) === 'FAILED') failed += count;
+        const at = row._max?.createdAt ?? null;
+        if (at && (!last || at > last)) last = at;
+      }
+      return { sent, failed, last };
+    };
+
+    const providerStats = (predicate: (provider: string) => boolean) => {
+      let calls = 0;
+      let failures = 0;
+      let last: Date | null = null;
+      for (const row of logGroups) {
+        if (!predicate(row.provider)) continue;
+        const count = row._count?._all ?? 0;
+        calls += count;
+        if ((row.statusCode ?? 0) >= 400) failures += count;
+        const at = row._max?.createdAt ?? null;
+        if (at && (!last || at > last)) last = at;
+      }
+      return { calls, failures, last };
+    };
+
+    const deviceStats = (types: DeviceType[]) => {
+      let total = 0;
+      let online = 0;
+      let last: Date | null = null;
+      for (const row of deviceGroups) {
+        if (!types.includes(row.type)) continue;
+        const count = row._count?._all ?? 0;
+        total += count;
+        if (row.status === DeviceStatus.ONLINE) online += count;
+        const at = row._max?.lastSeenAt ?? null;
+        if (at && (!last || at > last)) last = at;
+      }
+      return { total, online, last };
+    };
+
+    const iso = (d: Date | null | undefined) => (d ? d.toISOString() : null);
+
+    const deviceSystem = (
+      code: string,
+      name: string,
+      types: DeviceType[],
+      href: string,
+    ): ConnectivitySystem => {
+      const stats = deviceStats(types);
+      const status: ConnectivityStatus =
+        stats.total === 0
+          ? 'NOT_CONFIGURED'
+          : stats.online > 0
+            ? 'CONNECTED'
+            : 'IDLE';
+      return {
+        code,
+        name,
+        group: 'DEVICES',
+        status,
+        live: stats.online > 0,
+        configured: stats.total > 0,
+        detail:
+          stats.total === 0
+            ? 'No devices registered for this system yet'
+            : `${stats.online}/${stats.total} devices online`,
+        lastActivityAt: iso(stats.last),
+        activity24h: stats.total,
+        failures24h: 0,
+        evidence: [
+          `${stats.total} registered`,
+          `${stats.online} online · ${stats.total - stats.online} offline`,
+          'source: devices registry (status + lastSeenAt)',
+        ],
+        href,
+      };
+    };
+
+    const systems: ConnectivitySystem[] = [];
+
+    // ── PLATFORM ──────────────────────────────────────────────────────────
+    const downServices = health.services.filter((s) => s.status !== 'ok');
+    systems.push({
+      code: 'platform-services',
+      name: 'Platform services',
+      group: 'PLATFORM',
+      status:
+        downServices.length === 0
+          ? 'CONNECTED'
+          : downServices.length >= health.services.length / 2
+            ? 'DEGRADED'
+            : 'DEGRADED',
+      live: true,
+      configured: true,
+      detail: `${health.services.length - downServices.length}/${health.services.length} responding${
+        downServices.length ? ` — down: ${downServices.map((s) => s.code).join(', ')}` : ''
+      }`,
+      lastActivityAt: health.checkedAt,
+      activity24h: health.services.length,
+      failures24h: downServices.length,
+      evidence: health.services.map(
+        (s) => `${s.code}: ${s.status}${s.latencyMs != null ? ` ${s.latencyMs}ms` : ''}`,
+      ),
+      href: '/developer/health',
+    });
+
+    systems.push({
+      code: 'webhooks',
+      name: 'Webhook inbox',
+      group: 'PLATFORM',
+      status:
+        webhookGroups.length === 0
+          ? 'IDLE'
+          : (webhookGroups.find((g) => String(g.status) === 'FAILED' || String(g.status) === 'DLQ')?._count?._all ?? 0) > 0
+            ? 'DEGRADED'
+            : 'CONNECTED',
+      live: true,
+      configured: true,
+      detail:
+        webhookGroups.length === 0
+          ? 'Wired — no inbound webhook events in the last 24h'
+          : `${webhookGroups.reduce((n, g) => n + (g._count?._all ?? 0), 0)} events in 24h`,
+      lastActivityAt: iso(
+        webhookGroups
+          .map((g) => g._max?.createdAt ?? null)
+          .filter((d): d is Date => !!d)
+          .sort((a, b) => b.getTime() - a.getTime())[0] ?? null,
+      ),
+      activity24h: webhookGroups.reduce((n, g) => n + (g._count?._all ?? 0), 0),
+      failures24h: webhookGroups
+        .filter((g) => ['FAILED', 'DLQ'].includes(String(g.status)))
+        .reduce((n, g) => n + (g._count?._all ?? 0), 0),
+      evidence: webhookGroups.map(
+        (g) => `${g.status}: ${g._count?._all ?? 0}`,
+      ),
+      href: '/developer/webhooks',
+    });
+
+    systems.push({
+      code: 'outbox',
+      name: 'Event outbox',
+      group: 'PLATFORM',
+      status:
+        (outboxGroups.find((g) => String(g.status) === 'FAILED')?._count?._all ?? 0) > 0
+          ? 'DEGRADED'
+          : 'CONNECTED',
+      live: true,
+      configured: true,
+      detail: `${outboxGroups.reduce((n, g) => n + (g._count?._all ?? 0), 0)} rows in 24h`,
+      lastActivityAt: null,
+      activity24h: outboxGroups.reduce((n, g) => n + (g._count?._all ?? 0), 0),
+      failures24h: outboxGroups
+        .filter((g) => String(g.status) === 'FAILED')
+        .reduce((n, g) => n + (g._count?._all ?? 0), 0),
+      evidence: outboxGroups.map((g) => `${g.status}: ${g._count?._all ?? 0}`),
+      href: '/developer/outbox',
+    });
+
+    // ── MESSAGING ─────────────────────────────────────────────────────────
+    const smsStats = channelStats('SMS');
+    const smsLogs = providerStats((p) => /sms|fasthub|beem|nextsms|twilio/i.test(p));
+    systems.push({
+      code: 'sms',
+      name: 'SMS gateway',
+      group: 'MESSAGING',
+      status: smsTransport.live
+        ? smsStats.failed > 0
+          ? 'DEGRADED'
+          : smsStats.sent > 0
+            ? 'CONNECTED'
+            : 'IDLE'
+        : smsTransport.provider === 'console'
+          ? 'CONSOLE'
+          : 'NOT_CONFIGURED',
+      live: smsTransport.live,
+      configured: smsTransport.provider !== 'console',
+      detail: smsTransport.live
+        ? smsStats.sent + smsStats.failed > 0
+          ? `${smsTransport.provider} live — ${smsStats.sent} sent / ${smsStats.failed} failed in 24h`
+          : `${smsTransport.provider} live — no SMS traffic in the last 24h`
+        : smsTransport.provider === 'console'
+          ? 'Console mode — messages are logged only, nothing is delivered'
+          : `${smsTransport.provider} selected but credentials are incomplete`,
+      lastActivityAt: iso(smsStats.last ?? smsLogs.last),
+      activity24h: smsStats.sent + smsStats.failed,
+      failures24h: smsStats.failed + smsLogs.failures,
+      evidence: [
+        `provider: ${smsTransport.provider}`,
+        `sender id: ${smsTransport.senderId}`,
+        `SMS_API_KEY: ${process.env.SMS_API_KEY?.trim() ? 'set' : 'missing'}`,
+        `SMS_API_SECRET: ${process.env.SMS_API_SECRET?.trim() ? 'set' : 'missing'}`,
+        `deliveries 24h: ${smsStats.sent} sent / ${smsStats.failed} failed`,
+        `integration-gateway calls 24h: ${smsLogs.calls} (${smsLogs.failures} failed)`,
+      ],
+      href: '/developer/adapters',
+    });
+
+    const emailStats = channelStats('EMAIL');
+    const emailProvider = (process.env.EMAIL_PROVIDER ?? '').trim().toLowerCase();
+    const emailConfigured = Boolean(process.env.EMAIL_API_URL?.trim());
+    systems.push({
+      code: 'email',
+      name: 'Email gateway',
+      group: 'MESSAGING',
+      status:
+        emailProvider && emailProvider !== 'console' && emailConfigured
+          ? emailStats.failed > 0
+            ? 'DEGRADED'
+            : emailStats.sent > 0
+              ? 'CONNECTED'
+              : 'IDLE'
+          : 'CONSOLE',
+      live: Boolean(emailProvider) && emailProvider !== 'console' && emailConfigured,
+      configured: emailConfigured,
+      detail:
+        emailProvider && emailProvider !== 'console' && emailConfigured
+          ? `${emailProvider} live — ${emailStats.sent} sent / ${emailStats.failed} failed in 24h`
+          : 'Console mode — emails are logged only, nothing is delivered',
+      lastActivityAt: iso(emailStats.last),
+      activity24h: emailStats.sent + emailStats.failed,
+      failures24h: emailStats.failed,
+      evidence: [
+        `provider: ${emailProvider || '(unset → console)'}`,
+        `EMAIL_API_URL: ${emailConfigured ? 'set' : 'missing'}`,
+        `deliveries 24h: ${emailStats.sent} sent / ${emailStats.failed} failed`,
+      ],
+      href: '/developer/adapters',
+    });
+
+    const waStats = channelStats('WHATSAPP');
+    const waConfigured = Boolean(
+      process.env.WHATSAPP_API_URL?.trim() &&
+        process.env.WHATSAPP_API_TOKEN?.trim(),
+    );
+    systems.push({
+      code: 'whatsapp',
+      name: 'WhatsApp API',
+      group: 'MESSAGING',
+      status: waConfigured ? 'DEGRADED' : 'DEFERRED',
+      live: false,
+      configured: waConfigured,
+      detail: waConfigured
+        ? 'Env is set but the Meta Cloud API sender is not coded — codes still go over SMS/email'
+        : 'Not implemented — gate codes are delivered over SMS and email',
+      lastActivityAt: iso(waStats.last),
+      activity24h: waStats.sent + waStats.failed,
+      failures24h: waStats.failed,
+      evidence: [
+        `WHATSAPP_API_URL: ${process.env.WHATSAPP_API_URL?.trim() ? 'set' : 'missing'}`,
+        `WHATSAPP_API_TOKEN: ${process.env.WHATSAPP_API_TOKEN?.trim() ? 'set' : 'missing'}`,
+        'dispatch falls back to SMS when WHATSAPP channel is requested',
+      ],
+      href: '/developer/adapters',
+    });
+
+    // ── PAYMENTS ──────────────────────────────────────────────────────────
+    const paymentProvider = (process.env.PAYMENT_PROVIDER ?? '').trim().toLowerCase();
+    const paymentConsole = !paymentProvider || paymentProvider === 'console';
+    const paymentLogs = providerStats((p) => /payment|bank|mpesa|tigo|airtel|halo/i.test(p));
+    const mobileMoney = ['mpesa', 'tigopesa', 'airtel', 'halopesa', 'mobile-money'].includes(
+      paymentProvider,
+    );
+    const bankConfigured = Boolean(
+      process.env.BANK_API_BASE_URL?.trim() && process.env.BANK_API_KEY?.trim(),
+    );
+
+    systems.push({
+      code: 'payment-gateway',
+      name: 'Payment gateway',
+      group: 'PAYMENTS',
+      status: paymentConsole ? 'CONSOLE' : paymentLogs.failures > 0 ? 'DEGRADED' : 'IDLE',
+      live: !paymentConsole,
+      configured: !paymentConsole,
+      detail: paymentConsole
+        ? 'Console adapter — payment requests are recorded, no PSP is called'
+        : `${paymentProvider} adapter selected`,
+      lastActivityAt: iso(paymentLogs.last),
+      activity24h: paymentLogs.calls,
+      failures24h: paymentLogs.failures,
+      evidence: [
+        `PAYMENT_PROVIDER: ${paymentProvider || '(unset → console)'}`,
+        `integration calls 24h: ${paymentLogs.calls} (${paymentLogs.failures} failed)`,
+        `invoice payments recorded: ${lastPayment ? 'yes' : 'none'}`,
+      ],
+      href: '/developer/adapters',
+    });
+
+    systems.push({
+      code: 'mobile-money',
+      name: 'Mobile money',
+      group: 'PAYMENTS',
+      status: mobileMoney && !paymentConsole ? 'IDLE' : 'DEFERRED',
+      live: false,
+      configured: mobileMoney,
+      detail: mobileMoney
+        ? 'Provider flag set — no M-Pesa / TigoPesa / Airtel / HaloPesa client is coded yet'
+        : 'No mobile-money adapter registered (M-Pesa / TigoPesa / Airtel / HaloPesa deferred)',
+      lastActivityAt: iso(lastPayment?.recordedAt ?? null),
+      activity24h: 0,
+      failures24h: 0,
+      evidence: [
+        `PAYMENT_PROVIDER: ${paymentProvider || '(unset)'}`,
+        'payroll bank/mobile files are CSV exports, not API disbursements',
+      ],
+      href: '/developer/catalog',
+    });
+
+    systems.push({
+      code: 'banks',
+      name: 'Bank integration',
+      group: 'PAYMENTS',
+      status: bankConfigured ? 'DEGRADED' : 'NOT_CONFIGURED',
+      live: false,
+      configured: bankConfigured,
+      detail: bankConfigured
+        ? 'Bank env present but no host-to-host adapter / statement import is coded'
+        : 'No bank host-to-host adapter configured',
+      lastActivityAt: iso(lastPayment?.recordedAt ?? null),
+      activity24h: 0,
+      failures24h: 0,
+      evidence: [
+        `BANK_API_BASE_URL: ${process.env.BANK_API_BASE_URL?.trim() ? 'set' : 'missing'}`,
+        `BANK_API_KEY: ${process.env.BANK_API_KEY?.trim() ? 'set' : 'missing'}`,
+        'bank reconciliation imports are deferred',
+      ],
+      href: '/developer/catalog',
+    });
+
+    // ── DEVICES ───────────────────────────────────────────────────────────
+    systems.push(
+      deviceSystem(
+        'biometrics',
+        'Biometric devices',
+        [
+          DeviceType.FINGERPRINT_SCANNER,
+          DeviceType.BIOMETRIC_TERMINAL,
+          DeviceType.FACE_TERMINAL,
+        ],
+        '/devices',
+      ),
+      deviceSystem(
+        'rfid',
+        'RFID / card readers',
+        [DeviceType.RFID_READER, DeviceType.SMART_CARD_READER],
+        '/devices',
+      ),
+      deviceSystem('cctv', 'CCTV cameras', [DeviceType.CCTV_CAMERA], '/cctv'),
+      deviceSystem(
+        'scanners',
+        'QR / barcode scanners',
+        [DeviceType.QR_SCANNER, DeviceType.BARCODE_SCANNER],
+        '/devices',
+      ),
+    );
+
+    const vision = health.services.find((s) => s.code === 'vision-ai');
+    systems.push({
+      code: 'anpr',
+      name: 'ANPR / Vision AI',
+      group: 'DEVICES',
+      status:
+        vision?.status === 'ok'
+          ? anpr24h > 0
+            ? 'CONNECTED'
+            : 'IDLE'
+          : 'NOT_CONFIGURED',
+      live: vision?.status === 'ok',
+      configured: vision?.status === 'ok',
+      detail:
+        vision?.status === 'ok'
+          ? `Vision AI reachable — ${anpr24h} plate reads in 24h`
+          : 'Vision AI service unreachable — ANPR events cannot be processed',
+      lastActivityAt: iso(lastAnpr?.capturedAt ?? lastDeviceEvent?.receivedAt ?? null),
+      activity24h: anpr24h,
+      failures24h: 0,
+      evidence: [
+        `VISION_AI_URL: ${process.env.VISION_AI_URL ?? '(default localhost:8000)'}`,
+        `vision-ai probe: ${vision?.status ?? 'unknown'}${vision?.latencyMs != null ? ` ${vision.latencyMs}ms` : ''}`,
+        `ANPR captures 24h: ${anpr24h}`,
+      ],
+      href: '/developer/systems',
+    });
+
+    systems.push({
+      code: 'mqtt',
+      name: 'MQTT device bridge',
+      group: 'DEVICES',
+      status: 'DEFERRED',
+      live: false,
+      configured: Boolean(process.env.MQTT_URL?.trim() || process.env.MQTT_WS_URL?.trim()),
+      detail: 'Broker env may be set, but the Nest MQTT client is not coded — devices use HTTP / device-api',
+      lastActivityAt: iso(lastDeviceEvent?.receivedAt ?? null),
+      activity24h: 0,
+      failures24h: 0,
+      evidence: [
+        `MQTT_URL: ${process.env.MQTT_URL?.trim() ? 'set' : 'missing'}`,
+        `gateway registry rows: ${gatewayRows.length}`,
+        'device traffic arrives over HTTP (device-api / iClock)',
+      ],
+      href: '/developer/systems',
+    });
+
+    // ── DATA ──────────────────────────────────────────────────────────────
+    systems.push({
+      code: 'export',
+      name: 'Data export',
+      group: 'DATA',
+      status: 'CONNECTED',
+      live: true,
+      configured: true,
+      detail: 'CSV export of integration logs / webhooks / outbox (safe columns, cap 100)',
+      lastActivityAt: null,
+      activity24h: 0,
+      failures24h: 0,
+      evidence: ['audited as developer.export.generated', 'no payload columns exported'],
+      href: '/developer/export',
+    });
+
+    systems.push({
+      code: 'import',
+      name: 'Data import',
+      group: 'DATA',
+      status: 'DEFERRED',
+      live: false,
+      configured: false,
+      detail: 'No bulk customer / HR / vehicle CSV import on this portal yet',
+      lastActivityAt: null,
+      activity24h: 0,
+      failures24h: 0,
+      evidence: ['deferred — onboarding uses per-record APIs'],
+      href: '/developer/catalog',
+    });
+
+    const count = (status: ConnectivityStatus) =>
+      systems.filter((s) => s.status === status).length;
+
+    const report: ConnectivityReport = {
+      generatedAt: new Date().toISOString(),
+      windowHours: 24,
+      summary: {
+        total: systems.length,
+        connected: count('CONNECTED'),
+        console: count('CONSOLE'),
+        idle: count('IDLE'),
+        degraded: count('DEGRADED'),
+        notConfigured: count('NOT_CONFIGURED'),
+        deferred: count('DEFERRED'),
+        traffic24h: systems.reduce((n, s) => n + s.activity24h, 0),
+        failures24h: systems.reduce((n, s) => n + s.failures24h, 0),
+      },
+      services: health.services,
+      systems,
+      notes: [
+        'CONNECTED = a real transport is doing the work and responded/received traffic in the last 24h.',
+        'CONSOLE = dev adapter: the code path works but nothing leaves the server.',
+        'Devices are counted from the registry (status + lastSeenAt), not pinged individually.',
+        'DEVELOPER / SUPER_ADMIN / GM / ICT (IT_SUPPORT) can open this portal — browser never holds INTEGRATION_SERVICE_TOKEN.',
+      ],
+    };
+
+    await this.audit.record({
+      organizationId: user.organizationId,
+      actorId: user.id,
+      action: 'developer.connectivity.viewed',
+      resourceType: 'DeveloperConnectivity',
+      after: {
+        connected: report.summary.connected,
+        console: report.summary.console,
+        degraded: report.summary.degraded,
+        deferred: report.summary.deferred,
+      },
+    });
+
+    return report;
+  }
+
   async listRequestLogs(
     user: AuthUser,
     provider?: string,
@@ -358,47 +974,87 @@ export class DeveloperIntegrationsService {
     user: AuthUser,
   ): Promise<ProviderPingResult> {
     const started = Date.now();
+    const sms = resolveSmsTransport();
+    const elapsed = () => Date.now() - started;
     let result: ProviderPingResult;
 
-    switch (code) {
-      case 'console-sms':
+    /**
+     * A ping never pretends a vendor accepted a message: for messaging we
+     * verify the transport that the dispatcher will actually use (so a
+     * console/credentials-missing state is reported, not a fake OK).
+     */
+    if (/sms$/i.test(code)) {
+      if (code === 'console-sms' || sms.provider === 'console') {
         result = {
           code,
           ok: true,
-          detail: 'console adapter',
-          latencyMs: Date.now() - started,
+          detail: 'console adapter — messages are logged, not delivered',
+          latencyMs: elapsed(),
         };
-        break;
-      case 'console-payment':
+      } else {
         result = {
           code,
-          ok: true,
-          detail: 'console adapter',
-          latencyMs: Date.now() - started,
+          ok: sms.live,
+          detail: sms.live
+            ? `${sms.provider} transport configured (sender ${sms.senderId}) — sends on dispatch`
+            : `${sms.provider} selected but SMS credentials are incomplete`,
+          latencyMs: elapsed(),
         };
-        break;
-      case 'vision-ai-anpr': {
-        const vision = await this.probeVisionAi();
-        result = {
-          code,
-          ok: vision.status === 'UP',
-          detail: vision.detail,
-          latencyMs: Date.now() - started,
-        };
-        break;
       }
-      case 'whatsapp':
-        result = {
-          code,
-          ok: false,
-          detail: 'not implemented',
-          latencyMs: Date.now() - started,
-        };
-        break;
-      default:
-        throw new BadRequestException(
-          `Unknown or unsupported provider code: ${code}`,
-        );
+    } else if (/-email$/i.test(code) || code === 'email') {
+      const provider = (process.env.EMAIL_PROVIDER ?? '').trim().toLowerCase();
+      const url = Boolean(process.env.EMAIL_API_URL?.trim());
+      result = {
+        code,
+        ok: provider !== '' && provider !== 'console' && url,
+        detail:
+          provider !== '' && provider !== 'console' && url
+            ? `${provider} HTTP transport configured`
+            : 'console adapter — emails are logged, not delivered',
+        latencyMs: elapsed(),
+      };
+    } else {
+      switch (code) {
+        case 'console-payment':
+          result = {
+            code,
+            ok: true,
+            detail: 'console adapter — no PSP is called',
+            latencyMs: elapsed(),
+          };
+          break;
+        case 'vision-ai-anpr':
+        case 'anpr': {
+          const vision = await this.probeVisionAi();
+          result = {
+            code,
+            ok: vision.status === 'UP',
+            detail: vision.detail,
+            latencyMs: elapsed(),
+          };
+          break;
+        }
+        case 'whatsapp': {
+          const configured = Boolean(
+            process.env.WHATSAPP_API_URL?.trim() &&
+              process.env.WHATSAPP_API_TOKEN?.trim(),
+          );
+          result = {
+            code,
+            ok: false,
+            detail: configured
+              ? 'env set but the Meta Cloud API sender is not implemented'
+              : 'not implemented — WhatsApp channel is disabled',
+            latencyMs: elapsed(),
+          };
+          break;
+        }
+        default:
+          throw new BadRequestException({
+            error: 'UNSUPPORTED_PROVIDER_PING',
+            message: `No ping is implemented for "${code}". Supported: console-sms, <provider>-sms, console-email, <provider>-email, console-payment, vision-ai-anpr, whatsapp.`,
+          });
+      }
     }
 
     await this.writeRequestLog({

@@ -38,7 +38,7 @@ async function ownerFetch<T>(
   init?: RequestInit & { token?: string },
 ): Promise<T> {
   const headers: HeadersInit = {
-    'Content-Type': 'application/json',
+    ...(init?.body != null ? { 'Content-Type': 'application/json' } : {}),
     ...ownerAuthHeaders(init?.token),
     ...init?.headers,
   };

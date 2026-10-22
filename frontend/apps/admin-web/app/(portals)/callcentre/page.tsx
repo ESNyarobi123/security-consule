@@ -4,6 +4,8 @@ import {
   getCallCentreReports,
   type CallCentreReport,
 } from '@pssms/api-client';
+import { getSessionUser } from '@pssms/auth';
+import { can } from '@pssms/permissions';
 import { GlassCard, StatCard, btnSecondary } from '@pssms/ui';
 import {
   CalendarClock,
@@ -12,32 +14,48 @@ import {
   MessageSquareWarning,
   RefreshCw,
   Ticket,
+  TriangleAlert,
   Truck,
+  Users,
   Wallet,
 } from 'lucide-react';
 import Link from 'next/link';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 
-const TOPICS: { title: string; href: string; description: string }[] = [
+const TOPICS: {
+  title: string;
+  href: string;
+  description: string;
+  permission: string;
+  alsoPermits?: string[];
+}[] = [
   {
     title: 'Visitor support',
     href: '/callcentre/visitors',
-    description: 'Appointments, host approve, gate entries, ID scans',
+    description:
+      'Appointments, host approve, gate entries, ID scans — needs visitor ops access',
+    permission: 'visitors.manage',
   },
   {
     title: 'Customer complaints',
     href: '/callcentre/complaints',
-    description: 'Module 6-B register — creator cannot process own complaint',
+    description:
+      'Module 6-B register — read the description, triage status, creator ≠ processor',
+    permission: 'support.manage',
+    alsoPermits: ['visitors.manage'],
   },
   {
     title: 'Support tickets',
     href: '/callcentre/tickets',
     description:
       'Coverage, parking, supplier, payroll, visitor, and incident inquiries',
+    permission: 'support.manage',
+    alsoPermits: ['visitors.manage'],
   },
 ];
 
 export default function CallCentreOverviewPage() {
+  const session = useMemo(() => getSessionUser(), []);
   const [pack, setPack] = useState<CallCentreReport | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -58,6 +76,14 @@ export default function CallCentreOverviewPage() {
     void load();
   }, [load]);
 
+  const topics = TOPICS.filter((t) => {
+    if (can(session, t.permission)) return true;
+    return (t.alsoPermits ?? []).some((code) => can(session, code));
+  });
+
+  const ticketStatuses = pack?.ticketsByStatus ?? {};
+  const complaintStatuses = pack?.complaintsByStatus ?? {};
+
   return (
     <div className="mx-auto max-w-[1400px] space-y-6">
       <div className="flex flex-wrap items-start justify-between gap-3">
@@ -69,16 +95,16 @@ export default function CallCentreOverviewPage() {
             Hear it, log it, escalate it
           </h1>
           <p className="mt-1 max-w-3xl text-[13px] text-[#605e5c]">
-            Used by Call Centre Agents and Customer Support Officers on seeded{' '}
-            <code className="text-[11px]">CALL_CENTRE</code> (
-            <code className="text-[11px]">callcentre1@</code>). Helpdesk Officers
-            stay IT Support (<code className="text-[11px]">it1@</code>).
-            Supervisors stay Branch Ops for field incidents. No extra agent roles.
+            Used by Call Centre Agents (<code className="text-[11px]">callcentre1@</code>
+            ), Customer Support Officers (<code className="text-[11px]">cs1@</code>),
+            Helpdesk Officers (<code className="text-[11px]">it1@</code>), and
+            Supervisors (<code className="text-[11px]">supervisor1@</code>).
+            Visitor gate work still needs <code className="text-[11px]">visitors.manage</code>;
+            the desk itself runs on <code className="text-[11px]">support.manage</code>.
           </p>
         </div>
         <button type="button" className={btnSecondary} onClick={() => void load()}>
-          <RefreshCw className="h-4 w-4" />
-          Refresh
+          <RefreshCw className="h-4 w-4" /> Refresh
         </button>
       </div>
 
@@ -92,14 +118,14 @@ export default function CallCentreOverviewPage() {
         <StatCard
           label="Open tickets"
           value={loading ? '…' : (pack?.openTickets ?? 0)}
-          hint="All support categories"
+          hint={`${pack?.escalatedTickets ?? 0} escalated to Branch Ops`}
           icon={<Ticket className="h-5 w-5" />}
           accent="blue"
         />
         <StatCard
           label="Open complaints"
           value={loading ? '…' : (pack?.openComplaints ?? 0)}
-          hint="Customer complaint register"
+          hint={`${complaintStatuses.OPEN ?? 0} untouched · ${complaintStatuses.UNDER_REVIEW ?? 0} under review`}
           icon={<MessageSquareWarning className="h-5 w-5" />}
           accent="rose"
         />
@@ -149,8 +175,45 @@ export default function CallCentreOverviewPage() {
         </GlassCard>
       </div>
 
+      <div className="grid gap-3 md:grid-cols-2">
+        <GlassCard className="p-4">
+          <p className="flex items-center gap-2 text-sm font-semibold">
+            <Ticket className="h-4 w-4" /> Tickets by status
+          </p>
+          <ul className="mt-2 grid grid-cols-2 gap-1 text-xs text-[#605e5c] sm:grid-cols-3">
+            {['OPEN', 'ACKNOWLEDGED', 'IN_PROGRESS', 'RESOLVED', 'CLOSED'].map(
+              (s) => (
+                <li key={s} className="flex items-center justify-between gap-2">
+                  <span>{s.replace(/_/g, ' ').toLowerCase()}</span>
+                  <span className="font-semibold text-[#1b1a19]">
+                    {ticketStatuses[s] ?? 0}
+                  </span>
+                </li>
+              ),
+            )}
+          </ul>
+        </GlassCard>
+        <GlassCard className="p-4">
+          <p className="flex items-center gap-2 text-sm font-semibold">
+            <TriangleAlert className="h-4 w-4" /> Complaints by status
+          </p>
+          <ul className="mt-2 grid grid-cols-2 gap-1 text-xs text-[#605e5c] sm:grid-cols-3">
+            {['OPEN', 'ACKNOWLEDGED', 'UNDER_REVIEW', 'RESOLVED', 'CLOSED'].map(
+              (s) => (
+                <li key={s} className="flex items-center justify-between gap-2">
+                  <span>{s.replace(/_/g, ' ').toLowerCase()}</span>
+                  <span className="font-semibold text-[#1b1a19]">
+                    {complaintStatuses[s] ?? 0}
+                  </span>
+                </li>
+              ),
+            )}
+          </ul>
+        </GlassCard>
+      </div>
+
       <div className="grid gap-3 md:grid-cols-3">
-        {TOPICS.map((t) => (
+        {topics.map((t) => (
           <Link key={t.href} href={t.href}>
             <GlassCard className="h-full p-4 transition hover:ring-1 hover:ring-[#0078d4]/30">
               <p className="text-sm font-semibold text-[#1b1a19]">{t.title}</p>
@@ -159,6 +222,18 @@ export default function CallCentreOverviewPage() {
           </Link>
         ))}
       </div>
+
+      {session?.roles?.includes('SUPERVISOR') ? (
+        <p className="flex items-center gap-2 text-xs text-[#605e5c]">
+          <Users className="h-3.5 w-3.5" />
+          As a Supervisor you triage complaints and tickets here; field incidents
+          and deployments stay on{' '}
+          <Link href="/branch" className="font-medium text-[#0067b8] hover:underline">
+            Branch Ops
+          </Link>
+          .
+        </p>
+      ) : null}
 
       {pack?.notes?.length ? (
         <p className="text-xs text-[#605e5c]">{pack.notes.join(' ')}</p>

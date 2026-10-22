@@ -99,7 +99,7 @@ export const DESIGN_ACCOUNT_TYPES = [
   {
     code: 'SUPPORT_AGENT',
     name: 'Support Agent',
-    roleCodes: ['CALL_CENTRE', 'IT_SUPPORT'],
+    roleCodes: ['CALL_CENTRE', 'CUSTOMER_SUPPORT', 'IT_SUPPORT'],
   },
   {
     code: 'COMPLIANCE',
@@ -349,14 +349,14 @@ export const DESIGN_PORTALS = [
     id: '35.20',
     name: 'Call Centre / Support',
     primaryUsers:
-      'Call Centre Agents / Customer Support Officers mapped to seeded CALL_CENTRE (callcentre1@). Helpdesk Officers stay IT_SUPPORT (it1@ — Super Admin users/notifications). Supervisors stay Branch Ops (/branch) for field incidents. GATE_OFFICER also holds visitors.manage so they can open this portal. No SUPPORT_OFFICER / HELPDESK roles.',
-    job: 'Customer complaints, visitor appointment/gate support, parking/supplier/payroll inquiries as tickets, incident escalation via IncidentsService, service tickets.',
+      'Call Centre Agents (CALL_CENTRE / callcentre1@), Customer Support Officers (CUSTOMER_SUPPORT / cs1@), Helpdesk Officers (IT_SUPPORT / it1@), and Supervisors (SUPERVISOR / supervisor1@) — each also keeps their own portal (IT stays Super Admin, Supervisor stays Branch Ops). GATE_OFFICER keeps visitor gate work via visitors.manage. No SUPPORT_OFFICER / HELPDESK roles.',
+    job: 'Customer complaints (full description + triage), visitor appointment/gate support, parking/supplier/payroll inquiries as tickets, incident escalation via IncidentsService, service tickets.',
     entry: 'admin-web /callcentre',
-    gatePermissions: ['visitors.manage'],
+    gatePermissions: ['support.manage', 'visitors.manage'],
     accountTypeCodes: ['SUPPORT_AGENT'],
-    roleCodes: ['CALL_CENTRE', 'GATE_OFFICER'],
+    roleCodes: ['CALL_CENTRE', 'CUSTOMER_SUPPORT', 'IT_SUPPORT', 'SUPERVISOR', 'GATE_OFFICER'],
     security:
-      'Gate visitors.manage. Tickets/complaints allowlisted visitors.manage OR customers.manage. No parking.manage / payroll.manage / procurement.manage / incidents.manage on CALL_CENTRE. Ticket process creator ≠ processor. Escalate uses IncidentsService (not incidents HTTP). Parking/supplier/payroll are ticket categories, not those ledgers.',
+      'Desk gate support.manage OR visitors.manage. Complaint/ticket staff routes allowlist customers.manage OR visitors.manage OR support.manage. Visitor tab needs visitors.manage, so CUSTOMER_SUPPORT / SUPERVISOR / IT_SUPPORT see the desk only. No parking.manage / payroll.manage / procurement.manage / incidents.manage on these roles. Creator ≠ processor on complaints and tickets; escalated ticket uses IncidentsService (not incidents HTTP). Parking/supplier/payroll are ticket categories, not those ledgers.',
   },
   {
     id: '35.21',
@@ -381,44 +381,53 @@ export const DESIGN_PORTALS = [
     id: '35.22',
     name: 'CCTV / Security Monitoring',
     primaryUsers:
-      'CCTV Operators (CCTV_OPERATOR / cctv1@), Security Monitoring Officers mapped to CONTROL_ROOM (control1@), Operations Managers (ops1@). Supervisors stay Branch Ops (/branch) — no cctv.manage on SUPERVISOR. Authorized customer users stay customer-web (own data). No MONITORING_OFFICER / ALARM_OPERATOR roles.',
+      'CCTV Operators (CCTV_OPERATOR / cctv1@), Security Monitoring Officers (SECURITY_OFFICER / monitor1@), Control Room (CONTROL_ROOM / control1@), Operations Managers (ops1@), and Supervisors (supervisor1@) for their assigned sites. Authorized customer users stay customer-web (own data). No ALARM_OPERATOR role.',
     job: 'Monitor CCTV wall (NVR embed/metadata), AI alerts (ack + 28-A incident), parking areas, customer-employee access + visitor gate denies, patrol scans / PATROL_MISSED, FieldAlert alarms, open security incidents. Video not via Nest.',
     entry: 'admin-web /cctv',
     gatePermissions: ['cctv.manage'],
-    accountTypeCodes: ['MANAGEMENT'],
-    roleCodes: ['CCTV_OPERATOR', 'CONTROL_ROOM', 'OPERATIONS_MANAGER'],
+    accountTypeCodes: ['MANAGEMENT', 'SUPERVISOR'],
+    roleCodes: [
+      'CCTV_OPERATOR',
+      'SECURITY_OFFICER',
+      'CONTROL_ROOM',
+      'OPERATIONS_MANAGER',
+      'SUPERVISOR',
+    ],
     security:
-      'cctv.manage only on this portal. CCTV_OPERATOR is not granted parking.manage / access.manage / attendance.manage / incidents.manage — monitors via GET /cctv/*. ANPR decide stays parking|ops. Customer CCTV subdomain deferred. Org-wide mosaic (CCTV_OPERATOR in ORG_WIDE_SITE_VIEW_ROLES).',
+      'cctv.manage only on this portal. CCTV_OPERATOR / SECURITY_OFFICER are not granted parking.manage / access.manage / attendance.manage / incidents.manage — monitors via GET /cctv/*. Supervisors are site-scoped (allowedSiteIds); CCTV/Control Room/Ops Mgr are org-wide. ANPR decide stays parking|ops. Customer CCTV subdomain deferred.',
   },
   {
     id: '35.23',
     name: 'Branch Operations',
     primaryUsers:
-      'Regional / company-wide field mapped to OPERATIONS_MANAGER (ops1@); Branch Managers / Branch Operations Managers mapped to BRANCH_MANAGER (bom1@); Field Officers (field1@); Supervisors (supervisor1@) for site duty. Technical Managers stay CCTV / Devices (no TECHNICAL_MANAGER role). Business Development stays Marketing (35.19) — MARKETING is not granted operations.manage. No REGIONAL_MANAGER / BOM extra role.',
-    job: 'Branch staff on post, customer sites, guard deployment, attendance & alertness, inspections (EOB comments/handover), incidents, parking monitor, petty cash requests, field reports & branch performance (34-A pack).',
+      'Regional Managers mapped to REGIONAL_MANAGER (regional1@, org-wide field); Branch Managers / Branch Operations Managers mapped to BRANCH_MANAGER (bom1@); Operations Managers mapped to OPERATIONS_MANAGER (ops1@); Field Officers (field1@); Technical Managers mapped to TECHNICAL_MANAGER (tech1@, branch sites + CCTV); Business Development Managers mapped to BD_MANAGER (bdm1@, branch performance + commercial pipeline); Supervisors (supervisor1@) for site duty. MARKETING officers stay Portal 35.19.',
+    job: 'Branch staff register (add / edit / suspend office staff in your branch), guards on post, customer sites, guard deployment, attendance & alertness, inspections (EOB comments/handover), incidents, parking monitor, petty cash requests, field reports & branch performance (34-A pack).',
     entry: 'admin-web /branch',
     gatePermissions: ['operations.manage'],
     accountTypeCodes: ['MANAGEMENT', 'SUPERVISOR'],
     roleCodes: [
       'OPERATIONS_MANAGER',
+      'REGIONAL_MANAGER',
       'BRANCH_MANAGER',
       'FIELD_OFFICER',
+      'TECHNICAL_MANAGER',
+      'BD_MANAGER',
       'SUPERVISOR',
     ],
     security:
-      'Site ABAC via allowedSiteIds (BOM branch→sites at login). GUARD cannot admin. Parking mutate stays parking.manage. Petty cash approve/issue stays finance.manage (creator ≠ issuer). HR hire/exit stays hr.manage.',
+      'Site ABAC via allowedSiteIds (BOM branch→sites at login; Regional Manager org-wide). Branch staff CRUD is limited to employees whose branch_id is in the caller scope. GUARD cannot admin. Parking mutate stays parking.manage. Petty cash approve/issue stays finance.manage (creator ≠ issuer). HR hire/exit stays hr.manage; guard duty status stays guards.manage.',
   },
   {
     id: '35.24',
     name: 'Developer / Integration',
     primaryUsers:
-      'Software Developers / System Integrators mapped to seeded DEVELOPER (dev1@). ICT Manager / API Administrators use SUPER_ADMIN or GM (allPerms) — no API_ADMIN / ICT_MANAGER. IT Support (it1@) stays Super Admin helpdesk. No TECHNICAL_PARTNER login.',
-    job: 'APIs (Swagger hosts), adapters, webhooks, outbox, environments, logs, ping tests, biometric/CCTV/RFID/ANPR registry counts, CSV export of integration logs. Banks / mobile money / Meta WhatsApp / MQTT Nest client / bulk import deferred.',
+      'Software Developers / System Integrators mapped to seeded DEVELOPER (dev1@); ICT Manager maps to IT_SUPPORT (it1@ — users helpdesk + integrations.manage); API Administrators / GM / Super Admin also hold integrations.manage. No API_ADMIN / TECHNICAL_PARTNER login. No separate helpdesk-only restriction on reading the integration board.',
+    job: 'Connected-systems board (live platform probes, messaging channels, payments/banks/mobile money, biometric/CCTV/RFID/ANPR systems, 24h traffic + failures), APIs (Swagger hosts), adapters + ping tests, webhooks, outbox, environments, logs, notifications, systems registry counts, CSV export. Meta WhatsApp / MQTT Nest client / bank host-to-host / bulk import deferred.',
     entry: 'admin-web /developer',
     gatePermissions: ['integrations.manage'],
-    accountTypeCodes: ['DEVELOPER', 'SUPER_ADMIN', 'MANAGEMENT'],
-    roleCodes: ['DEVELOPER', 'SUPER_ADMIN', 'GENERAL_MANAGER'],
+    accountTypeCodes: ['DEVELOPER', 'SUPER_ADMIN', 'MANAGEMENT', 'SUPPORT_AGENT'],
+    roleCodes: ['DEVELOPER', 'SUPER_ADMIN', 'GENERAL_MANAGER', 'IT_SUPPORT'],
     security:
-      'integrations.manage. Browser never holds INTEGRATION_SERVICE_TOKEN. Config/logs/export omit secrets and payloads. DEVELOPER has no users.manage. Webhook replay FAILED/DLQ only; outbox PENDING/FAILED only. CCTV video stays on NVR.',
+      'integrations.manage. Browser never holds INTEGRATION_SERVICE_TOKEN. Config/logs/export omit secrets and payloads. Webhook replay FAILED/DLQ only; outbox PENDING/FAILED only. CCTV video stays on NVR. Connectivity verdicts are evidence-based (CONNECTED only when a real transport is working); ping never sends a paid vendor message.',
   },
 ] as const;

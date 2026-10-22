@@ -1,4 +1,12 @@
-import { getParkingToken, getToken, parkingAuthHeaders } from '@pssms/auth';
+import {
+  clearParkingSession,
+  getParkingRefreshToken,
+  getParkingSessionUser,
+  getParkingToken,
+  getToken,
+  parkingAuthHeaders,
+  setParkingSession,
+} from '@pssms/auth';
 import type { LoginResult } from './index';
 
 const coreUrl = () =>
@@ -12,8 +20,92 @@ type ApiEnvelope<T> = {
   meta?: Record<string, unknown>;
 };
 
+/**
+ * Error raised by any parking call. Carries the backend business code so the UI
+ * can show the real reason (for example `CREATOR_CANNOT_APPROVE`) instead of a
+ * raw JSON blob or an empty "Failed to fetch".
+ */
+export class ParkingApiError extends Error {
+  code: string;
+  status: number;
+
+  constructor(message: string, code: string, status: number) {
+    super(message);
+    this.name = 'ParkingApiError';
+    this.code = code;
+    this.status = status;
+  }
+}
+
+/** Best-effort extraction of `{ error, message }` / `{ message }` from a body. */
+function extractApiError(
+  raw: string,
+  fallback: string,
+): { code: string; message: string } {
+  if (!raw) return { code: 'REQUEST_FAILED', message: fallback };
+  try {
+    const parsed = JSON.parse(raw) as Record<string, unknown>;
+    // Backend envelopes use either `{ error: 'CODE', message }` or
+    // `{ error: { code, message } }` (global exception filter).
+    let code = 'REQUEST_FAILED';
+    let message: unknown = parsed.message;
+    if (typeof parsed.error === 'string') {
+      code = parsed.error;
+    } else if (parsed.error && typeof parsed.error === 'object') {
+      const nested = parsed.error as Record<string, unknown>;
+      if (typeof nested.code === 'string') code = nested.code;
+      if (message === undefined) message = nested.message;
+    }
+    if (code === 'REQUEST_FAILED' && typeof parsed.code === 'string') {
+      code = parsed.code;
+    }
+    const text = Array.isArray(message)
+      ? message.join('; ')
+      : typeof message === 'string'
+        ? message
+        : fallback;
+    return { code, message: text };
+  } catch {
+    return { code: 'REQUEST_FAILED', message: raw };
+  }
+}
+
+/** Refresh the parking JWT with the stored refresh token. */
+async function refreshParkingSession(): Promise<string | null> {
+  const refreshToken = getParkingRefreshToken();
+  if (!refreshToken) return null;
+  try {
+    const res = await fetch(`${coreUrl()}/api/v1/auth/refresh`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ refreshToken }),
+    });
+    if (!res.ok) return null;
+    const json = (await res.json()) as ApiEnvelope<{ tokens: LoginResult['tokens'] }>;
+    const tokens = json.data?.tokens;
+    if (!tokens?.accessToken) return null;
+    setParkingSession(
+      tokens.accessToken,
+      getParkingSessionUser() ?? ({} as never),
+      tokens.refreshToken,
+    );
+    return tokens.accessToken;
+  } catch {
+    return null;
+  }
+}
+
 async function parseEnvelope<T>(res: Response): Promise<T> {
-  if (!res.ok) throw new Error(await res.text());
+  if (!res.ok) {
+    const raw = await res.text();
+    const { code, message } = extractApiError(
+      raw,
+      res.status === 401
+        ? 'Session expired — please sign in again.'
+        : 'Request failed.',
+    );
+    throw new ParkingApiError(message, code, res.status);
+  }
   const json = (await res.json()) as ApiEnvelope<T>;
   return json.data;
 }
@@ -31,12 +123,32 @@ async function parkingOpsFetch<T>(
   path: string,
   init?: RequestInit & { token?: string },
 ): Promise<T> {
-  const headers: HeadersInit = {
-    'Content-Type': 'application/json',
-    ...opsAuthHeaders(init?.token),
-    ...init?.headers,
-  };
-  const res = await fetch(`${coreUrl()}${path}`, { ...init, headers });
+  const build = (bearer?: string | null): RequestInit => ({
+    ...init,
+    headers: {
+      ...(init?.body != null
+        ? { 'Content-Type': 'application/json' }
+        : {}),
+      ...opsAuthHeaders(bearer ?? init?.token),
+      ...init?.headers,
+    },
+  });
+
+  let res = await fetch(`${coreUrl()}${path}`, build());
+
+  // Access tokens live 15 minutes. When the portal session is the credential we
+  // can silently refresh once instead of failing the action the officer clicked.
+  if (res.status === 401 && !init?.token && getParkingRefreshToken()) {
+    const renewed = await refreshParkingSession();
+    if (renewed) {
+      res = await fetch(`${coreUrl()}${path}`, build(renewed));
+    }
+  }
+
+  if (res.status === 401 && !init?.token) {
+    clearParkingSession();
+  }
+
   return parseEnvelope<T>(res);
 }
 
@@ -124,6 +236,7 @@ export type ParkingOpsPermit = {
   validFrom: string;
   validUntil: string;
   createdAt: string;
+  createdBy?: string | null;
   /** Module 13-B / 13-O */
   feeAmount?: number | null;
   currency?: string | null;
@@ -808,6 +921,34 @@ export const releaseParkingSpace = (id: string, token?: string) =>
     token,
   });
 
+/** Vehicle relocation — release old bay + allocate target in one call. */
+export type RelocateParkingSpaceBody = {
+  vehicleId: string;
+  toSpaceId?: string;
+  siteId?: string;
+  spaceType?: ParkingSpaceType;
+  permitId?: string;
+  reason?: string;
+};
+
+export type ParkingOpsRelocation = {
+  from: ParkingOpsSpace;
+  to: ParkingOpsSpace;
+  plateNumber: string;
+  reason?: string | null;
+};
+
+/** POST /parking/spaces/relocate */
+export const relocateParkingSpace = (
+  body: RelocateParkingSpaceBody,
+  token?: string,
+) =>
+  parkingOpsFetch<ParkingOpsRelocation>('/api/v1/parking/spaces/relocate', {
+    method: 'POST',
+    body: JSON.stringify(body),
+    token,
+  });
+
 /** Module 13-M — parking patrol observation types */
 export type ParkingPatrolObservationType =
   | 'IRREGULARITY'
@@ -877,6 +1018,26 @@ export const listParkingPatrolObservations = (
     { token },
   );
 };
+
+/** Guard picker for manual patrol observations (ops officer without guard profile). */
+export type ParkingPatrolGuardOption = {
+  id: string;
+  employeeNumber: string;
+  fullName: string | null;
+  siteCode: string | null;
+  siteName: string | null;
+};
+
+export const listParkingPatrolGuardOptions = (
+  siteId?: string,
+  token?: string,
+) =>
+  parkingOpsFetch<ParkingPatrolGuardOption[]>(
+    `/api/v1/parking/patrol-observations/guard-options${
+      siteId ? `?siteId=${encodeURIComponent(siteId)}` : ''
+    }`,
+    { token },
+  );
 
 /** POST /parking/patrol-observations */
 export const createParkingPatrolObservation = (

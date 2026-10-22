@@ -120,6 +120,24 @@ function StatusPill({ status }: { status: string }) {
   );
 }
 
+const ROLE_LABEL: Record<string, string> = {
+  GENERAL_MANAGER: 'General Manager',
+  ACCOUNTS_OFFICER: 'Finance',
+  SUPER_ADMIN: 'Super Admin',
+  CEO: 'CEO',
+  CMD: 'CMD',
+};
+
+function approvalHint(r: PettyCashVoucher): string | null {
+  if (r.status.toUpperCase() !== 'PENDING') return null;
+  const step = r.approvalCurrentStepName;
+  const role = r.approvalRequiredRole;
+  const roleText =
+    role && role !== '*' ? ROLE_LABEL[role] ?? role : role === '*' ? 'Approver' : null;
+  if (!step && !roleText) return null;
+  return [step, roleText ? `(${roleText})` : null].filter(Boolean).join(' ');
+}
+
 function CategoryPill({ category }: { category: string }) {
   return (
     <span className="inline-flex rounded-md bg-[#f3f2f1] px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-[#605e5c] ring-1 ring-[#e1dfdd]">
@@ -144,8 +162,8 @@ export function PettyCashRoster({
   rows: PettyCashVoucher[];
   loading?: boolean;
   busyId?: string | null;
-  /** false | 'own' | true for pending/approved actions */
-  canAct?: (r: PettyCashVoucher) => boolean | 'own';
+  /** false | 'own' | 'role' (awaiting another role) | true for pending/approved actions */
+  canAct?: (r: PettyCashVoucher) => boolean | 'own' | 'role';
   onApprove?: (r: PettyCashVoucher) => void;
   onReject?: (r: PettyCashVoucher) => void;
   onIssue?: (r: PettyCashVoucher) => void;
@@ -221,7 +239,7 @@ export function PettyCashRoster({
                         {initials(r.voucherNumber)}
                       </span>
                       <div className="min-w-0 flex-1">
-                        <div className="flex flex-wrap items-start justify-between gap-2">
+                        <div className="flex items-start justify-between gap-2">
                           <div className="min-w-0">
                             <p className="font-mono text-[13px] font-semibold text-[#1b1a19]">
                               {r.voucherNumber}
@@ -230,7 +248,14 @@ export function PettyCashRoster({
                               <CategoryPill category={r.category} />
                             </div>
                           </div>
-                          <StatusPill status={r.status} />
+                          <div className="shrink-0 text-right">
+                            <StatusPill status={r.status} />
+                            {approvalHint(r) ? (
+                              <p className="mt-1 text-[10px] text-[#8a8886]">
+                                {approvalHint(r)}
+                              </p>
+                            ) : null}
+                          </div>
                         </div>
                         <p className="mt-2 text-[15px] font-semibold tabular-nums text-[#1b1a19]">
                           {formatMoney(r.amount)}
@@ -256,6 +281,7 @@ export function PettyCashRoster({
                     <PettyActions
                       status={s}
                       act={act}
+                      awaitingRole={ROLE_LABEL[r.approvalRequiredRole ?? ''] ?? r.approvalRequiredRole}
                       busy={busyId === r.id}
                       onApprove={() => onApprove?.(r)}
                       onReject={() => onReject?.(r)}
@@ -330,12 +356,20 @@ export function PettyCashRoster({
                       ) : null}
                     </div>
 
-                    <StatusPill status={r.status} />
+                    <div>
+                      <StatusPill status={r.status} />
+                      {approvalHint(r) ? (
+                        <p className="mt-1 text-[10px] text-[#8a8886]">
+                          {approvalHint(r)}
+                        </p>
+                      ) : null}
+                    </div>
 
                     <div className="flex flex-wrap justify-end gap-1">
                       <PettyActions
                         status={s}
                         act={act}
+                        awaitingRole={ROLE_LABEL[r.approvalRequiredRole ?? ''] ?? r.approvalRequiredRole}
                         busy={busyId === r.id}
                         onApprove={() => onApprove?.(r)}
                         onReject={() => onReject?.(r)}
@@ -358,6 +392,7 @@ export function PettyCashRoster({
 function PettyActions({
   status,
   act,
+  awaitingRole,
   busy,
   onApprove,
   onReject,
@@ -366,7 +401,8 @@ function PettyActions({
   onReceipts,
 }: {
   status: string;
-  act?: boolean | 'own';
+  act?: boolean | 'own' | 'role';
+  awaitingRole?: string | null;
   busy?: boolean;
   onApprove: () => void;
   onReject: () => void;
@@ -379,6 +415,16 @@ function PettyActions({
       return (
         <span className="text-[11px] text-[#a19f9d]">
           Awaiting other approver
+        </span>
+      );
+    }
+    if (act === 'role') {
+      return (
+        <span
+          className="inline-flex items-center rounded-full bg-amber-50 px-2 py-0.5 text-[11px] font-medium text-amber-900 ring-1 ring-amber-200/80"
+          title="This request is waiting on a different approval step"
+        >
+          Awaiting {awaitingRole || 'approver'}
         </span>
       );
     }

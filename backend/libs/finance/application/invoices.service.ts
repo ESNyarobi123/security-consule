@@ -453,6 +453,16 @@ export class InvoicesService {
     dto: RecordInvoicePaymentDto,
     user: AuthUser,
   ): Promise<InvoiceResponseDto> {
+    const { invoice } = await this.recordPaymentWithRef(id, dto, user);
+    return invoice;
+  }
+
+  /** Same as recordPayment but also returns the InvoicePayment row id (receipts link). */
+  async recordPaymentWithRef(
+    id: string,
+    dto: RecordInvoicePaymentDto,
+    user: AuthUser,
+  ): Promise<{ invoice: InvoiceResponseDto; paymentId: string }> {
     const invoice = await this.findOrThrow(id, user.organizationId);
     if (
       invoice.status === InvoiceStatus.VOIDED ||
@@ -509,10 +519,13 @@ export class InvoicesService {
       });
     }
 
-    return this.toDto(
-      updated,
-      await this.contractNumberFor(updated.contractId),
-    );
+    return {
+      invoice: this.toDto(
+        updated,
+        await this.contractNumberFor(updated.contractId),
+      ),
+      paymentId: payment.id,
+    };
   }
 
   async dispute(

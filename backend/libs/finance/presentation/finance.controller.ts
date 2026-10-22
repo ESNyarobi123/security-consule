@@ -28,10 +28,12 @@ import { InvoicesService } from '../application/invoices.service';
 import { FinanceOpsService } from '../application/finance-ops.service';
 import {
   CreateInvoiceDto,
+  CreateFinanceReceiptDto,
   CreatePaymentVoucherDto,
   CreatePettyCashFundDto,
   CreatePettyCashVoucherDto,
   DisputeInvoiceDto,
+  FinanceReceiptResponseDto,
   FinanceReportResponseDto,
   InvoiceAlertsPackDto,
   InvoiceResponseDto,
@@ -309,6 +311,49 @@ export class PaymentVouchersController {
   ) {
     assertStaff(user);
     return this.service.payPaymentVoucher(id, dto.paymentReference, user);
+  }
+}
+
+@ApiTags('Finance — Receipts')
+@ApiBearerAuth()
+@UseGuards(PermissionsGuard)
+@RequirePermissions('finance.manage')
+@Controller('finance/receipts')
+export class FinanceReceiptsController {
+  constructor(private readonly service: FinanceOpsService) {}
+
+  @Post()
+  @ApiOperation({
+    summary:
+      'Capture a receipt (payer, amount, method, date) — optional invoice link records the payment; attach the scan via /documents resourceType FinanceReceipt',
+  })
+  @ApiCreatedResponse({ type: FinanceReceiptResponseDto })
+  create(
+    @Body() dto: CreateFinanceReceiptDto,
+    @CurrentUser() user: AuthUser,
+  ) {
+    assertStaff(user);
+    return this.service.createFinanceReceipt(dto, user);
+  }
+
+  @Get()
+  @ApiOperation({ summary: 'List receipts (own organisation)' })
+  @ApiQuery({ name: 'from', required: false })
+  @ApiQuery({ name: 'to', required: false })
+  @ApiQuery({ name: 'take', required: false })
+  @ApiOkResponse({ type: [FinanceReceiptResponseDto] })
+  list(
+    @CurrentUser() user: AuthUser,
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+    @Query('take') take?: string,
+  ) {
+    assertStaff(user);
+    return this.service.listFinanceReceipts(user.organizationId, {
+      from,
+      to,
+      take: take ? Number(take) : undefined,
+    });
   }
 }
 

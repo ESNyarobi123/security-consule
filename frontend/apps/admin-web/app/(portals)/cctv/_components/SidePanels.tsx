@@ -3,36 +3,30 @@
 import {
   acknowledgeCctvEvent,
   createIncidentFromCctvEvent,
-  type AnprResult,
-  type DeviceEvent,
+  type CctvAlert,
+  type CctvOverview,
 } from '@pssms/api-client';
 import { StatusBadge } from '@pssms/ui';
-import { AlertTriangle, Check, ScanLine, ShieldAlert } from 'lucide-react';
+import {
+  AlertTriangle,
+  Check,
+  ScanLine,
+  ShieldAlert,
+} from 'lucide-react';
 import { useState, type ReactNode } from 'react';
 import {
   WALL,
-  eventSeverity,
-  eventTitle,
-  relativeTime,
+  alertStatusLabel,
+  cameraLabel,
+  formatAge,
+  severityDot,
 } from './shared';
 
-const OPEN_STATUSES = ['RECEIVED', 'FAILED'];
-
-const isAllow = (d?: string | null) =>
-  d != null && ['ALLOW', 'ALLOWED'].includes(d.toUpperCase());
-const isDeny = (d?: string | null) =>
-  d != null && ['DENY', 'DENIED'].includes(d.toUpperCase());
-
 export function SidePanels({
-  alerts,
-  anpr,
-  eventsAvailable,
+  overview,
   onTriaged,
 }: {
-  alerts: DeviceEvent[];
-  anpr: AnprResult[];
-  /** false when GET /devices/events returned 404 / unavailable */
-  eventsAvailable: boolean;
+  overview: CctvOverview | null;
   /** Module 28-A — refresh after ack / incident recorded */
   onTriaged?: () => void | Promise<void>;
 }) {
@@ -40,13 +34,18 @@ export function SidePanels({
   const [notice, setNotice] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  async function ack(ev: DeviceEvent) {
-    setBusyId(ev.id);
+  const alerts = overview?.aiAlerts.latest ?? [];
+  const anpr = overview?.parking.latestAnpr ?? [];
+
+  async function ack(alert: CctvAlert) {
+    setBusyId(alert.id);
     setError(null);
     setNotice(null);
     try {
-      await acknowledgeCctvEvent(ev.id);
-      setNotice('Alert acknowledged (audited).');
+      await acknowledgeCctvEvent(alert.id);
+      setNotice(
+        `Acknowledged ${alert.detectionLabel} on ${cameraLabel(alert.camera)}.`,
+      );
       await onTriaged?.();
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
@@ -55,12 +54,12 @@ export function SidePanels({
     }
   }
 
-  async function recordIncident(ev: DeviceEvent) {
-    setBusyId(ev.id);
+  async function recordIncident(alert: CctvAlert) {
+    setBusyId(alert.id);
     setError(null);
     setNotice(null);
     try {
-      const res = await createIncidentFromCctvEvent(ev.id);
+      const res = await createIncidentFromCctvEvent(alert.id);
       setNotice(
         `Incident ${res.incident.incidentNumber} recorded — track it on Branch Ops › Incidents.`,
       );
@@ -77,11 +76,7 @@ export function SidePanels({
       <Panel
         icon={<AlertTriangle className="h-4 w-4" style={{ color: WALL.amber }} />}
         title="AI alert inbox"
-        subtitle={
-          eventsAvailable
-            ? 'CCTV_EVENT from device ingest — ack or record incident'
-            : 'Events API not available yet — inbox empty'
-        }
+        subtitle="Detection · camera · site · confidence · age"
       >
         {notice ? (
           <p
@@ -101,74 +96,91 @@ export function SidePanels({
         ) : null}
         {alerts.length === 0 ? (
           <EmptyRow>
-            {eventsAvailable
-              ? 'No open AI alerts.'
-              : 'Connect cameras and wait for vision ingest (or seed CCTV_EVENT).'}
+            No open AI alerts. Connect cameras and wait for vision ingest (or
+            seed CCTV_EVENT).
           </EmptyRow>
         ) : (
           <ul className="divide-y" style={{ borderColor: WALL.border }}>
-            {alerts.slice(0, 12).map((ev) => {
-              const sev = eventSeverity(ev.payload ?? {});
-              const hot = ['HIGH', 'CRITICAL', 'ALARM'].includes(sev);
-              const open = OPEN_STATUSES.includes(ev.status);
-              const busy = busyId === ev.id;
+            {alerts.slice(0, 10).map((alert) => {
+              const busy = busyId === alert.id;
+              const hot = ['HIGH', 'CRITICAL', 'ALARM'].includes(alert.severity);
               return (
                 <li
-                  key={ev.id}
-                  className="flex items-start gap-3 px-3 py-2.5 transition duration-200 hover:bg-white/[0.03]"
+                  key={alert.id}
+                  className="px-3 py-2.5 transition duration-200 hover:bg-white/[0.03]"
                 >
-                  <span
-                    className="mt-1 h-2 w-2 shrink-0 rounded-full"
-                    style={{
-                      background: hot ? WALL.amber : WALL.accent,
-                      boxShadow: hot
-                        ? `0 0 8px ${WALL.amber}66`
-                        : undefined,
-                    }}
-                  />
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-center justify-between gap-2">
-                      <p className="truncate text-sm font-medium text-white">
-                        {eventTitle(ev.payload ?? {})}
-                      </p>
-                      <span
-                        className="shrink-0 font-mono text-[9px] uppercase"
-                        style={{ color: hot ? WALL.amber : WALL.muted }}
-                      >
-                        {sev}
-                      </span>
-                    </div>
-                    <p
-                      className="mt-0.5 font-mono text-[10px]"
-                      style={{ color: WALL.muted }}
-                    >
-                      {ev.status}
-                      {ev.routedTo ? ` · ${ev.routedTo}` : ''} ·{' '}
-                      {relativeTime(ev.capturedAt)}
-                    </p>
-                    {open ? (
-                      <div className="mt-1.5 flex flex-wrap gap-1.5">
-                        <button
-                          type="button"
-                          disabled={busy}
-                          onClick={() => void ack(ev)}
-                          className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-[10px] font-semibold text-slate-200 ring-1 transition hover:bg-white/10 disabled:opacity-50"
-                          style={{ borderColor: WALL.border }}
+                  <div className="flex items-start gap-2.5">
+                    <span
+                      className="mt-1.5 h-2 w-2 shrink-0 rounded-full"
+                      style={{
+                        background: severityDot(alert.severity),
+                        boxShadow: hot
+                          ? `0 0 8px ${severityDot(alert.severity)}88`
+                          : undefined,
+                      }}
+                    />
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-start justify-between gap-2">
+                        <p className="truncate text-sm font-semibold text-white">
+                          {alert.detectionLabel}
+                        </p>
+                        <span
+                          className="shrink-0 font-mono text-[9px] uppercase tracking-wide"
+                          style={{ color: hot ? WALL.amber : WALL.muted }}
                         >
-                          <Check className="h-3 w-3" />
-                          Acknowledge
-                        </button>
-                        <button
-                          type="button"
-                          disabled={busy}
-                          onClick={() => void recordIncident(ev)}
-                          className="inline-flex items-center gap-1 rounded-md bg-amber-400/20 px-2 py-1 text-[10px] font-semibold text-amber-200 ring-1 ring-amber-400/40 transition hover:bg-amber-400/30 disabled:opacity-50"
-                        >
-                          <ShieldAlert className="h-3 w-3" />
-                          Record incident
-                        </button>
+                          {alert.severity}
+                          {alert.confidencePct != null
+                            ? ` · ${alert.confidencePct}%`
+                            : ''}
+                        </span>
                       </div>
-                    ) : null}
+                      <p
+                        className="mt-0.5 truncate font-mono text-[10px]"
+                        style={{ color: WALL.muted }}
+                      >
+                        {cameraLabel(alert.camera)} · {alert.siteCode ?? '—'}
+                        {alert.zone ? ` · ${alert.zone}` : ''}
+                      </p>
+                      <p
+                        className="mt-0.5 line-clamp-2 text-[11px] leading-snug"
+                        style={{ color: '#cbd5e1' }}
+                      >
+                        {alert.summary}
+                      </p>
+                      <p
+                        className="mt-1 font-mono text-[9px]"
+                        style={{ color: WALL.muted }}
+                      >
+                        {alertStatusLabel(alert.status)} ·{' '}
+                        {formatAge(alert.ageMinutes)}
+                        {alert.incident
+                          ? ` · ${alert.incident.incidentNumber}`
+                          : ''}
+                      </p>
+                      {alert.open ? (
+                        <div className="mt-1.5 flex flex-wrap gap-1.5">
+                          <button
+                            type="button"
+                            disabled={busy}
+                            onClick={() => void ack(alert)}
+                            className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-[10px] font-semibold text-slate-200 ring-1 transition hover:bg-white/10 disabled:opacity-50"
+                            style={{ borderColor: WALL.border }}
+                          >
+                            <Check className="h-3 w-3" />
+                            Acknowledge
+                          </button>
+                          <button
+                            type="button"
+                            disabled={busy}
+                            onClick={() => void recordIncident(alert)}
+                            className="inline-flex items-center gap-1 rounded-md bg-amber-400/20 px-2 py-1 text-[10px] font-semibold text-amber-200 ring-1 ring-amber-400/40 transition hover:bg-amber-400/30 disabled:opacity-50"
+                          >
+                            <ShieldAlert className="h-3 w-3" />
+                            Record incident
+                          </button>
+                        </div>
+                      ) : null}
+                    </div>
                   </div>
                 </li>
               );
@@ -195,28 +207,23 @@ export function SidePanels({
                   <p className="font-mono text-sm font-semibold tracking-wide text-white">
                     {r.plateNumber}
                   </p>
-                  <p
-                    className="font-mono text-[10px]"
-                    style={{ color: WALL.muted }}
-                  >
+                  <p className="font-mono text-[10px]" style={{ color: WALL.muted }}>
+                    {r.siteCode ?? '—'} ·{' '}
                     {r.confidence != null
                       ? `${Math.round(r.confidence * 100)}% · `
                       : ''}
-                    {relativeTime(r.capturedAt)}
+                    {formatAge(
+                      Math.max(
+                        0,
+                        Math.round(
+                          (Date.now() - new Date(r.capturedAt).getTime()) / 60000,
+                        ),
+                      ),
+                    )}
                   </p>
                 </div>
                 {r.decision ? (
-                  <span
-                    className={
-                      isDeny(r.decision)
-                        ? 'opacity-100'
-                        : isAllow(r.decision)
-                          ? 'opacity-100'
-                          : 'opacity-90'
-                    }
-                  >
-                    <StatusBadge status={r.decision} />
-                  </span>
+                  <StatusBadge status={r.decision} />
                 ) : (
                   <span className="text-[10px]" style={{ color: WALL.muted }}>
                     —
@@ -267,7 +274,7 @@ function Panel({
           </p>
         </div>
       </header>
-      <div className="max-h-72 overflow-y-auto">{children}</div>
+      <div className="max-h-80 overflow-y-auto">{children}</div>
     </section>
   );
 }

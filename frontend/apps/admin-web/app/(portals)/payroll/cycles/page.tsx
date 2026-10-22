@@ -7,6 +7,7 @@ import {
   downloadPayrollMobileFile,
   generatePayrollCycle,
   getPayrollApprovalReport,
+  getPayrollCycleReadiness,
   getPayrollInvoiceGate,
   getPayrollLoanReport,
   getPayrollRegister,
@@ -21,6 +22,7 @@ import {
   scanPayrollDueAlerts,
   submitPayrollCycle,
   type PayrollCycle,
+  type PayrollCycleReadiness,
   type PayrollDueAlert,
   type PayrollInvoiceGate,
   type PayslipSnapshot,
@@ -126,6 +128,7 @@ export default function PayrollCyclesPage() {
   const [invoiceGate, setInvoiceGate] = useState<PayrollInvoiceGate | null>(
     null,
   );
+  const [readiness, setReadiness] = useState<PayrollCycleReadiness | null>(null);
   const [scanBusy, setScanBusy] = useState(false);
 
   const user = getSessionUser();
@@ -292,7 +295,12 @@ export default function PayrollCyclesPage() {
 
   async function openPayslips(cycleId: string) {
     setSelected(cycleId);
-    setPayslips(await listPayslips(cycleId));
+    const [slips, ready] = await Promise.all([
+      listPayslips(cycleId),
+      getPayrollCycleReadiness(cycleId).catch(() => null),
+    ]);
+    setPayslips(slips);
+    setReadiness(ready);
     const cycle = cycles.find((c) => c.id === cycleId);
     if (cycle?.tenantType === 'CUSTOMER_MANAGED_PAYROLL') {
       try {
@@ -777,6 +785,7 @@ export default function PayrollCyclesPage() {
                 onClick={() => {
                   setSelected(null);
                   setPayslips([]);
+                  setReadiness(null);
                 }}
                 className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-[12px] font-semibold text-[#605e5c] hover:bg-[#f3f2f1] hover:text-[#323130]"
               >
@@ -785,6 +794,42 @@ export default function PayrollCyclesPage() {
               </button>
             </div>
           </div>
+
+          {readiness &&
+          (readiness.skipped.length > 0 ||
+            readiness.missingBankRefs > 0 ||
+            readiness.missingMobileRefs > 0) ? (
+            <div className="mb-3 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-[12px] text-amber-900">
+              <p className="font-semibold">
+                {readiness.eligible} employee
+                {readiness.eligible === 1 ? '' : 's'} ready ·{' '}
+                {readiness.skipped.length} would be skipped
+                {readiness.generatedPayslips > 0
+                  ? ` · ${readiness.generatedPayslips} snapshot${
+                      readiness.generatedPayslips === 1 ? '' : 's'
+                    } generated`
+                  : ''}
+              </p>
+              <ul className="mt-1 list-disc space-y-0.5 pl-4">
+                {readiness.notes.map((note) => (
+                  <li key={note}>{note}</li>
+                ))}
+              </ul>
+              {readiness.skipped.length > 0 ? (
+                <p className="mt-1.5 text-[11px] text-amber-800">
+                  Skipped:{' '}
+                  {readiness.skipped
+                    .slice(0, 6)
+                    .map((s) => `${s.employeeNumber} ${s.employeeName}`)
+                    .join(', ')}
+                  {readiness.skipped.length > 6
+                    ? ` +${readiness.skipped.length - 6} more`
+                    : ''}
+                  . Add an active salary assignment, then regenerate.
+                </p>
+              ) : null}
+            </div>
+          ) : null}
 
           <PayslipRoster
             rows={payslips}

@@ -8,6 +8,7 @@ import { CustomerSalaryService } from './application/customer-salary.service';
 import { PayrollDueService } from './application/payroll-due.service';
 import { PayrollService } from './application/payroll.service';
 import { PayrollController } from './presentation/payroll.controller';
+import { PayrollMeController } from './presentation/payroll-me.controller';
 
 @Module({
   imports: [
@@ -17,7 +18,7 @@ import { PayrollController } from './presentation/payroll.controller';
     EmployeeLoansModule,
     NotificationsModule,
   ],
-  controllers: [PayrollController],
+  controllers: [PayrollController, PayrollMeController],
   providers: [PayrollService, CustomerSalaryService, PayrollDueService],
   exports: [PayrollService, CustomerSalaryService, PayrollDueService],
 })

@@ -25,6 +25,12 @@ export const COMPLIANCE_TABS = [
     governanceOnly: false,
   },
   {
+    href: '/compliance/audit',
+    label: 'Audit log',
+    permissions: ['audit.read'] as const,
+    governanceOnly: false,
+  },
+  {
     href: '/compliance/consents',
     label: 'Consents',
     permissions: GOV_PERMS,

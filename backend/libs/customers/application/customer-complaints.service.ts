@@ -8,6 +8,7 @@ import {
   ComplaintCategory,
   ComplaintSeverity,
   ComplaintStatus,
+  Prisma,
 } from '@prisma/client';
 import { AuditService } from '@pssms/audit';
 import { AuthUser, PrismaService, requireCustomerScope } from '@pssms/shared';
@@ -148,7 +149,25 @@ export class CustomerComplaintsService {
         customer: { select: { code: true, name: true } },
       },
     });
-    return this.enrichMany(rows);
+    return this.enrichMany(rows, user);
+  }
+
+  /** Single complaint for the support-desk detail drawer. */
+  async getForStaff(id: string, user: AuthUser): Promise<ComplaintResponseDto> {
+    const row = await this.prisma.customerComplaint.findFirst({
+      where: { id, organizationId: user.organizationId },
+      include: {
+        customer: { select: { code: true, name: true } },
+      },
+    });
+    if (!row) {
+      throw new NotFoundException({
+        error: 'NOT_FOUND',
+        message: 'Complaint not found',
+      });
+    }
+    const [dto] = await this.enrichMany([row], user);
+    return dto;
   }
 
   async updateStatusForStaff(
@@ -252,7 +271,7 @@ export class CustomerComplaintsService {
       },
     });
 
-    return this.toDto(updated);
+    return this.getForStaff(updated.id, user);
   }
 
   /** Open complaint count for customer 360. */
@@ -297,20 +316,16 @@ export class CustomerComplaintsService {
       }
     }
 
-    const referenceNumber = await this.nextReference(user.organizationId);
-    const row = await this.prisma.customerComplaint.create({
-      data: {
-        organizationId: user.organizationId,
-        customerId,
-        referenceNumber,
-        category: dto.category,
-        severity: dto.severity ?? ComplaintSeverity.MEDIUM,
-        title,
-        description,
-        siteId: dto.siteId ?? null,
-        callbackPhone: dto.callbackPhone?.trim() || null,
-        createdBy: user.id,
-      },
+    const row = await this.createRow({
+      organizationId: user.organizationId,
+      customerId,
+      category: dto.category,
+      severity: dto.severity ?? ComplaintSeverity.MEDIUM,
+      title,
+      description,
+      siteId: dto.siteId ?? null,
+      callbackPhone: dto.callbackPhone?.trim() || null,
+      createdBy: user.id,
     });
 
     await this.audit.record({
@@ -327,25 +342,69 @@ export class CustomerComplaintsService {
       },
     });
 
-    return this.toDto(row);
+    return this.toDto(row, { currentUserId: user.id });
   }
 
-  private async nextReference(organizationId: string): Promise<string> {
-    const latest = await this.prisma.customerComplaint.findFirst({
+  private async createRow(input: {
+    organizationId: string;
+    customerId: string;
+    category: ComplaintCategory;
+    severity: ComplaintSeverity;
+    title: string;
+    description: string;
+    siteId: string | null;
+    callbackPhone: string | null;
+    createdBy: string;
+  }) {
+    // Seeds mix numeric CMP-##### refs with other formats, and concurrent
+    // inserts can collide — parse only the numeric family and retry P2002.
+    for (let attempt = 0; attempt < 6; attempt += 1) {
+      try {
+        return await this.prisma.customerComplaint.create({
+          data: {
+            ...input,
+            referenceNumber: await this.nextReference(
+              input.organizationId,
+              attempt,
+            ),
+          },
+        });
+      } catch (error) {
+        if (
+          attempt < 5 &&
+          error instanceof Prisma.PrismaClientKnownRequestError &&
+          error.code === 'P2002'
+        ) {
+          continue;
+        }
+        throw error;
+      }
+    }
+    throw new BadRequestException({
+      error: 'REFERENCE_GENERATION_FAILED',
+      message: 'Could not allocate a complaint reference, please retry',
+    });
+  }
+
+  private async nextReference(
+    organizationId: string,
+    offset = 0,
+  ): Promise<string> {
+    const rows = await this.prisma.customerComplaint.findMany({
       where: {
         organizationId,
         referenceNumber: { startsWith: 'CMP-' },
       },
-      orderBy: { referenceNumber: 'desc' },
+      orderBy: { createdAt: 'desc' },
+      take: 500,
       select: { referenceNumber: true },
     });
-    let n = 1;
-    if (latest?.referenceNumber) {
-      const part = latest.referenceNumber.slice(4);
-      const parsed = Number.parseInt(part, 10);
-      if (!Number.isNaN(parsed)) n = parsed + 1;
+    let max = 0;
+    for (const row of rows) {
+      const match = /^CMP-(\d+)$/.exec(row.referenceNumber);
+      if (match) max = Math.max(max, Number.parseInt(match[1], 10));
     }
-    return `CMP-${String(n).padStart(5, '0')}`;
+    return `CMP-${String(max + 1 + offset).padStart(5, '0')}`;
   }
 
   private async enrichMany(
@@ -373,6 +432,7 @@ export class CustomerComplaintsService {
       updatedAt: Date;
       customer?: { code: string; name: string };
     }>,
+    user?: AuthUser,
   ): Promise<ComplaintResponseDto[]> {
     if (rows.length === 0) return [];
     const siteIds = [
@@ -385,6 +445,26 @@ export class CustomerComplaintsService {
         })
       : [];
     const siteById = new Map(sites.map((s) => [s.id, s]));
+    const userIds = [
+      ...new Set(
+        rows
+          .flatMap((r) => [
+            r.createdBy,
+            r.acknowledgedBy,
+            r.resolvedBy,
+            r.closedBy,
+          ])
+          .filter((id): id is string => !!id),
+      ),
+    ];
+    const users =
+      user && userIds.length
+        ? await this.prisma.user.findMany({
+            where: { id: { in: userIds }, organizationId: user.organizationId },
+            select: { id: true, fullName: true },
+          })
+        : [];
+    const nameOf = new Map(users.map((u) => [u.id, u.fullName]));
     return rows.map((r) => {
       const site = r.siteId ? siteById.get(r.siteId) : undefined;
       return this.toDto(r, {
@@ -392,6 +472,15 @@ export class CustomerComplaintsService {
         siteName: site?.name ?? null,
         customerCode: r.customer?.code ?? null,
         customerName: r.customer?.name ?? null,
+        createdByName: nameOf.get(r.createdBy) ?? null,
+        acknowledgedByName: r.acknowledgedBy
+          ? nameOf.get(r.acknowledgedBy) ?? null
+          : null,
+        resolvedByName: r.resolvedBy
+          ? nameOf.get(r.resolvedBy) ?? null
+          : null,
+        closedByName: r.closedBy ? nameOf.get(r.closedBy) ?? null : null,
+        currentUserId: user?.id ?? null,
       });
     });
   }
@@ -425,8 +514,14 @@ export class CustomerComplaintsService {
       siteName?: string | null;
       customerCode?: string | null;
       customerName?: string | null;
+      createdByName?: string | null;
+      acknowledgedByName?: string | null;
+      resolvedByName?: string | null;
+      closedByName?: string | null;
+      currentUserId?: string | null;
     },
   ): ComplaintResponseDto {
+    const currentUserId = extra?.currentUserId ?? null;
     return {
       id: row.id,
       organizationId: row.organizationId,
@@ -442,17 +537,24 @@ export class CustomerComplaintsService {
       siteName: extra?.siteName ?? null,
       callbackPhone: row.callbackPhone,
       createdBy: row.createdBy,
+      createdByName: extra?.createdByName ?? null,
       acknowledgedBy: row.acknowledgedBy,
+      acknowledgedByName: extra?.acknowledgedByName ?? null,
       acknowledgedAt: row.acknowledgedAt,
       resolvedBy: row.resolvedBy,
+      resolvedByName: extra?.resolvedByName ?? null,
       resolvedAt: row.resolvedAt,
       closedBy: row.closedBy,
+      closedByName: extra?.closedByName ?? null,
       closedAt: row.closedAt,
       resolutionNotes: row.resolutionNotes,
       createdAt: row.createdAt,
       updatedAt: row.updatedAt,
       customerCode: extra?.customerCode ?? null,
       customerName: extra?.customerName ?? null,
+      isCreator: currentUserId ? row.createdBy === currentUserId : null,
+      canProcess: currentUserId ? row.createdBy !== currentUserId : null,
+      allowedNextStatuses: STAFF_TRANSITIONS[row.status] ?? [],
     };
   }
 }

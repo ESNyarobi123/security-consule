@@ -101,4 +101,14 @@ export class ComplaintResponseDto {
   @ApiProperty() updatedAt!: Date;
   @ApiPropertyOptional() customerCode?: string | null;
   @ApiPropertyOptional() customerName?: string | null;
+  /** Support desk enrichment — officer names for the detail drawer. */
+  @ApiPropertyOptional() createdByName?: string | null;
+  @ApiPropertyOptional() acknowledgedByName?: string | null;
+  @ApiPropertyOptional() resolvedByName?: string | null;
+  @ApiPropertyOptional() closedByName?: string | null;
+  /** SoD helpers: the caller cannot process a complaint they filed. */
+  @ApiPropertyOptional() isCreator?: boolean | null;
+  @ApiPropertyOptional() canProcess?: boolean | null;
+  @ApiPropertyOptional({ type: [String] })
+  allowedNextStatuses?: string[];
 }

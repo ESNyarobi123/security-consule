@@ -1,20 +1,50 @@
 'use client';
 
+import { getSessionUser } from '@pssms/auth';
+import { can, type NavItem } from '@pssms/permissions';
 import { AzureGlyph } from '@pssms/ui';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import type { ReactNode } from 'react';
+import { useMemo, type ReactNode } from 'react';
 
-export const CALLCENTRE_TABS = [
-  { href: '/callcentre', label: 'Overview', exact: true },
-  { href: '/callcentre/visitors', label: 'Visitors' },
-  { href: '/callcentre/complaints', label: 'Complaints' },
-  { href: '/callcentre/tickets', label: 'Tickets' },
-] as const;
+type Tab = NavItem & { exact?: boolean };
+
+export const CALLCENTRE_TABS: Tab[] = [
+  { href: '/callcentre', label: 'Overview', permission: '', exact: true },
+  {
+    href: '/callcentre/visitors',
+    label: 'Visitors',
+    permission: 'visitors.manage',
+    alsoPermits: ['support.manage'],
+  },
+  {
+    href: '/callcentre/complaints',
+    label: 'Complaints',
+    permission: 'support.manage',
+    alsoPermits: ['visitors.manage'],
+  },
+  {
+    href: '/callcentre/tickets',
+    label: 'Tickets',
+    permission: 'support.manage',
+    alsoPermits: ['visitors.manage'],
+  },
+];
+
+function tabAllowed(
+  user: ReturnType<typeof getSessionUser>,
+  tab: Tab,
+): boolean {
+  if (!tab.permission) return true;
+  if (can(user, tab.permission)) return true;
+  return (tab.alsoPermits ?? []).some((code) => can(user, code));
+}
 
 export function CallCentreShell({ children }: { children: ReactNode }) {
   const pathname = usePathname();
+  const session = useMemo(() => getSessionUser(), []);
   const isOverview = pathname === '/callcentre';
+  const tabs = CALLCENTRE_TABS.filter((tab) => tabAllowed(session, tab));
 
   return (
     <div className={isOverview ? 'pb-6' : undefined}>
@@ -38,6 +68,13 @@ export function CallCentreShell({ children }: { children: ReactNode }) {
               </p>
             </div>
           </div>
+          {session ? (
+            <span className="rounded-full bg-[#f3f2f1] px-2.5 py-1 text-[11px] font-medium text-[#323130]">
+              {session.roles
+                .map((r) => r.replace(/_/g, ' ').toLowerCase())
+                .join(' · ')}
+            </span>
+          ) : null}
         </div>
       ) : null}
 
@@ -45,7 +82,7 @@ export function CallCentreShell({ children }: { children: ReactNode }) {
         aria-label="Call Centre sections"
         className="mb-5 flex gap-1 overflow-x-auto rounded-lg border border-[#e1dfdd] bg-[#faf9f8] p-1"
       >
-        {CALLCENTRE_TABS.map((tab) => {
+        {tabs.map((tab) => {
           const exact = 'exact' in tab && tab.exact;
           const active = exact
             ? pathname === tab.href

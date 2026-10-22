@@ -17,18 +17,37 @@ import { AppModule } from './app.module';
 async function bootstrap() {
   const app = await NestFactory.create<NestFastifyApplication>(
     AppModule,
-    new FastifyAdapter({ logger: true, bodyLimit: 4 * 1024 * 1024 }),
+    // 5MB docs + multipart overhead (fields). Was 4MB — larger uploads
+    // truncated parsing and surfaced as missing resourceType/resourceId.
+    new FastifyAdapter({ logger: true, bodyLimit: 6 * 1024 * 1024 }),
   );
+
+  // Action endpoints such as POST /procurement/purchase-orders/:id/submit,
+  // /supplier-submissions/:id/approve, or /users/:id/mfa/reset take no body.
+  // Browsers (and some proxies) still attach `Content-Type: application/json`
+  // on such POSTs, and Fastify's default JSON parser then fails the request
+  // with "Body cannot be empty when content-type is set to 'application/json'".
+  // A no-body action is safe to treat as `{}`; real endpoints validate DTOs.
+  // Nest's FastifyAdapter registers its own JSON parser during `init()`, so the
+  // replacement happens after init (below) but before `listen()` boots Fastify.
 
   await app.register(multipart, {
     limits: {
-      fileSize: 10 * 1024 * 1024,
+      fileSize: 5 * 1024 * 1024,
       files: 1,
+      fields: 10,
     },
   });
 
   app.setGlobalPrefix('api/v1');
-  app.enableCors({ origin: true, credentials: true });
+  // Fastify @fastify/cors defaults to GET,HEAD,POST only — browsers then
+  // block PATCH/PUT/DELETE (e.g. Apply roles) with opaque "Failed to fetch".
+  app.enableCors({
+    origin: true,
+    credentials: true,
+    methods: ['GET', 'HEAD', 'PUT', 'PATCH', 'POST', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Authorization', 'Content-Type', 'Accept', 'X-Request-Id'],
+  });
   app.useGlobalPipes(
     new ValidationPipe({
       whitelist: true,
@@ -43,6 +62,26 @@ async function bootstrap() {
     new ResponseInterceptor(),
   );
   app.useGlobalFilters(new HttpExceptionFilter());
+
+  await app.init();
+  const fastify = app.getHttpAdapter().getInstance();
+  fastify.removeContentTypeParser('application/json');
+  fastify.addContentTypeParser(
+    'application/json',
+    { parseAs: 'string' },
+    (_req, body, done) => {
+      const raw = typeof body === 'string' ? body.trim() : '';
+      if (!raw) {
+        done(null, {});
+        return;
+      }
+      try {
+        done(null, JSON.parse(raw));
+      } catch (err) {
+        done(err as Error, undefined);
+      }
+    },
+  );
 
   const swaggerConfig = new DocumentBuilder()
     .setTitle('PSSMS Core API')

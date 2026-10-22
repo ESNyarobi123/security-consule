@@ -73,9 +73,34 @@ export class PayslipSnapshotResponseDto {
   @ApiProperty() createdAt!: Date;
 }
 
+export class MyPayslipResponseDto extends PayslipSnapshotResponseDto {
+  @ApiProperty() cycleCode!: string;
+  @ApiProperty({ enum: PayrollCycleStatus }) cycleStatus!: PayrollCycleStatus;
+  @ApiProperty({ enum: PayrollTenantType }) tenantType!: PayrollTenantType;
+  @ApiProperty() periodStart!: Date;
+  @ApiProperty() periodEnd!: Date;
+}
+
 export class PayrollMoneyCountDto {
   @ApiProperty() count!: number;
   @ApiProperty() amount!: number;
+}
+
+export class PayrollSkippedEmployeeDto {
+  @ApiProperty() employeeNumber!: string;
+  @ApiProperty() employeeName!: string;
+  @ApiProperty({ example: 'MISSING_SALARY_ASSIGNMENT' }) reason!: string;
+}
+
+export class PayrollCycleReadinessDto {
+  @ApiProperty({ enum: PayrollTenantType }) tenantType!: PayrollTenantType;
+  @ApiProperty() eligible!: number;
+  @ApiProperty({ type: [PayrollSkippedEmployeeDto] })
+  skipped!: PayrollSkippedEmployeeDto[];
+  @ApiProperty() missingBankRefs!: number;
+  @ApiProperty() missingMobileRefs!: number;
+  @ApiProperty() generatedPayslips!: number;
+  @ApiProperty({ type: [String] }) notes!: string[];
 }
 
 export class PayrollTenantPackDto {

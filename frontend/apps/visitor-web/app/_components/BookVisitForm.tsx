@@ -148,6 +148,20 @@ export function BookVisitForm({
       setError('Select the host you are visiting.');
       return;
     }
+    const fromDate = new Date(validFrom);
+    const untilDate = new Date(validUntil);
+    if (Number.isNaN(fromDate.getTime()) || Number.isNaN(untilDate.getTime())) {
+      setError('Choose a valid visit date and time.');
+      return;
+    }
+    if (fromDate.getTime() < Date.now() - 5 * 60_000) {
+      setError('The visit start time must be in the future.');
+      return;
+    }
+    if (untilDate.getTime() <= fromDate.getTime()) {
+      setError('The “until” time must be after the start time.');
+      return;
+    }
     if (withVehicle && !vehiclePlate.trim()) {
       setError('Enter the vehicle plate, or uncheck arriving by vehicle.');
       return;
@@ -314,7 +328,8 @@ export function BookVisitForm({
         </div>
         <p className="lg:col-span-2 -mt-3 text-xs text-slate-500">
           Email or phone is required. After your host approves, the verification
-          code is sent on those channels — never shown at booking.
+          code is sent to your phone by SMS (and email when provided) — never
+          shown at booking.
         </p>
 
         <div className="lg:col-span-2">
@@ -390,6 +405,7 @@ export function BookVisitForm({
             type="datetime-local"
             className="hl-input"
             value={validUntil}
+            min={validFrom}
             onChange={(e) => setValidUntil(e.target.value)}
             required
           />

@@ -241,7 +241,9 @@ export class DataBreachCaseResponseDto {
   @ApiPropertyOptional() containmentNotes?: string | null;
   @ApiPropertyOptional() closedAt?: Date | null;
   @ApiPropertyOptional() closedBy?: string | null;
+  @ApiPropertyOptional() closedByName?: string | null;
   @ApiProperty() createdBy!: string;
+  @ApiPropertyOptional() createdByName?: string | null;
   @ApiProperty() createdAt!: Date;
   @ApiProperty() updatedAt!: Date;
 }

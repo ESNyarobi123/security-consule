@@ -2,9 +2,9 @@
 
 import { clearSession, getSessionUser } from '@pssms/auth';
 import {
-  can,
+  defaultPortal,
   navForUser,
-  permissionForPath,
+  pathAllows,
 } from '@pssms/permissions';
 import { AdminShell } from '@pssms/ui';
 import { usePathname, useRouter } from 'next/navigation';
@@ -39,13 +39,7 @@ export default function PortalsLayout({
       (user.roles[0] ?? 'USER').replace(/_/g, ' ').toLowerCase(),
     );
     setNav(navForUser(user));
-    const required = permissionForPath(pathname);
-    const overview35_18 =
-      pathname === '/procurement' || pathname === '/procurement/';
-    const allowed = overview35_18
-      ? can(user, 'procurement.manage') || can(user, 'inventory.manage')
-      : !required || can(user, required);
-    setDenied(!allowed);
+    setDenied(!pathAllows(user, pathname));
   }, [pathname, router]);
 
   function logout() {
@@ -63,7 +57,7 @@ export default function PortalsLayout({
           </p>
           <button
             type="button"
-            onClick={() => router.push('/superadmin')}
+            onClick={() => router.push(defaultPortal(getSessionUser()))}
             className="mt-4 rounded-md bg-[#0078d4] px-4 py-2 text-sm font-medium text-white hover:bg-[#106ebe]"
           >
             Go to home

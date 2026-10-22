@@ -2,6 +2,8 @@ import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { PrismaModule } from '@pssms/shared';
 import { ConsoleSmsProvider } from './adapters/messaging/console-sms.provider';
+import { EmailSender } from './adapters/messaging/email-sender';
+import { SmsSender } from './adapters/messaging/sms-sender';
 import { ConsolePaymentProvider } from './adapters/payments/console-payment.provider';
 import { VisionAiAnprAdapter } from './adapters/anpr/vision-ai-anpr.adapter';
 import { DispatchService } from './dispatch/dispatch.service';
@@ -35,6 +37,8 @@ import {
     DispatchService,
     ProvidersHealthService,
     ConsoleSmsProvider,
+    SmsSender,
+    EmailSender,
     ConsolePaymentProvider,
     VisionAiAnprAdapter,
     IclockService,

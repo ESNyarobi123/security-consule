@@ -103,6 +103,31 @@ const SNAPSHOT_KPI_CODES = new Set([
   'CUSTOMER_PAYROLL_NET_TOTAL',
 ]);
 
+/**
+ * Metrics whose source models have no site/branch dimension. When a branch
+ * filter is requested we still return the company-wide number, but the
+ * breakdown is tagged `scope: 'org-wide'` so the UI/API never implies that the
+ * branch filter narrowed them.
+ */
+const ORG_WIDE_KPI_CODES = new Set([
+  'GUARD_HEADCOUNT_ACTIVE',
+  'PAYROLL_NET_TOTAL',
+  'PAYROLL_GROSS_TOTAL',
+  'PAYROLL_CYCLES_PAID',
+  'CUSTOMER_PAYROLL_NET_TOTAL',
+  'EPAYROLL_DUE_ALERTS',
+  'EMPLOYEE_LOANS_ACTIVE',
+  'EMPLOYEES_ACTIVE',
+  'RECRUITMENT_PIPELINE',
+  'B2B_RECRUITMENT_REQUESTS_OPEN',
+  'SUPPLIERS_APPROVED',
+  'PAYMENT_VOUCHERS_PAID',
+  'CCTV_ALERTS_OPEN',
+  'COMPLIANCE_POLICIES_PUBLISHED',
+  'COMPLIANCE_BREACHES_OPEN',
+  'AUDIT_EVENTS',
+]);
+
 @Injectable()
 export class KpiService {
   private readonly logger = new Logger(KpiService.name);
@@ -123,6 +148,30 @@ export class KpiService {
       ? KPI_CATALOG.filter((k) => codes.includes(k.code))
       : KPI_CATALOG;
 
+    // Prior-period snapshots power real trends (no invented deltas). Only
+    // org-scope READY snapshots are comparable to the current org-wide run.
+    const priorByCode = new Map<string, number>();
+    if (!filters?.siteId && !filters?.branchId) {
+      const prior = await this.prisma.withOrgContext(organizationId, (tx) =>
+        tx.kpiSnapshot.findMany({
+          where: {
+            organizationId,
+            scopeKey: 'all',
+            status: KpiSnapshotStatus.READY,
+            periodEnd: { lt: from },
+            kpiCode: { in: catalog.map((c) => c.code) },
+          },
+          select: { kpiCode: true, valueNumeric: true, periodEnd: true },
+          orderBy: { periodEnd: 'desc' },
+        }),
+      );
+      for (const row of prior) {
+        if (!priorByCode.has(row.kpiCode)) {
+          priorByCode.set(row.kpiCode, Number(row.valueNumeric));
+        }
+      }
+    }
+
     const results: KpiItemDto[] = [];
     for (const def of catalog) {
       try {
@@ -133,28 +182,51 @@ export class KpiService {
           to,
           filters,
         );
+        const priorValue = priorByCode.get(def.code) ?? null;
+        const deltaPct =
+          priorValue !== null && priorValue !== 0
+            ? Math.round(((computed.value - priorValue) / Math.abs(priorValue)) * 10000) /
+              100
+            : null;
+        const breakdown = computed.breakdown;
         results.push({
           code: def.code,
           name: def.name,
           category: def.category,
           unit: def.unit,
           value: computed.value,
-          priorValue: null,
-          deltaPct: null,
+          priorValue,
+          deltaPct,
           asOf: new Date(),
           source: SNAPSHOT_KPI_CODES.has(def.code) ? 'snapshot' : 'live',
-          breakdown: computed.breakdown,
+          breakdown:
+            filters?.branchId && ORG_WIDE_KPI_CODES.has(def.code)
+              ? {
+                  ...(breakdown ?? {}),
+                  scope: 'org-wide',
+                  branchFilterApplied: false,
+                  scopeNote:
+                    'Metric has no branch/site dimension in the data model — value is company-wide.',
+                }
+              : breakdown,
         });
       } catch (err) {
-        this.logger.warn(`KPI ${def.code} failed: ${String(err)}`);
+        const message = err instanceof Error ? err.message : String(err);
+        // Never masquerade a failed query as a genuine zero.
+        this.logger.warn(`KPI ${def.code} failed: ${message}`);
         results.push({
           code: def.code,
           name: def.name,
           category: def.category,
           unit: def.unit,
           value: 0,
+          priorValue: null,
+          deltaPct: null,
           asOf: new Date(),
           source: 'live',
+          degraded: true,
+          error: message,
+          breakdown: { degraded: true, error: message, valueIsValid: false },
         });
       }
     }
@@ -291,6 +363,7 @@ export class KpiService {
     organizationId: string,
     from: Date,
     to: Date,
+    filters?: { siteId?: string; branchId?: string },
   ): Promise<KpiDrilldownResponseDto> {
     const def = KPI_CATALOG.find((k) => k.code === code);
     if (!def) {
@@ -311,9 +384,39 @@ export class KpiService {
       };
     }
 
-    const computed = await this.computeOne(code, organizationId, from, to);
-    const bySite = await this.siteBreakdown(code, organizationId, from, to);
+    const allowedSiteIds = filters?.siteId
+      ? [filters.siteId]
+      : filters?.branchId
+        ? (
+            await this.prisma.site.findMany({
+              where: { organizationId, branchId: filters.branchId },
+              select: { id: true },
+            })
+          ).map((s) => s.id)
+        : undefined;
+
+    const computed = await this.computeOne(
+      code,
+      organizationId,
+      from,
+      to,
+      filters,
+    );
+    const bySite = await this.siteBreakdown(
+      code,
+      organizationId,
+      from,
+      to,
+      allowedSiteIds,
+    );
     const notes: string[] = [];
+    if (filters?.branchId) {
+      notes.push(
+        `Branch filter applied (${allowedSiteIds?.length ?? 0} sites in branch).`,
+      );
+    } else if (filters?.siteId) {
+      notes.push('Site filter applied.');
+    }
     if (bySite.length === 0) {
       notes.push(
         'No site split for this metric (org-wide or zero rows in period).',
@@ -323,6 +426,9 @@ export class KpiService {
     }
     if (computed.breakdown) {
       notes.push('Scalar breakdown included from live compute.');
+    }
+    if (computed.breakdown?.scope === 'org-wide') {
+      notes.push(String(computed.breakdown.scopeNote ?? 'Metric is org-wide.'));
     }
 
     return {
@@ -348,6 +454,7 @@ export class KpiService {
     organizationId: string,
     from: Date,
     to: Date,
+    allowedSiteIds?: string[],
   ): Promise<
     { siteId: string; siteCode: string; siteName: string; value: number }[]
   > {
@@ -582,6 +689,11 @@ export class KpiService {
         return [];
     }
 
+    if (allowedSiteIds) {
+      const allowed = new Set(allowedSiteIds);
+      pairs = pairs.filter((p) => allowed.has(p.siteId));
+    }
+
     const siteIds = pairs.map((p) => p.siteId).filter(Boolean);
     if (siteIds.length === 0) return [];
 
@@ -612,7 +724,31 @@ export class KpiService {
     to: Date,
     filters?: { siteId?: string; branchId?: string },
   ): Promise<{ value: number; breakdown?: Record<string, unknown> }> {
-    const siteFilter = filters?.siteId ? { siteId: filters.siteId } : {};
+    // Branch filter → resolve the branch's sites once, then reuse the existing
+    // site scoping. An unknown/empty branch yields an empty `in` list (0 rows)
+    // instead of silently falling back to company-wide numbers.
+    const branchSites =
+      !filters?.siteId && filters?.branchId
+        ? await this.prisma.site.findMany({
+            where: { organizationId, branchId: filters.branchId },
+            select: { id: true, customerId: true },
+          })
+        : null;
+    const branchSiteIds = branchSites?.map((s) => s.id);
+    const branchCustomerIds = branchSites
+      ? Array.from(
+          new Set(
+            branchSites
+              .map((s) => s.customerId)
+              .filter((id): id is string => Boolean(id)),
+          ),
+        )
+      : null;
+    const siteFilter = filters?.siteId
+      ? { siteId: filters.siteId }
+      : branchSiteIds
+        ? { siteId: { in: branchSiteIds } }
+        : {};
     const toEnd = new Date(to);
     toEnd.setHours(23, 59, 59, 999);
 
@@ -842,7 +978,7 @@ export class KpiService {
           organizationId,
           isActive: true,
           status: { not: ParkingSpaceStatus.OUT_OF_SERVICE },
-          ...(filters?.siteId ? { siteId: filters.siteId } : {}),
+          ...siteFilter,
         };
         const [total, occupied, reserved, available, outOfService] =
           await Promise.all([
@@ -861,7 +997,7 @@ export class KpiService {
                 organizationId,
                 isActive: true,
                 status: ParkingSpaceStatus.OUT_OF_SERVICE,
-                ...(filters?.siteId ? { siteId: filters.siteId } : {}),
+                ...siteFilter,
               },
             }),
           ]);
@@ -896,24 +1032,77 @@ export class KpiService {
           }),
         };
 
-      case 'CONTRACTS_ACTIVE':
-        return {
-          value: await this.prisma.contract.count({
-            where: { organizationId, status: ContractStatus.ACTIVE },
+      case 'CONTRACTS_ACTIVE': {
+        const contractBranchFilter = branchSiteIds
+          ? { sites: { some: { siteId: { in: branchSiteIds } } } }
+          : {};
+        const [active, expiring] = await Promise.all([
+          this.prisma.contract.count({
+            where: {
+              organizationId,
+              status: ContractStatus.ACTIVE,
+              ...contractBranchFilter,
+            },
           }),
-        };
+          this.prisma.contract.count({
+            where: {
+              organizationId,
+              status: ContractStatus.EXPIRING,
+              ...contractBranchFilter,
+            },
+          }),
+        ]);
+        return { value: active, breakdown: { expiring } };
+      }
 
       case 'CONTRACTS_MRR': {
-        const agg = await this.prisma.contract.aggregate({
-          where: { organizationId, status: ContractStatus.ACTIVE },
+        // Never add USD/EUR/KES notes to a TZS sum. Headline = TZS contracts;
+        // other currencies are returned separately so finance can translate.
+        const contractBranchFilter = branchSiteIds
+          ? { sites: { some: { siteId: { in: branchSiteIds } } } }
+          : {};
+        const grouped = await this.prisma.contract.groupBy({
+          by: ['currency'],
+          where: {
+            organizationId,
+            status: ContractStatus.ACTIVE,
+            ...contractBranchFilter,
+          },
           _sum: { monthlyFee: true },
+          _count: { _all: true },
         });
-        return { value: Number(agg._sum.monthlyFee ?? 0) };
+        const byCurrency = grouped
+          .map((g) => ({
+            currency: g.currency || 'TZS',
+            monthlyFee: Number(g._sum.monthlyFee ?? 0),
+            contracts: g._count._all,
+          }))
+          .sort((a, b) => b.monthlyFee - a.monthlyFee);
+        const headline = byCurrency.find((c) => c.currency === 'TZS');
+        const excluded = byCurrency.filter((c) => c.currency !== 'TZS');
+        return {
+          value: headline?.monthlyFee ?? 0,
+          breakdown: {
+            headlineCurrency: 'TZS',
+            byCurrency,
+            ...(excluded.length
+              ? {
+                  scopeNote:
+                    'Headline MRR counts TZS contracts only; other currencies are listed in byCurrency and are not converted (no FX table).',
+                }
+              : {}),
+          },
+        };
       }
 
       case 'BRANCHES_ACTIVE': {
+        const branchWhere = {
+          organizationId,
+          isActive: true,
+          ...(filters?.branchId ? { id: filters.branchId } : {}),
+        };
         const branches = await this.prisma.branch.findMany({
-          where: { organizationId, isActive: true },
+          where: branchWhere,
           select: {
             code: true,
             name: true,
@@ -924,7 +1113,7 @@ export class KpiService {
           take: 50,
         });
         return {
-          value: branches.length,
+          value: await this.prisma.branch.count({ where: branchWhere }),
           breakdown: {
             items: branches.map((b) => ({
               code: b.code,
@@ -937,8 +1126,13 @@ export class KpiService {
       }
 
       case 'SITES_ACTIVE': {
+        const siteWhere = {
+          organizationId,
+          isActive: true,
+          ...(filters?.branchId ? { branchId: filters.branchId } : {}),
+        };
         const sites = await this.prisma.site.findMany({
-          where: { organizationId, isActive: true },
+          where: siteWhere,
           select: {
             code: true,
             name: true,
@@ -948,9 +1142,7 @@ export class KpiService {
           take: 80,
         });
         return {
-          value: await this.prisma.site.count({
-            where: { organizationId, isActive: true },
-          }),
+          value: await this.prisma.site.count({ where: siteWhere }),
           breakdown: {
             items: sites.map((s) => ({
               code: s.code,
@@ -963,12 +1155,14 @@ export class KpiService {
       }
 
       case 'CUSTOMER_SITES_ACTIVE': {
+        const siteWhere = {
+          organizationId,
+          isActive: true,
+          customerId: { not: null },
+          ...(filters?.branchId ? { branchId: filters.branchId } : {}),
+        };
         const sites = await this.prisma.site.findMany({
-          where: {
-            organizationId,
-            isActive: true,
-            customerId: { not: null },
-          },
+          where: siteWhere,
           select: {
             code: true,
             name: true,
@@ -978,13 +1172,7 @@ export class KpiService {
           take: 80,
         });
         return {
-          value: await this.prisma.site.count({
-            where: {
-              organizationId,
-              isActive: true,
-              customerId: { not: null },
-            },
-          }),
+          value: await this.prisma.site.count({ where: siteWhere }),
           breakdown: {
             items: sites.map((s) => ({
               code: s.code,
@@ -997,16 +1185,21 @@ export class KpiService {
       }
 
       case 'CUSTOMERS_ACTIVE': {
+        const customerWhere = {
+          organizationId,
+          isActive: true,
+          ...(branchCustomerIds
+            ? { id: { in: branchCustomerIds } }
+            : {}),
+        };
         const customers = await this.prisma.customer.findMany({
-          where: { organizationId, isActive: true },
+          where: customerWhere,
           select: { code: true, name: true },
           orderBy: { name: 'asc' },
           take: 50,
         });
         return {
-          value: await this.prisma.customer.count({
-            where: { organizationId, isActive: true },
-          }),
+          value: await this.prisma.customer.count({ where: customerWhere }),
           breakdown: {
             items: customers.map((c) => ({
               code: c.code,
@@ -1025,16 +1218,36 @@ export class KpiService {
                 InvoiceStatus.SENT,
                 InvoiceStatus.PARTIALLY_PAID,
                 InvoiceStatus.OVERDUE,
+                InvoiceStatus.DISPUTED,
               ],
             },
+            ...(branchCustomerIds
+              ? { customerId: { in: branchCustomerIds } }
+              : {}),
           },
-          select: { totalAmount: true, amountPaid: true },
+          select: { totalAmount: true, amountPaid: true, currency: true },
         });
-        const outstanding = invoices.reduce(
-          (sum, i) => sum + Number(i.totalAmount) - Number(i.amountPaid),
-          0,
-        );
-        return { value: outstanding };
+        const byCurrency: Record<string, number> = {};
+        for (const inv of invoices) {
+          const currency = inv.currency || 'TZS';
+          byCurrency[currency] =
+            (byCurrency[currency] ?? 0) +
+            (Number(inv.totalAmount) - Number(inv.amountPaid));
+        }
+        return {
+          value: byCurrency.TZS ?? 0,
+          breakdown: {
+            headlineCurrency: 'TZS',
+            byCurrency,
+            invoices: invoices.length,
+            ...(Object.keys(byCurrency).some((c) => c !== 'TZS')
+              ? {
+                  scopeNote:
+                    'Headline outstanding counts TZS invoices only; other currencies are listed in byCurrency and are not converted (no FX table).',
+                }
+              : {}),
+          },
+        };
       }
 
       case 'INVOICE_COLLECTED':
@@ -1043,6 +1256,9 @@ export class KpiService {
           where: {
             organizationId,
             recordedAt: { gte: from, lte: toEnd },
+            ...(branchCustomerIds
+              ? { invoice: { customerId: { in: branchCustomerIds } } }
+              : {}),
           },
           _sum: { amount: true },
         });
@@ -1050,6 +1266,14 @@ export class KpiService {
           value: Number(agg._sum.amount ?? 0),
           breakdown: {
             source: 'InvoicePayment',
+            ...(filters?.branchId
+              ? {
+                  scope: 'branch',
+                  branchId: filters.branchId,
+                  scopeNote:
+                    'Payments scoped through the invoice customer sites in the selected branch.',
+                }
+              : {}),
             note:
               code === 'REVENUE_COLLECTED'
                 ? '§35.2 revenue = payments collected in period'
@@ -1069,6 +1293,7 @@ export class KpiService {
               ],
             },
             issuedAt: { gte: from, lte: toEnd },
+            ...(filters?.branchId ? { branchId: filters.branchId } : {}),
           },
           _sum: { amount: true },
         });
@@ -1096,6 +1321,7 @@ export class KpiService {
               status: {
                 in: [IncidentStatus.OPEN, IncidentStatus.INVESTIGATING],
               },
+              ...siteFilter,
             },
           }),
           breakdown: {
@@ -1279,15 +1505,20 @@ export class KpiService {
 
       case 'CUSTOMER_SERVICE_RESOLUTION_RATE': {
         const period = { gte: from, lte: toEnd };
+        const customerScope = branchCustomerIds
+          ? { customerId: { in: branchCustomerIds } }
+          : {};
         const [requestTotal, requestResolved, complaintTotal, complaintResolved] =
           await Promise.all([
             this.prisma.customerServiceRequest.count({
-              where: { organizationId, createdAt: period },
+              where: { organizationId, createdAt: period, ...customerScope, ...(filters?.siteId ? { siteId: filters.siteId } : {}) },
             }),
             this.prisma.customerServiceRequest.count({
               where: {
                 organizationId,
                 createdAt: period,
+                ...customerScope,
+                ...(filters?.siteId ? { siteId: filters.siteId } : {}),
                 status: {
                   in: [
                     ServiceRequestStatus.RESOLVED,
@@ -1297,12 +1528,13 @@ export class KpiService {
               },
             }),
             this.prisma.customerComplaint.count({
-              where: { organizationId, createdAt: period },
+              where: { organizationId, createdAt: period, ...customerScope },
             }),
             this.prisma.customerComplaint.count({
               where: {
                 organizationId,
                 createdAt: period,
+                ...customerScope,
                 status: {
                   in: [ComplaintStatus.RESOLVED, ComplaintStatus.CLOSED],
                 },

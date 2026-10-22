@@ -22,6 +22,52 @@ import { useRouter } from 'next/navigation';
 import { FormEvent, useState } from 'react';
 import { CareersShell } from '../../_components/careers-ui';
 
+/** Registration limits mirror `RegisterB2bPartnerDto` on core-api. */
+const COMPANY_NAME_MAX = 120;
+const CONTACT_NAME_MAX = 120;
+const PHONE_MAX = 40;
+
+/** Mirrors enterprise `DEFAULT_PASSWORD_POLICY` enforced by core-api. */
+const PASSWORD_MIN = 10;
+
+const PASSWORD_RULE_HINT =
+  'Min 10 characters with uppercase, lowercase, a number and a symbol.';
+
+type FieldKey =
+  | 'signinEmail'
+  | 'signinPassword'
+  | 'company'
+  | 'contact'
+  | 'email'
+  | 'phone'
+  | 'password'
+  | 'confirm'
+  | 'consent';
+
+type FieldErrors = Partial<Record<FieldKey, string>>;
+
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
+const PHONE_RE = /^\+?[0-9 ().-]{6,}$/;
+
+const BASE_INPUT =
+  'w-full rounded-xl border bg-white py-3 pr-3.5 text-base text-slate-900 outline-none transition placeholder:text-slate-400 focus:ring-2';
+const OK_INPUT =
+  'border-slate-300 focus:border-[#4f46e5] focus:ring-[#4f46e5]/25';
+const BAD_INPUT = 'border-rose-400 focus:border-rose-500 focus:ring-rose-500/25';
+
+/** Everything core-api would reject, caught before the network round-trip. */
+function passwordProblems(value: string): string[] {
+  const problems: string[] = [];
+  if (value.length < PASSWORD_MIN) {
+    problems.push(`at least ${PASSWORD_MIN} characters`);
+  }
+  if (!/[A-Z]/.test(value)) problems.push('an uppercase letter');
+  if (!/[a-z]/.test(value)) problems.push('a lowercase letter');
+  if (!/[0-9]/.test(value)) problems.push('a number');
+  if (!/[^A-Za-z0-9]/.test(value)) problems.push('a symbol');
+  return problems;
+}
+
 const HIGHLIGHTS = [
   {
     Icon: ClipboardList,
@@ -59,9 +105,117 @@ export default function PartnerLoginPage() {
   const [contactName, setContactName] = useState('');
   const [phone, setPhone] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
+  const [consent, setConsent] = useState(false);
+  const [fieldErrors, setFieldErrors] = useState<FieldErrors>({});
+
+  const inputClass = (key: FieldKey) =>
+    `${BASE_INPUT} ${fieldErrors[key] ? BAD_INPUT : OK_INPUT}`;
+
+  /** Drop a field's error as soon as the operator edits it. */
+  function clearField(...keys: FieldKey[]) {
+    setFieldErrors((prev) => {
+      const next = { ...prev };
+      let changed = false;
+      for (const key of keys) {
+        if (next[key]) {
+          delete next[key];
+          changed = true;
+        }
+      }
+      return changed ? next : prev;
+    });
+  }
+
+  function resetErrors() {
+    setFieldErrors({});
+    setError(null);
+    setNotice(null);
+  }
+
+  /** Re-check confirmation live once the operator starts typing a password. */
+  function onPasswordChange(value: string) {
+    setPassword(value);
+    setFieldErrors((prev) => {
+      const next = { ...prev };
+      delete next.password;
+      if (confirmPassword && confirmPassword !== value) {
+        next.confirm = 'Password and confirmation do not match.';
+      } else {
+        delete next.confirm;
+      }
+      return next;
+    });
+  }
+
+  function validateRegister(): FieldErrors {
+    const next: FieldErrors = {};
+
+    const company = companyName.trim();
+    if (company.length < 2) {
+      next.company = 'Enter your security company name (at least 2 characters).';
+    } else if (company.length > COMPANY_NAME_MAX) {
+      next.company = `Keep the company name under ${COMPANY_NAME_MAX} characters.`;
+    }
+
+    const contact = contactName.trim();
+    if (contact.length < 2) {
+      next.contact = 'Enter the contact person (at least 2 characters).';
+    } else if (contact.length > CONTACT_NAME_MAX) {
+      next.contact = `Keep the contact name under ${CONTACT_NAME_MAX} characters.`;
+    }
+
+    const mail = email.trim();
+    if (!mail) {
+      next.email = 'Work email is required.';
+    } else if (!EMAIL_RE.test(mail)) {
+      next.email = 'Enter a valid email address, e.g. ops@company.co.tz.';
+    }
+
+    const tel = phone.trim();
+    if (tel.length > PHONE_MAX) {
+      next.phone = `Keep the phone number under ${PHONE_MAX} characters.`;
+    } else if (tel && !PHONE_RE.test(tel)) {
+      next.phone = 'Use digits only, e.g. +255 712 000 000.';
+    }
+
+    const problems = passwordProblems(password);
+    if (!password) {
+      next.password = 'Password is required.';
+    } else if (problems.length > 0) {
+      next.password = `Password needs ${problems.join(', ')}.`;
+    }
+
+    if (!confirmPassword) {
+      next.confirm = 'Confirm the password.';
+    } else if (confirmPassword !== password) {
+      next.confirm = 'Password and confirmation do not match.';
+    }
+
+    if (!consent) {
+      next.consent =
+        'Confirm this is a security company requesting B2B guard supply.';
+    }
+
+    return next;
+  }
 
   async function onSubmit(e: FormEvent) {
     e.preventDefault();
+    const localErrors: FieldErrors = {};
+    if (!email.trim()) {
+      localErrors.signinEmail = 'Email is required.';
+    } else if (!EMAIL_RE.test(email.trim())) {
+      localErrors.signinEmail = 'Enter a valid email address.';
+    }
+    if (!password) {
+      localErrors.signinPassword = 'Password is required.';
+    }
+    setFieldErrors(localErrors);
+    if (Object.keys(localErrors).length > 0) {
+      setError(null);
+      return;
+    }
+
     setLoading(true);
     setError(null);
     try {
@@ -97,13 +251,12 @@ export default function PartnerLoginPage() {
 
   async function onRegister(e: FormEvent) {
     e.preventDefault();
-    if (password !== confirmPassword) {
-      setError('Password and confirmation do not match.');
-      return;
-    }
-    setLoading(true);
+    const found = validateRegister();
+    setFieldErrors(found);
     setError(null);
     setNotice(null);
+    if (Object.keys(found).length > 0) return;
+    setLoading(true);
     try {
       const result = await registerB2bPartner({
         companyName: companyName.trim(),
@@ -115,6 +268,8 @@ export default function PartnerLoginPage() {
       setMode('signin');
       setPassword('');
       setConfirmPassword('');
+      setConsent(false);
+      setFieldErrors({});
       setNotice(result.message);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Registration failed');
@@ -127,6 +282,7 @@ export default function PartnerLoginPage() {
     setMode('signin');
     setEmail('partner@demo-security.co.tz');
     setPassword('ChangeMe123!');
+    setFieldErrors({});
     setError(null);
     setNotice(null);
   }
@@ -241,7 +397,7 @@ export default function PartnerLoginPage() {
                     type="button"
                     onClick={() => {
                       setMode('signin');
-                      setError(null);
+                      resetErrors();
                     }}
                     className={`rounded-lg px-3 py-2 text-sm font-semibold transition ${
                       mode === 'signin'
@@ -255,8 +411,7 @@ export default function PartnerLoginPage() {
                     type="button"
                     onClick={() => {
                       setMode('register');
-                      setError(null);
-                      setNotice(null);
+                      resetErrors();
                       if (email === 'partner@demo-security.co.tz') {
                         setEmail('');
                         setPassword('');
@@ -274,7 +429,11 @@ export default function PartnerLoginPage() {
               </div>
 
               {mode === 'register' ? (
-                <form onSubmit={onRegister} className="space-y-4 px-7 py-7">
+                <form
+                  onSubmit={onRegister}
+                  noValidate
+                  className="space-y-4 px-7 py-7"
+                >
                   <div>
                     <label
                       htmlFor="partner-company"
@@ -288,13 +447,23 @@ export default function PartnerLoginPage() {
                         id="partner-company"
                         type="text"
                         value={companyName}
-                        onChange={(e) => setCompanyName(e.target.value)}
+                        onChange={(e) => {
+                          setCompanyName(e.target.value);
+                          clearField('company');
+                        }}
                         placeholder="Your security company"
-                        className="w-full rounded-xl border border-slate-300 bg-white py-3 pl-11 pr-3.5 text-base text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-[#4f46e5] focus:ring-2 focus:ring-[#4f46e5]/25"
+                        className={`${inputClass('company')} pl-11`}
                         required
                         minLength={2}
+                        maxLength={COMPANY_NAME_MAX}
+                        aria-invalid={Boolean(fieldErrors.company)}
                       />
                     </div>
+                    {fieldErrors.company ? (
+                      <p className="mt-1 text-xs font-medium text-rose-600">
+                        {fieldErrors.company}
+                      </p>
+                    ) : null}
                   </div>
                   <div>
                     <label
@@ -309,14 +478,24 @@ export default function PartnerLoginPage() {
                         id="partner-contact"
                         type="text"
                         value={contactName}
-                        onChange={(e) => setContactName(e.target.value)}
+                        onChange={(e) => {
+                          setContactName(e.target.value);
+                          clearField('contact');
+                        }}
                         placeholder="Full name"
-                        className="w-full rounded-xl border border-slate-300 bg-white py-3 pl-11 pr-3.5 text-base text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-[#4f46e5] focus:ring-2 focus:ring-[#4f46e5]/25"
+                        className={`${inputClass('contact')} pl-11`}
                         required
                         minLength={2}
+                        maxLength={CONTACT_NAME_MAX}
                         autoComplete="name"
+                        aria-invalid={Boolean(fieldErrors.contact)}
                       />
                     </div>
+                    {fieldErrors.contact ? (
+                      <p className="mt-1 text-xs font-medium text-rose-600">
+                        {fieldErrors.contact}
+                      </p>
+                    ) : null}
                   </div>
                   <div>
                     <label
@@ -331,13 +510,22 @@ export default function PartnerLoginPage() {
                         id="partner-reg-email"
                         type="email"
                         value={email}
-                        onChange={(e) => setEmail(e.target.value)}
+                        onChange={(e) => {
+                          setEmail(e.target.value);
+                          clearField('email', 'signinEmail');
+                        }}
                         placeholder="ops@yourcompany.co.tz"
-                        className="w-full rounded-xl border border-slate-300 bg-white py-3 pl-11 pr-3.5 text-base text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-[#4f46e5] focus:ring-2 focus:ring-[#4f46e5]/25"
+                        className={`${inputClass('email')} pl-11`}
                         required
                         autoComplete="email"
+                        aria-invalid={Boolean(fieldErrors.email)}
                       />
                     </div>
+                    {fieldErrors.email ? (
+                      <p className="mt-1 text-xs font-medium text-rose-600">
+                        {fieldErrors.email}
+                      </p>
+                    ) : null}
                   </div>
                   <div>
                     <label
@@ -353,12 +541,22 @@ export default function PartnerLoginPage() {
                         id="partner-phone"
                         type="tel"
                         value={phone}
-                        onChange={(e) => setPhone(e.target.value)}
+                        onChange={(e) => {
+                          setPhone(e.target.value);
+                          clearField('phone');
+                        }}
                         placeholder="+255 …"
-                        className="w-full rounded-xl border border-slate-300 bg-white py-3 pl-11 pr-3.5 text-base text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-[#4f46e5] focus:ring-2 focus:ring-[#4f46e5]/25"
+                        className={`${inputClass('phone')} pl-11`}
                         autoComplete="tel"
+                        maxLength={PHONE_MAX}
+                        aria-invalid={Boolean(fieldErrors.phone)}
                       />
                     </div>
+                    {fieldErrors.phone ? (
+                      <p className="mt-1 text-xs font-medium text-rose-600">
+                        {fieldErrors.phone}
+                      </p>
+                    ) : null}
                   </div>
                   <div className="grid gap-4 sm:grid-cols-2">
                     <div>
@@ -374,13 +572,21 @@ export default function PartnerLoginPage() {
                           id="partner-reg-password"
                           type={showPassword ? 'text' : 'password'}
                           value={password}
-                          onChange={(e) => setPassword(e.target.value)}
-                          className="w-full rounded-xl border border-slate-300 bg-white py-3 pl-11 pr-3.5 text-base text-slate-900 outline-none transition focus:border-[#4f46e5] focus:ring-2 focus:ring-[#4f46e5]/25"
+                          onChange={(e) => {
+                            onPasswordChange(e.target.value);
+                          }}
+                          className={`${inputClass('password')} pl-11`}
                           required
-                          minLength={8}
+                          minLength={PASSWORD_MIN}
                           autoComplete="new-password"
+                          aria-invalid={Boolean(fieldErrors.password)}
                         />
                       </div>
+                      {fieldErrors.password ? (
+                        <p className="mt-1 text-xs font-medium text-rose-600">
+                          {fieldErrors.password}
+                        </p>
+                      ) : null}
                     </div>
                     <div>
                       <label
@@ -393,27 +599,52 @@ export default function PartnerLoginPage() {
                         id="partner-confirm"
                         type={showPassword ? 'text' : 'password'}
                         value={confirmPassword}
-                        onChange={(e) => setConfirmPassword(e.target.value)}
-                        className="w-full rounded-xl border border-slate-300 bg-white py-3 px-3.5 text-base text-slate-900 outline-none transition focus:border-[#4f46e5] focus:ring-2 focus:ring-[#4f46e5]/25"
+                        onChange={(e) => {
+                          const value = e.target.value;
+                          setConfirmPassword(value);
+                          setFieldErrors((prev) => {
+                            const next = { ...prev };
+                            if (value && value !== password) {
+                              next.confirm =
+                                'Password and confirmation do not match.';
+                            } else {
+                              delete next.confirm;
+                            }
+                            return next;
+                          });
+                        }}
+                        className={`${inputClass('confirm')} px-3.5`}
                         required
-                        minLength={8}
+                        minLength={PASSWORD_MIN}
                         autoComplete="new-password"
+                        aria-invalid={Boolean(fieldErrors.confirm)}
                       />
+                      {fieldErrors.confirm ? (
+                        <p className="mt-1 text-xs font-medium text-rose-600">
+                          {fieldErrors.confirm}
+                        </p>
+                      ) : null}
                     </div>
                   </div>
-                  <p className="text-xs text-slate-500">
-                    Min 10 characters, with uppercase, lowercase, number and
-                    symbol.
-                  </p>
+                  <p className="text-xs text-slate-500">{PASSWORD_RULE_HINT}</p>
                   <label className="flex cursor-pointer items-start gap-2.5 text-sm text-slate-600">
                     <input
                       type="checkbox"
-                      required
+                      checked={consent}
+                      onChange={(e) => {
+                        setConsent(e.target.checked);
+                        clearField('consent');
+                      }}
                       className="mt-0.5 h-4 w-4 rounded border-slate-400 text-[#4f46e5] focus:ring-[#4f46e5]"
                     />
                     I confirm this is a security company requesting B2B guard
                     supply from HIGHLINK.
                   </label>
+                  {fieldErrors.consent ? (
+                    <p className="-mt-2 text-xs font-medium text-rose-600">
+                      {fieldErrors.consent}
+                    </p>
+                  ) : null}
 
                   {error ? (
                     <div className="flex gap-3 rounded-xl border border-rose-200 bg-rose-50 px-3.5 py-3 text-sm text-rose-800">
@@ -432,7 +663,7 @@ export default function PartnerLoginPage() {
                   </button>
                 </form>
               ) : (
-              <form onSubmit={onSubmit} className="space-y-5 px-7 py-7">
+              <form onSubmit={onSubmit} noValidate className="space-y-5 px-7 py-7">
                 <div>
                   <label
                     htmlFor="partner-email"
@@ -447,12 +678,21 @@ export default function PartnerLoginPage() {
                       type="email"
                       autoComplete="username"
                       value={email}
-                      onChange={(e) => setEmail(e.target.value)}
+                      onChange={(e) => {
+                        setEmail(e.target.value);
+                        clearField('signinEmail', 'email');
+                      }}
                       placeholder="partner@yourcompany.co.tz"
-                      className="w-full rounded-xl border border-slate-300 bg-white py-3 pl-11 pr-3.5 text-base text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-[#4f46e5] focus:ring-2 focus:ring-[#4f46e5]/25"
+                      className={`${inputClass('signinEmail')} pl-11`}
                       required
+                      aria-invalid={Boolean(fieldErrors.signinEmail)}
                     />
                   </div>
+                  {fieldErrors.signinEmail ? (
+                    <p className="mt-1 text-xs font-medium text-rose-600">
+                      {fieldErrors.signinEmail}
+                    </p>
+                  ) : null}
                 </div>
 
                 <div>
@@ -474,10 +714,14 @@ export default function PartnerLoginPage() {
                       type={showPassword ? 'text' : 'password'}
                       autoComplete="current-password"
                       value={password}
-                      onChange={(e) => setPassword(e.target.value)}
+                      onChange={(e) => {
+                        setPassword(e.target.value);
+                        clearField('signinPassword');
+                      }}
                       placeholder="Enter your password"
-                      className="w-full rounded-xl border border-slate-300 bg-white py-3 pl-11 pr-12 text-base text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-[#4f46e5] focus:ring-2 focus:ring-[#4f46e5]/25"
+                      className={`${inputClass('signinPassword')} pl-11 pr-12`}
                       required
+                      aria-invalid={Boolean(fieldErrors.signinPassword)}
                     />
                     <button
                       type="button"
@@ -494,6 +738,11 @@ export default function PartnerLoginPage() {
                       )}
                     </button>
                   </div>
+                  {fieldErrors.signinPassword ? (
+                    <p className="mt-1 text-xs font-medium text-rose-600">
+                      {fieldErrors.signinPassword}
+                    </p>
+                  ) : null}
                 </div>
 
                 <label className="flex cursor-pointer items-center gap-2.5 text-base text-slate-500">

@@ -10,8 +10,11 @@ import { useMemo, type ReactNode } from 'react';
 export const FINANCE_TABS = [
   { href: '/finance', label: 'Overview', exact: true },
   { href: '/finance/invoices', label: 'Invoices' },
+  { href: '/finance/receipts', label: 'Receipts' },
   { href: '/finance/petty-cash', label: 'Petty cash' },
   { href: '/finance/vouchers', label: 'Payment vouchers' },
+  { href: '/finance/approvals', label: 'Approvals' },
+  { href: '/finance/payroll', label: 'Payroll' },
   { href: '/finance/reports', label: 'Reports' },
 ] as const;
 
@@ -36,9 +39,9 @@ export function FinanceShell({ children }: { children: ReactNode }) {
                 Money in, money out
               </h1>
               <p className="mt-0.5 max-w-2xl text-xs text-[#605e5c]">
-                Invoices, receipts, petty cash, and payment vouchers. Payroll and
-                loan deductions stay on Portal 35.16. Creator cannot approve or
-                pay their own voucher.
+                Invoices, receipts, petty cash, payment vouchers, payroll
+                visibility, and reports. Creator cannot approve or pay their own
+                voucher.
               </p>
             </div>
           </div>

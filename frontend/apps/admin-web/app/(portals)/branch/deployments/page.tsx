@@ -3,12 +3,12 @@
 import {
   createDeployment,
   endDeployment,
-  listContracts,
+  listDeploymentContractOptions,
   listDeployments,
   listGuards,
   listSites,
-  type Contract,
   type Deployment,
+  type DeploymentContractOption,
   type Guard,
   type Site,
 } from '@pssms/api-client';
@@ -59,7 +59,7 @@ export default function BranchDeploymentsPage() {
   const [rows, setRows] = useState<Deployment[]>([]);
   const [guards, setGuards] = useState<Guard[]>([]);
   const [sites, setSites] = useState<Site[]>([]);
-  const [contracts, setContracts] = useState<Contract[]>([]);
+  const [contracts, setContracts] = useState<DeploymentContractOption[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [createOpen, setCreateOpen] = useState(false);
@@ -75,12 +75,12 @@ export default function BranchDeploymentsPage() {
         listDeployments(),
         listGuards(),
         listSites(),
-        listContracts(),
+        listDeploymentContractOptions(),
       ]);
       setRows(d);
       setGuards(g);
       setSites(s);
-      setContracts(c);
+      setContracts(c.rows);
     } catch (err) {
       setError(formatApiError(err));
     } finally {
@@ -357,7 +357,7 @@ function CreateDeploymentModal({
 }: {
   guards: Guard[];
   sites: Site[];
-  contracts: Contract[];
+  contracts: DeploymentContractOption[];
   onClose: () => void;
   onCreated: () => Promise<void>;
 }) {

@@ -1,7 +1,8 @@
 -- Module 15-B: B2B guard supply billing — partner customer link + request charges/invoice.
 
+-- IDs in this database are TEXT (uuid-shaped), matching Prisma `String`.
 ALTER TABLE recruitment.b2b_security_partners
-  ADD COLUMN IF NOT EXISTS customer_id UUID;
+  ADD COLUMN IF NOT EXISTS customer_id TEXT;
 
 CREATE INDEX IF NOT EXISTS b2b_security_partners_customer_id_idx
   ON recruitment.b2b_security_partners (customer_id);
@@ -19,7 +20,7 @@ ALTER TABLE recruitment.guard_supply_requests
   ADD COLUMN IF NOT EXISTS discount_amount DECIMAL(14, 2);
 
 ALTER TABLE recruitment.guard_supply_requests
-  ADD COLUMN IF NOT EXISTS invoice_id UUID;
+  ADD COLUMN IF NOT EXISTS invoice_id TEXT;
 
 ALTER TABLE recruitment.guard_supply_requests
   ADD COLUMN IF NOT EXISTS billed_at TIMESTAMPTZ;

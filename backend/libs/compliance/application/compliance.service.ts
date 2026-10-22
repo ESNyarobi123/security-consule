@@ -639,7 +639,11 @@ export class ComplianceService {
       where: { organizationId: user.organizationId },
       orderBy: { reportedAt: 'desc' },
     });
-    return rows.map((r) => this.toBreachDto(r));
+    const names = await this.userNames(
+      user.organizationId,
+      rows.flatMap((r) => [r.createdBy, r.closedBy]),
+    );
+    return rows.map((r) => this.toBreachDto(r, names));
   }
 
   async getBreach(
@@ -647,9 +651,12 @@ export class ComplianceService {
     user: AuthUser,
   ): Promise<DataBreachCaseResponseDto> {
     this.assertCanReadBreachRegister(user);
-    return this.toBreachDto(
-      await this.findBreachOrThrow(id, user.organizationId),
-    );
+    const row = await this.findBreachOrThrow(id, user.organizationId);
+    const names = await this.userNames(user.organizationId, [
+      row.createdBy,
+      row.closedBy,
+    ]);
+    return this.toBreachDto(row, names);
   }
 
   async createBreach(
@@ -1256,7 +1263,7 @@ export class ComplianceService {
     createdBy: string;
     createdAt: Date;
     updatedAt: Date;
-  }): DataBreachCaseResponseDto {
+  }, names?: Map<string, string>): DataBreachCaseResponseDto {
     return {
       id: r.id,
       organizationId: r.organizationId,
@@ -1272,7 +1279,9 @@ export class ComplianceService {
       containmentNotes: r.containmentNotes,
       closedAt: r.closedAt,
       closedBy: r.closedBy,
+      closedByName: r.closedBy ? names?.get(r.closedBy) ?? null : null,
       createdBy: r.createdBy,
+      createdByName: names?.get(r.createdBy) ?? null,
       createdAt: r.createdAt,
       updatedAt: r.updatedAt,
     };

@@ -5,6 +5,7 @@ import {
   authHeaders,
   partnerAuthHeaders,
 } from '@pssms/auth';
+import { parseApiEnvelope } from './errors';
 import type { LoginResult } from './index';
 
 const coreUrl = () =>
@@ -12,39 +13,13 @@ const coreUrl = () =>
   process.env.NEXT_PUBLIC_API_URL ??
   'http://localhost:4001';
 
-type ApiEnvelope<T> = {
-  success: boolean;
-  data: T;
-  meta?: Record<string, unknown>;
-  error?: { code?: string; message?: string };
-};
-
-function errorMessageFromBody(text: string, fallback: string): string {
-  try {
-    const json = JSON.parse(text) as {
-      error?: { message?: string | string[] };
-      message?: string | string[];
-    };
-    const msg = json.error?.message ?? json.message;
-    if (Array.isArray(msg)) return msg.join('; ');
-    if (typeof msg === 'string' && msg.trim()) return msg;
-  } catch {
-    /* not JSON */
-  }
-  return text.trim() || fallback;
-}
-
+/**
+ * Delegates to the shared envelope parser so `error.details` (the actual
+ * DTO field failures such as "ageMin must not be less than 18") reaches the
+ * portal instead of a bare "Validation failed".
+ */
 async function parseEnvelope<T>(res: Response): Promise<T> {
-  const text = await res.text();
-  if (!res.ok) {
-    throw new Error(errorMessageFromBody(text, `Request failed (${res.status})`));
-  }
-  if (!text) throw new Error('Empty response from API');
-  const json = JSON.parse(text) as ApiEnvelope<T>;
-  if (json.success === false) {
-    throw new Error(errorMessageFromBody(text, 'Request failed'));
-  }
-  return json.data;
+  return parseApiEnvelope<T>(res);
 }
 
 export type B2bPartnerProfile = {
@@ -142,7 +117,7 @@ async function partnerFetch<T>(
   init?: RequestInit & { token?: string },
 ): Promise<T> {
   const headers: HeadersInit = {
-    'Content-Type': 'application/json',
+    ...(init?.body != null ? { 'Content-Type': 'application/json' } : {}),
     ...partnerAuthHeaders(init?.token),
     ...init?.headers,
   };
@@ -155,7 +130,7 @@ async function staffFetch<T>(
   init?: RequestInit & { token?: string },
 ): Promise<T> {
   const headers: HeadersInit = {
-    'Content-Type': 'application/json',
+    ...(init?.body != null ? { 'Content-Type': 'application/json' } : {}),
     ...authHeaders(init?.token),
     ...init?.headers,
   };

@@ -4,22 +4,15 @@
 import { providerAuthHeaders } from '@pssms/auth';
 import type { LoginResult } from './index';
 import type { VisitorAppointment, VisitorEntry } from './admin';
+import { parseApiEnvelope } from './errors';
 
 const coreUrl = () =>
   process.env.NEXT_PUBLIC_CORE_API_URL ??
   process.env.NEXT_PUBLIC_API_URL ??
   'http://localhost:4001';
 
-type ApiEnvelope<T> = {
-  success: boolean;
-  data: T;
-  meta?: Record<string, unknown>;
-};
-
 async function parseEnvelope<T>(res: Response): Promise<T> {
-  if (!res.ok) throw new Error(await res.text());
-  const json = (await res.json()) as ApiEnvelope<T>;
-  return json.data;
+  return parseApiEnvelope<T>(res);
 }
 
 export type ProviderVisitProfile = {
@@ -36,7 +29,7 @@ async function providerFetch<T>(
   init?: RequestInit & { token?: string },
 ): Promise<T> {
   const headers: HeadersInit = {
-    'Content-Type': 'application/json',
+    ...(init?.body != null ? { 'Content-Type': 'application/json' } : {}),
     ...providerAuthHeaders(init?.token),
     ...init?.headers,
   };

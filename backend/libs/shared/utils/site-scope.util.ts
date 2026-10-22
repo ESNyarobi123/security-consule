@@ -11,6 +11,7 @@ export const ORG_WIDE_SITE_VIEW_ROLES = new Set([
   'CEO',
   'CMD',
   'OPERATIONS_MANAGER',
+  'REGIONAL_MANAGER',
   'DEPARTMENT_HEAD',
   'CISO',
   'CONTROL_ROOM',
@@ -25,7 +26,12 @@ export const ORG_WIDE_SITE_VIEW_ROLES = new Set([
   'DEVELOPER',
   'IT_SUPPORT',
   'CALL_CENTRE',
+  'CUSTOMER_SUPPORT',
   'CCTV_OPERATOR',
+  'SECURITY_OFFICER',
+  // Parking is a site-ops console: officers need every parking site in the org,
+  // not a per-branch allowlist (seed does not assign parking ACL rows).
+  'PARKING_OFFICER',
 ]);
 
 /**

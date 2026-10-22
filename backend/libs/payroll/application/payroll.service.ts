@@ -23,7 +23,8 @@ import {
 } from '@pssms/shared';
 import { AuditService } from '@pssms/audit';
 import { ApprovalsService } from '@pssms/approvals';
-import { SalaryService } from '@pssms/workforce';
+import { SalaryService, SelfEmployeeService, EssService } from '@pssms/workforce';
+import type { EssApplyLeaveDto } from '@pssms/workforce';
 import { EmployeeLoansService } from '@pssms/employee-loans';
 import { CustomerSalaryService } from './customer-salary.service';
 import { PayrollDueService } from './payroll-due.service';
@@ -33,6 +34,7 @@ import {
   PayrollCycleResponseDto,
   PayrollPortalReportDto,
   PayrollTenantPackDto,
+  MyPayslipResponseDto,
   PayslipSnapshotResponseDto,
 } from '../presentation/dto/payroll.dto';
 
@@ -51,6 +53,57 @@ const ALLOWANCE_LABELS: Record<string, string> = {
 
 const PAYROLL_RESOURCE = 'PayrollCycle';
 
+/** Mon–Fri (UTC) — customer-facing payroll uses a standard working week. */
+function isWorkingDay(date: Date): boolean {
+  const day = date.getUTCDay();
+  return day !== 0 && day !== 6;
+}
+
+function isWorkingDayKey(dayKey: string): boolean {
+  const parsed = new Date(`${dayKey}T00:00:00.000Z`);
+  return !Number.isNaN(parsed.getTime()) && isWorkingDay(parsed);
+}
+
+function countWorkingDays(from: Date, to: Date): number {
+  const start = Date.UTC(
+    from.getUTCFullYear(),
+    from.getUTCMonth(),
+    from.getUTCDate(),
+  );
+  const end = Date.UTC(to.getUTCFullYear(), to.getUTCMonth(), to.getUTCDate());
+  if (end < start) return 0;
+  let days = 0;
+  for (let t = start; t <= end; t += 86_400_000) {
+    if (isWorkingDay(new Date(t))) days += 1;
+  }
+  return days;
+}
+
+function buildReadinessNotes(
+  skippedCount: number,
+  missingBankRefs: number,
+  missingMobileRefs: number,
+): string[] {
+  const notes: string[] = [];
+  if (skippedCount > 0) {
+    notes.push(
+      `${skippedCount} active employee(s) have no salary assignment for this period and would be skipped. Add an active salary assignment before generating.`,
+    );
+  }
+  if (missingBankRefs > 0) {
+    notes.push(
+      `${missingBankRefs} employee(s) have no bank account reference — they will be omitted from the bank file.`,
+    );
+  }
+  if (missingMobileRefs > 0) {
+    notes.push(
+      `${missingMobileRefs} employee(s) have no mobile money reference — they will be omitted from the mobile money file.`,
+    );
+  }
+  return notes;
+}
+
+
 @Injectable()
 export class PayrollService {
   constructor(
@@ -61,6 +114,8 @@ export class PayrollService {
     private readonly loans: EmployeeLoansService,
     private readonly customerSalary: CustomerSalaryService,
     private readonly payrollDue: PayrollDueService,
+    private readonly selfEmployee: SelfEmployeeService,
+    private readonly ess: EssService,
   ) {}
 
   async createCycle(
@@ -141,6 +196,13 @@ export class PayrollService {
     user: AuthUser,
   ): Promise<PayslipSnapshotResponseDto[]> {
     const cycle = await this.getCycleOrThrow(cycleId, user.organizationId);
+    if (cycle.status === PayrollCycleStatus.PENDING_APPROVAL) {
+      throw new BadRequestException({
+        error: 'PAYROLL_PENDING_APPROVAL',
+        message:
+          'This cycle is awaiting approval. Reject it back to draft before regenerating payslips.',
+      });
+    }
     if (IMMUTABLE_STATUSES.includes(cycle.status)) {
       throw new ForbiddenException('Cannot regenerate approved/paid payroll');
     }
@@ -571,6 +633,131 @@ export class PayrollService {
     return this.toPayslipDto(payslip);
   }
 
+  /**
+   * Pre-flight check for a cycle: which employees would be skipped because
+   * they have no active salary assignment, and who is missing the bank/mobile
+   * reference needed by the export files.
+   *
+   * Generation used to skip those employees with no explanation, which is why
+   * payroll "looked like data was missing" after a run.
+   */
+  async getCycleReadiness(cycleId: string, user: AuthUser) {
+    const cycle = await this.getCycleOrThrow(cycleId, user.organizationId);
+    const asOf = cycle.periodEnd;
+
+    if (cycle.tenantType === PayrollTenantType.CUSTOMER_MANAGED_PAYROLL) {
+      if (!cycle.customerId) {
+        return {
+          tenantType: cycle.tenantType,
+          eligible: 0,
+          skipped: [],
+          missingBankRefs: 0,
+          missingMobileRefs: 0,
+          generatedPayslips: 0,
+          notes: ['Customer payroll cycle has no customer linked.'],
+        };
+      }
+      const employees = await this.prisma.customerEmployee.findMany({
+        where: {
+          organizationId: user.organizationId,
+          customerId: cycle.customerId,
+          isActive: true,
+        },
+      });
+      const skipped: Array<{
+        employeeNumber: string;
+        employeeName: string;
+        reason: string;
+      }> = [];
+      let eligible = 0;
+      let missingBankRefs = 0;
+      let missingMobileRefs = 0;
+      for (const ce of employees) {
+        const salary = await this.customerSalary.getActiveForCustomerEmployee(
+          ce.id,
+          user.organizationId,
+          asOf,
+        );
+        if (!salary) {
+          skipped.push({
+            employeeNumber: ce.employeeNumber ?? ce.id.slice(0, 8),
+            employeeName: ce.fullName,
+            reason: 'MISSING_SALARY_ASSIGNMENT',
+          });
+          continue;
+        }
+        eligible += 1;
+        if (!ce.bankAccountRef) missingBankRefs += 1;
+        if (!ce.mobileMoneyRef) missingMobileRefs += 1;
+      }
+      const generatedPayslips = await this.prisma.payslipSnapshot.count({
+        where: { cycleId, organizationId: user.organizationId },
+      });
+      return {
+        tenantType: cycle.tenantType,
+        eligible,
+        skipped,
+        missingBankRefs,
+        missingMobileRefs,
+        generatedPayslips,
+        notes: buildReadinessNotes(
+          skipped.length,
+          missingBankRefs,
+          missingMobileRefs,
+        ),
+      };
+    }
+
+    const employees = await this.prisma.employee.findMany({
+      where: {
+        organizationId: user.organizationId,
+        status: EmployeeStatus.ACTIVE,
+      },
+    });
+    const skipped: Array<{
+      employeeNumber: string;
+      employeeName: string;
+      reason: string;
+    }> = [];
+    let eligible = 0;
+    let missingBankRefs = 0;
+    let missingMobileRefs = 0;
+    for (const employee of employees) {
+      const salary = await this.salary.getActiveForEmployee(
+        employee.id,
+        user.organizationId,
+        asOf,
+      );
+      if (!salary) {
+        skipped.push({
+          employeeNumber: employee.employeeNumber,
+          employeeName: employee.fullName,
+          reason: 'MISSING_SALARY_ASSIGNMENT',
+        });
+        continue;
+      }
+      eligible += 1;
+      if (!employee.bankAccountRef) missingBankRefs += 1;
+      if (!employee.mobileMoneyRef) missingMobileRefs += 1;
+    }
+    const generatedPayslips = await this.prisma.payslipSnapshot.count({
+      where: { cycleId, organizationId: user.organizationId },
+    });
+    return {
+      tenantType: cycle.tenantType,
+      eligible,
+      skipped,
+      missingBankRefs,
+      missingMobileRefs,
+      generatedPayslips,
+      notes: buildReadinessNotes(
+        skipped.length,
+        missingBankRefs,
+        missingMobileRefs,
+      ),
+    };
+  }
+
   async getRegister(cycleId: string, organizationId: string) {
     const cycle = await this.getCycleOrThrow(cycleId, organizationId);
     const payslips = await this.prisma.payslipSnapshot.findMany({
@@ -986,8 +1173,9 @@ export class PayrollService {
         req.startDate > periodStart ? req.startDate : periodStart;
       const overlapEnd = req.endDate < periodEnd ? req.endDate : periodEnd;
       if (overlapEnd >= overlapStart) {
-        const ms = overlapEnd.getTime() - overlapStart.getTime();
-        days += Math.max(1, Math.ceil(ms / (1000 * 60 * 60 * 24)) + 1);
+        // Count working days only — a Mon–Sun leave request must not charge
+        // the weekend against the employee's pay.
+        days += countWorkingDays(overlapStart, overlapEnd);
       }
     }
     return days;
@@ -1070,7 +1258,6 @@ export class PayrollService {
         cycle.periodEnd,
       );
 
-      const divisor = rules.dailyRateDivisor ?? 22;
       const absentDeduction =
         inputsSnapshot.absentDays > 0
           ? unpaidLeaveDeduction(
@@ -1188,11 +1375,20 @@ export class PayrollService {
     periodStart: Date,
     periodEnd: Date,
   ) {
+    // Absence must only be measured over working days that have actually
+    // elapsed. A cycle generated mid-month (or for a future period) used to
+    // count every remaining calendar day as absent, which produced huge fake
+    // deductions and a net pay that did not match the real attendance.
+    const asOf = new Date();
+    const elapsedEnd = new Date(
+      Math.min(periodEnd.getTime(), asOf.getTime()),
+    );
+
     const entries = await this.prisma.accessEntry.findMany({
       where: {
         customerId,
         employeeId: customerEmployeeId,
-        recordedAt: { gte: periodStart, lte: periodEnd },
+        recordedAt: { gte: periodStart, lte: elapsedEnd },
       },
       orderBy: { recordedAt: 'asc' },
     });
@@ -1200,17 +1396,23 @@ export class PayrollService {
     const checkInDays = new Set<string>();
     for (const e of entries) {
       if (e.entryType === 'CHECK_IN') {
-        checkInDays.add(e.recordedAt.toISOString().slice(0, 10));
+        const day = e.recordedAt.toISOString().slice(0, 10);
+        // Weekend check-ins are extra presence; they do not offset a missing
+        // weekday, so they are excluded from the absence calculation.
+        if (isWorkingDayKey(day)) checkInDays.add(day);
       }
     }
     const daysPresent = checkInDays.size;
-    const standardDays = 22;
-    const absentDays = Math.max(0, standardDays - daysPresent);
+    const workingDaysElapsed = countWorkingDays(periodStart, elapsedEnd);
+    const absentDays = Math.max(0, workingDaysElapsed - daysPresent);
     const totalHours = daysPresent * 8;
 
     return {
       daysPresent,
       absentDays,
+      workingDaysElapsed,
+      absenceBasis: 'MON_FRI_ELAPSED',
+      asOf: asOf.toISOString(),
       totalHours,
       absentDeduction: 0,
       entryCount: entries.length,
@@ -1485,6 +1687,104 @@ export class PayrollService {
       paymentReference: c.paymentReference,
       billingInvoiceId: c.billingInvoiceId ?? null,
       createdAt: c.createdAt,
+    };
+  }
+
+  /**
+   * Payroll self-service companion data. All of it is self-scoped and
+   * deliberately reachable without `ess.access`, so the Payroll portal works
+   * for every employee without an administrator unlocking a permission.
+   */
+  getMyProfile(user: AuthUser) {
+    return this.ess.getMe(user);
+  }
+
+  listMyLeaveTypes(user: AuthUser) {
+    return this.ess.listLeaveTypes(user);
+  }
+
+  listMyLeaveBalances(user: AuthUser) {
+    return this.ess.listLeaveBalances(user);
+  }
+
+  listMyLeaveRequests(user: AuthUser) {
+    return this.ess.listMyLeave(user);
+  }
+
+  applyMyLeave(dto: EssApplyLeaveDto, user: AuthUser) {
+    return this.ess.applyLeave(dto, user);
+  }
+
+  getMyLoanBalance(user: AuthUser) {
+    return this.ess.getLoanBalance(user);
+  }
+
+  /**
+   * Self-service payslips — company payroll only, resolved for the signed-in
+   * user (explicit link → guard profile → email). Never returns another
+   * employee's snapshot and never needs `payroll.manage`.
+   */
+  async listMyPayslips(user: AuthUser): Promise<MyPayslipResponseDto[]> {
+    const employee = await this.selfEmployee.resolve(user, 'PAYROLL');
+    const rows = await this.prisma.payslipSnapshot.findMany({
+      where: {
+        organizationId: user.organizationId,
+        employeeId: employee.id,
+        supersededById: null,
+      },
+      include: { cycle: true },
+      orderBy: { createdAt: 'desc' },
+      take: 36,
+    });
+    return rows.map((row) => this.toMyPayslipDto(row));
+  }
+
+  async getMyPayslip(id: string, user: AuthUser): Promise<MyPayslipResponseDto> {
+    const employee = await this.selfEmployee.resolve(user, 'PAYROLL');
+    const row = await this.prisma.payslipSnapshot.findFirst({
+      where: {
+        id,
+        organizationId: user.organizationId,
+        employeeId: employee.id,
+      },
+      include: { cycle: true },
+    });
+    if (!row) throw new NotFoundException('Payslip not found');
+    return this.toMyPayslipDto(row);
+  }
+
+  private toMyPayslipDto(p: {
+    id: string;
+    organizationId: string;
+    cycleId: string;
+    employeeId: string | null;
+    customerEmployeeId?: string | null;
+    employeeNumber: string;
+    employeeName: string;
+    inputsSnapshot: unknown;
+    allowancesSnapshot: unknown;
+    deductionsSnapshot: unknown;
+    calculationResult: unknown;
+    grossPay: Prisma.Decimal;
+    totalDeductions: Prisma.Decimal;
+    netPay: Prisma.Decimal;
+    ruleVersionId: string;
+    createdAt: Date;
+    cycle: {
+      cycleCode: string;
+      status: PayrollCycleStatus;
+      tenantType: PayrollTenantType;
+      periodStart: Date;
+      periodEnd: Date;
+    };
+  }): MyPayslipResponseDto {
+    return {
+      ...this.toPayslipDto(p),
+      cycleCode: p.cycle.cycleCode,
+      cycleStatus: p.cycle.status,
+      tenantType: p.cycle.tenantType,
+      periodStart: p.cycle.periodStart,
+      periodEnd: p.cycle.periodEnd,
     };
   }
 

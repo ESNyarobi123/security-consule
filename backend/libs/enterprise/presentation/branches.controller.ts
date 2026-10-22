@@ -45,7 +45,7 @@ export class BranchesController {
   @ApiOperation({ summary: 'List branches' })
   @ApiOkResponse({ type: [BranchResponseDto] })
   list(@CurrentUser() user: AuthUser) {
-    return this.service.list(user.organizationId);
+    return this.service.list(user.organizationId, user);
   }
 
   @Patch(':id')

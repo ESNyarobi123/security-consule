@@ -8,6 +8,7 @@ import {
   listParkingSpaces,
   listVehicles,
   releaseParkingSpace,
+  relocateParkingSpace,
   updateParkingSpace,
   type ParkingCustomerOption,
   type ParkingSiteOption,
@@ -18,6 +19,7 @@ import {
   type ParkingSpaceStatus,
 } from '@pssms/api-client';
 import {
+  ArrowRightLeft,
   MapPinned,
   Plus,
   RefreshCw,
@@ -43,7 +45,7 @@ const SPACE_TYPES: { id: ParkingSpaceType; label: string }[] = [
 const fieldCls =
   'mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 outline-none focus:border-teal-500 focus:ring-2 focus:ring-teal-500/20';
 
-type ModalMode = 'create' | 'allocate' | null;
+type ModalMode = 'create' | 'allocate' | 'relocate' | null;
 
 export default function SpacesPage() {
   const [spaces, setSpaces] = useState<ParkingOpsSpace[]>([]);
@@ -80,6 +82,14 @@ export default function SpacesPage() {
     spaceId: '',
     spaceType: '' as ParkingSpaceType | '',
   });
+
+  const [relocForm, setRelocForm] = useState({
+    vehicleId: '',
+    siteId: '',
+    toSpaceId: '',
+    reason: '',
+  });
+  const [notice, setNotice] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -175,6 +185,35 @@ export default function SpacesPage() {
     });
   }
 
+  const occupiedSpaces = useMemo(
+    () => spaces.filter((s) => s.status === 'OCCUPIED' && s.vehicleId),
+    [spaces],
+  );
+
+  function openRelocate(s?: ParkingOpsSpace) {
+    const seed = s ?? occupiedSpaces[0];
+    setModal('relocate');
+    setModalError(null);
+    setNotice(null);
+    setRelocForm({
+      vehicleId: seed?.vehicleId ?? vehicles[0]?.id ?? '',
+      siteId: seed?.siteId ?? sites[0]?.id ?? '',
+      toSpaceId: '',
+      reason: '',
+    });
+  }
+
+  const relocateTargets = useMemo(
+    () =>
+      spaces.filter(
+        (s) =>
+          s.isActive &&
+          s.status === 'AVAILABLE' &&
+          (!relocForm.siteId || s.siteId === relocForm.siteId),
+      ),
+    [spaces, relocForm.siteId],
+  );
+
   async function submitCreate(e: FormEvent) {
     e.preventDefault();
     setSaving(true);
@@ -226,6 +265,45 @@ export default function SpacesPage() {
       setModal(null);
     } catch (err) {
       setModalError(err instanceof Error ? err.message : 'Allocate failed');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function submitRelocate(e: FormEvent) {
+    e.preventDefault();
+    setSaving(true);
+    setModalError(null);
+    try {
+      if (!relocForm.vehicleId) {
+        setModalError('Select the vehicle to relocate');
+        return;
+      }
+      if (!relocForm.toSpaceId && !relocForm.siteId) {
+        setModalError('Pick a target bay (or a site for AUTO relocation)');
+        return;
+      }
+      const result = await relocateParkingSpace({
+        vehicleId: relocForm.vehicleId,
+        toSpaceId: relocForm.toSpaceId || undefined,
+        siteId: relocForm.toSpaceId ? undefined : relocForm.siteId,
+        reason: relocForm.reason.trim() || undefined,
+      });
+      setSpaces((prev) =>
+        prev.map((row) =>
+          row.id === result.from.id
+            ? result.from
+            : row.id === result.to.id
+              ? result.to
+              : row,
+        ),
+      );
+      setNotice(
+        `${result.plateNumber} moved from ${result.from.code} to ${result.to.code}.`,
+      );
+      setModal(null);
+    } catch (err) {
+      setModalError(err instanceof Error ? err.message : 'Relocation failed');
     } finally {
       setSaving(false);
     }
@@ -283,6 +361,14 @@ export default function SpacesPage() {
           >
             <RefreshCw className="h-4 w-4" />
             Refresh
+          </button>
+          <button
+            type="button"
+            onClick={() => openRelocate()}
+            className="inline-flex items-center gap-2 rounded-md border border-indigo-600 bg-indigo-50 px-3 py-1.5 text-sm font-medium text-indigo-900 hover:bg-indigo-100"
+          >
+            <ArrowRightLeft className="h-4 w-4" />
+            Relocate vehicle
           </button>
           <button
             type="button"
@@ -396,6 +482,12 @@ export default function SpacesPage() {
         </select>
       </div>
 
+      {notice ? (
+        <p className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-800">
+          {notice}
+        </p>
+      ) : null}
+
       {error ? (
         <p className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">
           {error}
@@ -479,13 +571,23 @@ export default function SpacesPage() {
                   <td className="px-4 py-3 text-right">
                     <div className="flex flex-wrap justify-end gap-2">
                       {s.status === 'OCCUPIED' ? (
-                        <button
-                          type="button"
-                          onClick={() => void onRelease(s)}
-                          className="text-xs font-medium text-[#0078d4] hover:underline"
-                        >
-                          Release
-                        </button>
+                        <>
+                          <button
+                            type="button"
+                            onClick={() => openRelocate(s)}
+                            className="inline-flex items-center gap-1 text-xs font-medium text-indigo-700 hover:underline"
+                          >
+                            <ArrowRightLeft className="h-3 w-3" />
+                            Relocate
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => void onRelease(s)}
+                            className="text-xs font-medium text-[#0078d4] hover:underline"
+                          >
+                            Release
+                          </button>
+                        </>
                       ) : s.status !== 'OCCUPIED' ? (
                         <button
                           type="button"
@@ -817,6 +919,149 @@ export default function SpacesPage() {
           </form>
         </div>
       ) : null}
+      {modal === 'relocate' ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4">
+          <form
+            onSubmit={(e) => void submitRelocate(e)}
+            className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-xl bg-white p-5 shadow-xl"
+          >
+            <div className="mb-4 flex items-start justify-between">
+              <div>
+                <h2 className="text-lg font-semibold text-slate-900">
+                  Relocate vehicle
+                </h2>
+                <p className="text-sm text-slate-600">
+                  Move a parked vehicle to another bay, zone, or site. The old
+                  bay is released automatically.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setModal(null)}
+                className="rounded p-1 text-slate-500 hover:bg-slate-100"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+            <div className="grid gap-3">
+              <label className="block">
+                <span className="text-xs font-medium uppercase tracking-wide text-slate-500">
+                  Vehicle *
+                </span>
+                <select
+                  required
+                  value={relocForm.vehicleId}
+                  onChange={(e) => {
+                    const vehicleId = e.target.value;
+                    const current = spaces.find(
+                      (s) => s.vehicleId === vehicleId && s.status === 'OCCUPIED',
+                    );
+                    setRelocForm((f) => ({
+                      ...f,
+                      vehicleId,
+                      siteId: current?.siteId ?? f.siteId,
+                      toSpaceId: '',
+                    }));
+                  }}
+                  className={fieldCls}
+                >
+                  <option value="">— Select parked vehicle —</option>
+                  {occupiedSpaces.map((s) => (
+                    <option key={s.id} value={s.vehicleId ?? ''}>
+                      {s.plateNumber ?? 'Vehicle'} · now in {s.code}
+                      {s.siteCode ? ` @ ${s.siteCode}` : ''}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="block">
+                <span className="text-xs font-medium uppercase tracking-wide text-slate-500">
+                  Target site *
+                </span>
+                <select
+                  required
+                  value={relocForm.siteId}
+                  onChange={(e) =>
+                    setRelocForm((f) => ({
+                      ...f,
+                      siteId: e.target.value,
+                      toSpaceId: '',
+                    }))
+                  }
+                  className={fieldCls}
+                >
+                  {sites.map((s) => (
+                    <option key={s.id} value={s.id}>
+                      {s.code} · {s.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="block">
+                <span className="text-xs font-medium uppercase tracking-wide text-slate-500">
+                  New bay *
+                </span>
+                <select
+                  required
+                  value={relocForm.toSpaceId}
+                  onChange={(e) =>
+                    setRelocForm((f) => ({ ...f, toSpaceId: e.target.value }))
+                  }
+                  className={fieldCls}
+                >
+                  <option value="">— Select available bay —</option>
+                  {relocateTargets.map((s) => (
+                    <option key={s.id} value={s.id}>
+                      {s.code} · {typeLabel(String(s.spaceType))} ·{' '}
+                      {s.allocationMode}
+                    </option>
+                  ))}
+                </select>
+                {relocateTargets.length === 0 ? (
+                  <span className="mt-1 block text-xs text-amber-700">
+                    No available bay at this site — add one or pick another site.
+                  </span>
+                ) : null}
+              </label>
+              <label className="block">
+                <span className="text-xs font-medium uppercase tracking-wide text-slate-500">
+                  Reason / note
+                </span>
+                <input
+                  value={relocForm.reason}
+                  onChange={(e) =>
+                    setRelocForm((f) => ({ ...f, reason: e.target.value }))
+                  }
+                  placeholder="Moved from Lot A to Lot B"
+                  className={fieldCls}
+                />
+              </label>
+            </div>
+            {modalError ? (
+              <p className="mt-3 rounded-md border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-700">
+                {modalError}
+              </p>
+            ) : null}
+            <div className="mt-5 flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setModal(null)}
+                className="rounded-md border border-slate-300 px-3 py-1.5 text-sm"
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                disabled={saving || !relocForm.toSpaceId}
+                className="rounded-md bg-indigo-600 px-3 py-1.5 text-sm font-medium text-white disabled:opacity-60"
+              >
+                {saving ? 'Moving…' : 'Relocate'}
+              </button>
+            </div>
+          </form>
+        </div>
+      ) : null}
+
     </div>
   );
 }

@@ -33,6 +33,7 @@ import {
   StatusPill,
   formatDate,
   inputClass,
+  inputClassFor,
 } from '../../_components/careers-ui';
 
 const URGENCY = [
@@ -53,14 +54,79 @@ const URGENCY = [
   },
 ];
 
+const GUARD_COUNT_MIN = 1;
+const GUARD_COUNT_MAX = 500;
+const AGE_MIN = 18;
+const AGE_MAX = 70;
+const HEIGHT_MIN = 140;
+const HEIGHT_MAX = 220;
+const EXPERIENCE_MAX = 40;
+
+type FormField =
+  | 'guardCount'
+  | 'siteLocation'
+  | 'qualifications'
+  | 'trainingNeeds'
+  | 'serviceTerms'
+  | 'endDate'
+  | 'experienceYearsMin'
+  | 'ageMin'
+  | 'ageMax'
+  | 'heightMinCm'
+  | 'languages'
+  | 'healthConditionNotes'
+  | 'criteriaNotes';
+
+type FormErrors = Partial<Record<FormField, string>>;
+
+const AGE_ORDER_MESSAGE = 'Age max must be greater than or equal to age min.';
+const COVER_ORDER_MESSAGE = 'Cover end cannot be before cover start.';
+
+/** Immutably remove one error key (no-op when it was absent). */
+function dropKey(errors: FormErrors, field: FormField): FormErrors {
+  if (!errors[field]) return errors;
+  const next = { ...errors };
+  delete next[field];
+  return next;
+}
+
+/** Blank → null, valid number → number, junk → 'invalid'. */
+function parseOptionalInt(raw: string): number | null | 'invalid' {
+  const trimmed = raw.trim();
+  if (!trimmed) return null;
+  const value = Number(trimmed);
+  return Number.isFinite(value) ? value : 'invalid';
+}
+
+/** Body value for an optional integer field — blank or invalid → undefined. */
+function optionalIntForBody(raw: string): number | undefined {
+  const parsed = parseOptionalInt(raw);
+  return typeof parsed === 'number' ? parsed : undefined;
+}
+
+function parseIntInRangeError(  value: number | null | 'invalid',
+  label: string,
+  min: number,
+  max: number,
+): string | undefined {
+  if (value === 'invalid') return 'Enter a number.';
+  if (value == null) return undefined;
+  if (!Number.isInteger(value) || value < min || value > max) {
+    return `${label} must be a whole number from ${min} to ${max}.`;
+  }
+  return undefined;
+}
+
 export default function PartnerRequestsPage() {
   const router = useRouter();
   const [partner, setPartner] = useState<B2bPartnerProfile | null>(null);
   const [rows, setRows] = useState<GuardSupplyRequest[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+  const [formErrors, setFormErrors] = useState<FormErrors>({});
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
-  const [guardCount, setGuardCount] = useState(8);
+  const [guardCount, setGuardCount] = useState('8');
   const [siteLocation, setSiteLocation] = useState('');
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
@@ -120,13 +186,121 @@ export default function PartnerRequestsPage() {
     void refresh();
   }, [refresh]);
 
+  /** Drop a field's error as soon as the operator edits it. */
+  function clearError(field: FormField) {
+    setFormErrors((prev) => {
+      if (!prev[field]) return prev;
+      const next = { ...prev };
+      delete next[field];
+      return next;
+    });
+  }
+
+  /**
+   * Cross-field rules (age range, cover window) report on one field but depend
+   * on two, so fixing the *other* field has to clear them too.
+   */
+  function clearAgeRangeErrorIfValid(nextMin: string, nextMax: string) {
+    const min = parseOptionalInt(nextMin);
+    const max = parseOptionalInt(nextMax);
+    if (typeof min !== 'number' || typeof max !== 'number') return;
+    if (min >= AGE_MIN && min <= AGE_MAX && max >= AGE_MIN && max <= AGE_MAX && min <= max) {
+      setFormErrors((prev) => (prev.ageMax === AGE_ORDER_MESSAGE ? dropKey(prev, 'ageMax') : prev));
+    }
+  }
+
+  function clearCoverWindowErrorIfValid(nextStart: string, nextEnd: string) {
+    if (!nextStart || !nextEnd || nextEnd >= nextStart) {
+      setFormErrors((prev) => (prev.endDate === COVER_ORDER_MESSAGE ? dropKey(prev, 'endDate') : prev));
+    }
+  }
+
+  /** Mirrors the backend DTO rules so operators get feedback before the POST. */
+  function validate(): FormErrors {
+    const next: FormErrors = {};
+
+    const countRaw = guardCount.trim();
+    const count = Number(countRaw);
+    if (!countRaw) {
+      next.guardCount = 'Number of guards is required.';
+    } else if (
+      !Number.isInteger(count) ||
+      count < GUARD_COUNT_MIN ||
+      count > GUARD_COUNT_MAX
+    ) {
+      next.guardCount = `Enter a whole number from ${GUARD_COUNT_MIN} to ${GUARD_COUNT_MAX}.`;
+    }
+
+    if (siteLocation.trim().length < 2) {
+      next.siteLocation = 'Enter the city / site / region (at least 2 characters).';
+    }
+    if (qualifications.trim().length < 2) {
+      next.qualifications = 'Describe the required qualifications.';
+    }
+    if (trainingNeeds.trim().length < 2) {
+      next.trainingNeeds = 'Describe the training needs.';
+    }
+    if (serviceTerms.trim().length < 2) {
+      next.serviceTerms = 'State the service / commercial terms.';
+    }
+    if (startDate && endDate && endDate < startDate) {
+      next.endDate = COVER_ORDER_MESSAGE;
+    }
+
+    const exp = parseOptionalInt(experienceYearsMin);
+    const expError = parseIntInRangeError(exp, 'Experience', 0, EXPERIENCE_MAX);
+    if (expError) next.experienceYearsMin = expError;
+
+    const ageMinValue = parseOptionalInt(ageMin);
+    const ageMaxValue = parseOptionalInt(ageMax);
+    const ageMinError = parseIntInRangeError(ageMinValue, 'Age min', AGE_MIN, AGE_MAX);
+    if (ageMinError) next.ageMin = ageMinError;
+    const ageMaxError = parseIntInRangeError(ageMaxValue, 'Age max', AGE_MIN, AGE_MAX);
+    if (ageMaxError) next.ageMax = ageMaxError;
+    if (
+      !ageMinError &&
+      !ageMaxError &&
+      typeof ageMinValue === 'number' &&
+      typeof ageMaxValue === 'number' &&
+      ageMinValue > ageMaxValue
+    ) {
+      next.ageMax = AGE_ORDER_MESSAGE;
+    }
+
+    const heightError = parseIntInRangeError(
+      parseOptionalInt(heightMinCm),
+      'Minimum height',
+      HEIGHT_MIN,
+      HEIGHT_MAX,
+    );
+    if (heightError) next.heightMinCm = heightError;
+
+    if (languages.trim().length > 500) {
+      next.languages = 'Keep languages under 500 characters.';
+    }
+    if (healthConditionNotes.trim().length > 2000) {
+      next.healthConditionNotes = 'Keep health notes under 2000 characters.';
+    }
+    if (criteriaNotes.trim().length > 2000) {
+      next.criteriaNotes = 'Keep notes under 2000 characters.';
+    }
+
+    return next;
+  }
+
   async function onCreate(e: FormEvent) {
     e.preventDefault();
-    setBusy(true);
     setError(null);
+    setNotice(null);
+
+    const found = validate();
+    setFormErrors(found);
+    if (Object.keys(found).length > 0) return;
+
+    setBusy(true);
     try {
-      await createPartnerGuardSupplyRequest({
-        guardCount,
+      const created = await createPartnerGuardSupplyRequest({
+        guardCount: Number(guardCount.trim()),
         siteLocation: siteLocation.trim(),
         startDate: startDate || undefined,
         endDate: endDate || undefined,
@@ -135,16 +309,14 @@ export default function PartnerRequestsPage() {
         urgency,
         serviceTerms: serviceTerms.trim(),
         criteriaNotes: criteriaNotes.trim() || undefined,
-        experienceYearsMin: experienceYearsMin
-          ? Number(experienceYearsMin)
-          : undefined,
-        ageMin: ageMin ? Number(ageMin) : undefined,
-        ageMax: ageMax ? Number(ageMax) : undefined,
+        experienceYearsMin: optionalIntForBody(experienceYearsMin),
+        ageMin: optionalIntForBody(ageMin),
+        ageMax: optionalIntForBody(ageMax),
         genderPreference,
         militaryTrainingRequired,
         firearmTrainingRequired,
         languages: languages.trim() || undefined,
-        heightMinCm: heightMinCm ? Number(heightMinCm) : undefined,
+        heightMinCm: optionalIntForBody(heightMinCm),
         healthConditionNotes: healthConditionNotes.trim() || undefined,
       });
       setSiteLocation('');
@@ -162,6 +334,9 @@ export default function PartnerRequestsPage() {
       setLanguages('');
       setHeightMinCm('');
       setHealthConditionNotes('');
+      setNotice(
+        `Request ${created.referenceNumber} submitted — HIGHLINK recruitment will review it and update the status here.`,
+      );
       await refresh();
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
@@ -224,9 +399,16 @@ export default function PartnerRequestsPage() {
         </p>
       ) : null}
 
+      {notice ? (
+        <p className="mb-4 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
+          {notice}
+        </p>
+      ) : null}
+
       <div className="grid gap-5 xl:grid-cols-[minmax(0,1.1fr)_minmax(0,0.9fr)]">
         <form
           onSubmit={onCreate}
+          noValidate
           className="space-y-5 rounded-2xl border border-slate-200 bg-white p-6 shadow-sm"
         >
           <div>
@@ -250,24 +432,27 @@ export default function PartnerRequestsPage() {
               Number of guards & location
             </p>
             <div className="mt-3 grid gap-3 sm:grid-cols-2">
-              <Field label="Required number of guards">
+              <Field label="Required number of guards" error={formErrors.guardCount}>
                 <input
                   type="number"
-                  min={1}
-                  max={500}
+                  min={GUARD_COUNT_MIN}
+                  max={GUARD_COUNT_MAX}
+                  step={1}
                   value={guardCount}
-                  onChange={(e) => setGuardCount(Number(e.target.value))}
-                  className={inputClass}
+                  onChange={(e) => { setGuardCount(e.target.value); clearError('guardCount'); }}
+                  className={inputClassFor(formErrors.guardCount)}
+                  aria-invalid={Boolean(formErrors.guardCount)}
                   required
                 />
               </Field>
-              <Field label="Location / site">
+              <Field label="Location / site" error={formErrors.siteLocation}>
                 <div className="relative">
                   <MapPin className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
                   <input
                     value={siteLocation}
-                    onChange={(e) => setSiteLocation(e.target.value)}
-                    className={`${inputClass} pl-11`}
+                    onChange={(e) => { setSiteLocation(e.target.value); clearError('siteLocation'); }}
+                    className={`${inputClassFor(formErrors.siteLocation)} pl-11`}
+                    aria-invalid={Boolean(formErrors.siteLocation)}
                     placeholder="City / site / region"
                     required
                     minLength={2}
@@ -280,16 +465,25 @@ export default function PartnerRequestsPage() {
                 <input
                   type="date"
                   value={startDate}
-                  onChange={(e) => setStartDate(e.target.value)}
+                  onChange={(e) => {
+                    setStartDate(e.target.value);
+                    clearCoverWindowErrorIfValid(e.target.value, endDate);
+                  }}
                   className={inputClass}
                 />
               </Field>
-              <Field label="Cover end" hint="optional">
+              <Field label="Cover end" hint="optional" error={formErrors.endDate}>
                 <input
                   type="date"
                   value={endDate}
-                  onChange={(e) => setEndDate(e.target.value)}
-                  className={inputClass}
+                  min={startDate || undefined}
+                  onChange={(e) => {
+                    setEndDate(e.target.value);
+                    clearError('endDate');
+                    clearCoverWindowErrorIfValid(startDate, e.target.value);
+                  }}
+                  className={inputClassFor(formErrors.endDate)}
+                  aria-invalid={Boolean(formErrors.endDate)}
                 />
               </Field>
             </div>
@@ -300,47 +494,66 @@ export default function PartnerRequestsPage() {
               <Award className="h-4 w-4 text-[#4f46e5]" />
               Qualifications &amp; profile criteria
             </p>
-            <Field label="Required qualifications" hint="licence, shift, clearance">
+            <Field
+              label="Required qualifications"
+              hint="licence, shift, clearance"
+              error={formErrors.qualifications}
+            >
               <textarea
                 value={qualifications}
-                onChange={(e) => setQualifications(e.target.value)}
+                onChange={(e) => { setQualifications(e.target.value); clearError('qualifications'); }}
                 rows={2}
-                className={inputClass}
+                className={inputClassFor(formErrors.qualifications)}
+                aria-invalid={Boolean(formErrors.qualifications)}
                 placeholder="e.g. Valid guard licence, night shift"
                 required
                 minLength={2}
               />
             </Field>
             <div className="mt-3 grid gap-3 sm:grid-cols-3">
-              <Field label="Min experience (years)">
+              <Field label="Min experience (years)" error={formErrors.experienceYearsMin}>
                 <input
                   type="number"
                   min={0}
-                  max={40}
+                  max={EXPERIENCE_MAX}
+                  step={1}
                   value={experienceYearsMin}
-                  onChange={(e) => setExperienceYearsMin(e.target.value)}
-                  className={inputClass}
+                  onChange={(e) => { setExperienceYearsMin(e.target.value); clearError('experienceYearsMin'); }}
+                  className={inputClassFor(formErrors.experienceYearsMin)}
+                  aria-invalid={Boolean(formErrors.experienceYearsMin)}
                   placeholder="e.g. 2"
                 />
               </Field>
-              <Field label="Age min">
+              <Field label="Age min" error={formErrors.ageMin}>
                 <input
                   type="number"
-                  min={18}
-                  max={70}
+                  min={AGE_MIN}
+                  max={AGE_MAX}
+                  step={1}
                   value={ageMin}
-                  onChange={(e) => setAgeMin(e.target.value)}
-                  className={inputClass}
+                  onChange={(e) => {
+                    setAgeMin(e.target.value);
+                    clearError('ageMin');
+                    clearAgeRangeErrorIfValid(e.target.value, ageMax);
+                  }}
+                  className={inputClassFor(formErrors.ageMin)}
+                  aria-invalid={Boolean(formErrors.ageMin)}
                 />
               </Field>
-              <Field label="Age max">
+              <Field label="Age max" error={formErrors.ageMax}>
                 <input
                   type="number"
-                  min={18}
-                  max={70}
+                  min={AGE_MIN}
+                  max={AGE_MAX}
+                  step={1}
                   value={ageMax}
-                  onChange={(e) => setAgeMax(e.target.value)}
-                  className={inputClass}
+                  onChange={(e) => {
+                    setAgeMax(e.target.value);
+                    clearError('ageMax');
+                    clearAgeRangeErrorIfValid(ageMin, e.target.value);
+                  }}
+                  className={inputClassFor(formErrors.ageMax)}
+                  aria-invalid={Boolean(formErrors.ageMax)}
                 />
               </Field>
             </div>
@@ -364,25 +577,29 @@ export default function PartnerRequestsPage() {
                   <option value="UNSPECIFIED">Prefer not to specify</option>
                 </select>
               </Field>
-              <Field label="Min height (cm)">
+              <Field label="Min height (cm)" error={formErrors.heightMinCm}>
                 <input
                   type="number"
-                  min={140}
-                  max={220}
+                  min={HEIGHT_MIN}
+                  max={HEIGHT_MAX}
+                  step={1}
                   value={heightMinCm}
-                  onChange={(e) => setHeightMinCm(e.target.value)}
-                  className={inputClass}
+                  onChange={(e) => { setHeightMinCm(e.target.value); clearError('heightMinCm'); }}
+                  className={inputClassFor(formErrors.heightMinCm)}
+                  aria-invalid={Boolean(formErrors.heightMinCm)}
                   placeholder="e.g. 165"
                 />
               </Field>
             </div>
             <div className="mt-3">
-              <Field label="Languages">
+              <Field label="Languages" error={formErrors.languages}>
                 <input
                   value={languages}
-                  onChange={(e) => setLanguages(e.target.value)}
-                  className={inputClass}
+                  onChange={(e) => { setLanguages(e.target.value); clearError('languages'); }}
+                  className={inputClassFor(formErrors.languages)}
+                  aria-invalid={Boolean(formErrors.languages)}
                   placeholder="e.g. Swahili, English"
+                  maxLength={500}
                 />
               </Field>
             </div>
@@ -409,13 +626,15 @@ export default function PartnerRequestsPage() {
               </label>
             </div>
             <div className="mt-3">
-              <Field label="Health / fitness notes">
+              <Field label="Health / fitness notes" error={formErrors.healthConditionNotes}>
                 <textarea
                   value={healthConditionNotes}
-                  onChange={(e) => setHealthConditionNotes(e.target.value)}
+                  onChange={(e) => { setHealthConditionNotes(e.target.value); clearError('healthConditionNotes'); }}
                   rows={2}
-                  className={inputClass}
+                  className={inputClassFor(formErrors.healthConditionNotes)}
+                  aria-invalid={Boolean(formErrors.healthConditionNotes)}
                   placeholder="e.g. Fit for standing duty; no mobility limits"
+                  maxLength={2000}
                 />
               </Field>
             </div>
@@ -426,12 +645,13 @@ export default function PartnerRequestsPage() {
               <BookOpen className="h-4 w-4 text-[#4f46e5]" />
               Training needs
             </p>
-            <Field label="Training HIGHLINK should provide or confirm">
+            <Field label="Training HIGHLINK should provide or confirm" error={formErrors.trainingNeeds}>
               <textarea
                 value={trainingNeeds}
-                onChange={(e) => setTrainingNeeds(e.target.value)}
+                onChange={(e) => { setTrainingNeeds(e.target.value); clearError('trainingNeeds'); }}
                 rows={3}
-                className={inputClass}
+                className={inputClassFor(formErrors.trainingNeeds)}
+                aria-invalid={Boolean(formErrors.trainingNeeds)}
                 placeholder="e.g. Site induction, customer SOP, first aid"
                 required
                 minLength={2}
@@ -473,29 +693,42 @@ export default function PartnerRequestsPage() {
               <FileText className="h-4 w-4 text-[#4f46e5]" />
               Service terms
             </p>
-            <Field label="Commercial / service terms">
+            <Field label="Commercial / service terms" error={formErrors.serviceTerms}>
               <textarea
                 value={serviceTerms}
-                onChange={(e) => setServiceTerms(e.target.value)}
+                onChange={(e) => { setServiceTerms(e.target.value); clearError('serviceTerms'); }}
                 rows={3}
-                className={inputClass}
+                className={inputClassFor(formErrors.serviceTerms)}
+                aria-invalid={Boolean(formErrors.serviceTerms)}
                 placeholder="e.g. 12-week cover, billed monthly, HIGHLINK uniforms on site"
                 required
                 minLength={2}
               />
             </Field>
             <div className="mt-3">
-              <Field label="Additional notes" hint="optional">
+              <Field label="Additional notes" hint="optional" error={formErrors.criteriaNotes}>
                 <textarea
                   value={criteriaNotes}
-                  onChange={(e) => setCriteriaNotes(e.target.value)}
+                  onChange={(e) => { setCriteriaNotes(e.target.value); clearError('criteriaNotes'); }}
                   rows={2}
-                  className={inputClass}
+                  className={inputClassFor(formErrors.criteriaNotes)}
+                  aria-invalid={Boolean(formErrors.criteriaNotes)}
                   placeholder="Anything else HIGHLINK recruitment should know"
+                  maxLength={2000}
                 />
               </Field>
             </div>
           </section>
+
+          {Object.keys(formErrors).length > 0 ? (
+            <p className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800">
+              Please fix the{' '}
+              {Object.keys(formErrors).length === 1
+                ? 'highlighted field'
+                : `${Object.keys(formErrors).length} highlighted fields`}{' '}
+              before submitting.
+            </p>
+          ) : null}
 
           <button
             type="submit"

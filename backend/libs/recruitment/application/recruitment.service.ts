@@ -6,6 +6,7 @@ import {
 import {
   ApplicationStatus,
   EmploymentType,
+  JobOfferStatus,
   JobPostingStatus,
   Prisma,
 } from '@prisma/client';
@@ -24,11 +25,16 @@ import {
   CreateJobApplicationDto,
   CreateJobPostingDto,
   HireApplicantDto,
+  IssueJobOfferDto,
+  JobApplicationOfferDto,
   JobApplicationReceiptDto,
   JobApplicationPublicStatusDto,
   JobApplicationResponseDto,
+  JobOfferResponseReceiptDto,
   JobPostingPublicDto,
   JobPostingResponseDto,
+  PublicJobOfferDto,
+  RecordOfferResponseDto,
   RecruitmentPublicConfigDto,
 } from '../presentation/dto/recruitment.dto';
 
@@ -307,6 +313,7 @@ export class RecruitmentService {
         submittedAt: app.createdAt,
         stages: view.stages,
         applicantTrack: track,
+        offer: this.toPublicOffer(app),
         onboardingSteps: onboarding,
       };
     });
@@ -357,6 +364,17 @@ export class RecruitmentService {
         status,
         notes: notes !== undefined ? notes : app.notes,
         screenedBy: user.id,
+        // Closing an application also closes any pending offer, otherwise the
+        // applicant portal would keep showing an answerable offer.
+        ...(app.offerStatus === JobOfferStatus.PENDING &&
+        (status === ApplicationStatus.REJECTED ||
+          status === ApplicationStatus.WITHDRAWN)
+          ? {
+              offerStatus: JobOfferStatus.DECLINED,
+              offerRespondedAt: new Date(),
+              offerResponseReason: 'Application closed by HIGHLINK',
+            }
+          : {}),
       },
       include: { posting: { select: { title: true, applicantTrack: true } } },
     });
@@ -400,6 +418,327 @@ export class RecruitmentService {
     );
   }
 
+  // ── Module 14 / Portal 35.13 — formal offer → applicant decision ────────
+
+  /**
+   * HR issues (or re-issues) the formal offer. The application moves to
+   * OFFERED and the applicant accepts/declines from the careers portal.
+   */
+  async issueOffer(
+    id: string,
+    dto: IssueJobOfferDto,
+    user: AuthUser,
+  ): Promise<JobApplicationResponseDto> {
+    const app = await this.prisma.jobApplication.findFirst({
+      where: { id, organizationId: user.organizationId },
+      include: { posting: { select: { title: true, applicantTrack: true } } },
+    });
+    if (!app) throw new NotFoundException('Application not found');
+
+    if (app.status === ApplicationStatus.HIRED) {
+      throw new BadRequestException({
+        error: 'ALREADY_HIRED',
+        message: 'Application is already hired',
+      });
+    }
+    if (
+      app.status !== ApplicationStatus.INTERVIEW &&
+      app.status !== ApplicationStatus.OFFERED
+    ) {
+      throw new BadRequestException({
+        error: 'NOT_OFFERABLE',
+        message: `Offers can be issued from INTERVIEW or OFFERED (current: ${app.status})`,
+      });
+    }
+
+    const now = new Date();
+    const expiresInDays = dto.expiresInDays ?? 7;
+    const expiresAt = new Date(now.getTime() + expiresInDays * 86_400_000);
+    const startDate = dto.startDate ? new Date(dto.startDate) : null;
+    if (startDate && Number.isNaN(startDate.getTime())) {
+      throw new BadRequestException({
+        error: 'INVALID_START_DATE',
+        message: 'startDate must be an ISO date',
+      });
+    }
+
+    const updated = await this.prisma.jobApplication.update({
+      where: { id },
+      data: {
+        status: ApplicationStatus.OFFERED,
+        offerStatus: JobOfferStatus.PENDING,
+        offerPosition: dto.position.trim(),
+        offerDepartment: dto.department?.trim() || app.posting.title,
+        offerEmploymentType:
+          dto.employmentType ??
+          defaultEmploymentType(
+            normalizeApplicantTrack(app.posting.applicantTrack),
+          ),
+        offerSalaryAmount:
+          dto.salaryAmount !== undefined && dto.salaryAmount !== null
+            ? new Prisma.Decimal(dto.salaryAmount)
+            : app.offerSalaryAmount ?? null,
+        offerCurrency: dto.currency?.trim().toUpperCase() || 'TZS',
+        offerStartDate: startDate,
+        offerMessage: dto.message?.trim() || null,
+        offerIssuedAt: now,
+        offerIssuedBy: user.id,
+        offerExpiresAt: expiresAt,
+        offerRespondedAt: null,
+        offerResponseReason: null,
+      },
+      include: { posting: { select: { title: true, applicantTrack: true } } },
+    });
+
+    const notification = await this.notifications.enqueueRecruitmentOffer({
+      organizationId: user.organizationId,
+      applicationId: id,
+      applicantEmail: updated.email,
+      applicantName: updated.applicantName,
+      postingTitle: updated.posting.title,
+      position: updated.offerPosition ?? dto.position,
+      department: updated.offerDepartment,
+      employmentType: updated.offerEmploymentType,
+      salaryAmount: updated.offerSalaryAmount?.toString() ?? null,
+      currency: updated.offerCurrency,
+      startDate: updated.offerStartDate,
+      expiresAt: updated.offerExpiresAt,
+      message: updated.offerMessage,
+      offerVersion: now.toISOString(),
+      actorId: user.id,
+    });
+
+    await this.audit.record({
+      organizationId: user.organizationId,
+      actorId: user.id,
+      action: 'recruitment.offer.issued',
+      resourceType: 'JobApplication',
+      resourceId: id,
+      after: {
+        position: updated.offerPosition,
+        salaryAmount: updated.offerSalaryAmount?.toString() ?? null,
+        currency: updated.offerCurrency,
+        startDate: updated.offerStartDate,
+        expiresAt: updated.offerExpiresAt,
+        notification,
+      },
+    });
+
+    return this.toApplicationDto(
+      updated,
+      updated.posting.title,
+      updated.posting.applicantTrack,
+      null,
+      notification,
+    );
+  }
+
+  /** Public accept / decline, verified by reference number + email. */
+  async respondToOfferPublic(
+    reference: string,
+    email: string,
+    decision: 'ACCEPT' | 'DECLINE',
+    reason?: string,
+  ): Promise<JobOfferResponseReceiptDto> {
+    const ref = reference?.trim() ?? '';
+    const mail = email?.trim() ?? '';
+    if (!ref || !mail) {
+      throw new BadRequestException({
+        error: 'APPLICATION_LOOKUP_INVALID',
+        message:
+          'Enter both the reference number and the email used to apply.',
+      });
+    }
+
+    return this.withPublicOrg(async () => {
+      const app = await this.prisma.jobApplication.findFirst({
+        where: {
+          referenceNumber: ref.toUpperCase(),
+          email: mail.toLowerCase(),
+        },
+        include: { posting: { select: { title: true, applicantTrack: true } } },
+      });
+      if (!app) {
+        throw new NotFoundException({
+          error: 'APPLICATION_NOT_FOUND',
+          message:
+            'No application matches that reference number and email. Check both and try again.',
+        });
+      }
+      const updated = await this.applyOfferResponse(app, decision, reason);
+      const view = publicApplicationStatusView(updated.status);
+      return {
+        referenceNumber: updated.referenceNumber,
+        offerStatus: updated.offerStatus as JobOfferStatus,
+        status: updated.status,
+        statusLabel: view.label,
+        statusHint: view.hint,
+        respondedAt: updated.offerRespondedAt,
+      };
+    });
+  }
+
+  /** HR records a decision received by phone / in person. */
+  async recordOfferResponse(
+    id: string,
+    dto: RecordOfferResponseDto,
+    user: AuthUser,
+  ): Promise<JobApplicationResponseDto> {
+    const app = await this.prisma.jobApplication.findFirst({
+      where: { id, organizationId: user.organizationId },
+      include: { posting: { select: { title: true, applicantTrack: true } } },
+    });
+    if (!app) throw new NotFoundException('Application not found');
+
+    const updated = await this.applyOfferResponse(app, dto.decision, dto.reason);
+
+    await this.audit.record({
+      organizationId: user.organizationId,
+      actorId: user.id,
+      action: 'recruitment.offer.response_recorded',
+      resourceType: 'JobApplication',
+      resourceId: id,
+      after: {
+        decision: dto.decision,
+        reason: dto.reason ?? null,
+        recordedOnBehalf: true,
+      },
+    });
+
+    return this.toApplicationDto(
+      updated,
+      updated.posting.title,
+      updated.posting.applicantTrack,
+    );
+  }
+
+  /**
+   * Shared offer-decision state machine. `app` must include `posting`.
+   */
+  private async applyOfferResponse(
+    app: {
+      id: string;
+      organizationId: string;
+      referenceNumber: string;
+      applicantName: string;
+      email: string;
+      status: ApplicationStatus;
+      notes: string | null;
+      offerStatus: JobOfferStatus | null;
+      offerPosition: string | null;
+      offerExpiresAt: Date | null;
+      offerIssuedBy: string | null;
+      posting: { title: string; applicantTrack: string | null };
+    },
+    decision: 'ACCEPT' | 'DECLINE',
+    reason?: string,
+  ) {
+    if (app.status === ApplicationStatus.HIRED) {
+      throw new BadRequestException({
+        error: 'ALREADY_HIRED',
+        message: 'This application is already hired.',
+      });
+    }
+    if (app.status !== ApplicationStatus.OFFERED) {
+      throw new BadRequestException({
+        error: 'OFFER_NOT_AVAILABLE',
+        message: `There is no open offer to answer (application is ${app.status}).`,
+      });
+    }
+    if (!app.offerStatus) {
+      throw new BadRequestException({
+        error: 'OFFER_NOT_ISSUED',
+        message: 'HIGHLINK has not issued the formal offer yet.',
+      });
+    }
+    if (app.offerStatus !== JobOfferStatus.PENDING) {
+      throw new BadRequestException({
+        error: 'OFFER_ALREADY_ANSWERED',
+        message: `This offer was already ${app.offerStatus.toLowerCase()}.`,
+      });
+    }
+
+    const now = new Date();
+    if (app.offerExpiresAt && app.offerExpiresAt.getTime() < now.getTime()) {
+      await this.prisma.jobApplication.update({
+        where: { id: app.id },
+        data: { offerStatus: JobOfferStatus.EXPIRED },
+      });
+      throw new BadRequestException({
+        error: 'OFFER_EXPIRED',
+        message:
+          'The offer acceptance window has closed. Ask HIGHLINK Recruitment to re-issue the offer.',
+      });
+    }
+
+    const cleanReason = reason?.trim() || null;
+    const accepted = decision === 'ACCEPT';
+    const updated = await this.prisma.jobApplication.update({
+      where: { id: app.id },
+      data: accepted
+        ? {
+            offerStatus: JobOfferStatus.ACCEPTED,
+            offerRespondedAt: now,
+            offerResponseReason: cleanReason,
+            notes: appendNote(app.notes, 'Offer accepted by applicant'),
+          }
+        : {
+            offerStatus: JobOfferStatus.DECLINED,
+            status: ApplicationStatus.WITHDRAWN,
+            offerRespondedAt: now,
+            offerResponseReason: cleanReason,
+            notes: appendNote(
+              app.notes,
+              `Offer declined by applicant${cleanReason ? `: ${cleanReason}` : ''}`,
+            ),
+          },
+      include: { posting: { select: { title: true, applicantTrack: true } } },
+    });
+
+    await this.audit.record({
+      organizationId: app.organizationId,
+      actorId: null,
+      action: accepted
+        ? 'recruitment.offer.accepted'
+        : 'recruitment.offer.declined',
+      resourceType: 'JobApplication',
+      resourceId: app.id,
+      after: { decision, reason: cleanReason, respondedAt: now },
+    });
+
+    let issuerEmail: string | null = null;
+    if (app.offerIssuedBy) {
+      const issuer = await this.prisma.user.findFirst({
+        where: { id: app.offerIssuedBy, organizationId: app.organizationId },
+        select: { email: true },
+      });
+      issuerEmail = issuer?.email ?? null;
+    }
+    const notify = await this.notifications.enqueueRecruitmentOfferResponse({
+      organizationId: app.organizationId,
+      applicationId: app.id,
+      recipientEmail: issuerEmail,
+      applicantName: app.applicantName,
+      referenceNumber: app.referenceNumber,
+      postingTitle: app.posting.title,
+      position: app.offerPosition ?? app.posting.title,
+      decision,
+      reason: cleanReason,
+      respondedAt: now,
+      actorId: app.offerIssuedBy ?? app.id,
+    });
+    await this.audit.record({
+      organizationId: app.organizationId,
+      actorId: null,
+      action: 'recruitment.offer.response_notified',
+      resourceType: 'JobApplication',
+      resourceId: app.id,
+      after: notify,
+    });
+
+    return updated;
+  }
+
   async hireApplicant(
     id: string,
     dto: HireApplicantDto,
@@ -422,18 +761,53 @@ export class RecruitmentService {
         message: 'Only OFFERED applications can be hired',
       });
     }
+    if (!app.offerStatus) {
+      throw new BadRequestException({
+        error: 'OFFER_NOT_ISSUED',
+        message:
+          'Issue the formal offer first (POST /recruitment/applications/:id/offer) so the applicant can accept or decline.',
+      });
+    }
+    if (app.offerStatus === JobOfferStatus.DECLINED) {
+      throw new BadRequestException({
+        error: 'OFFER_DECLINED',
+        message: 'The applicant declined the offer. Re-issue a new offer before hiring.',
+      });
+    }
+    if (app.offerStatus === JobOfferStatus.EXPIRED) {
+      throw new BadRequestException({
+        error: 'OFFER_EXPIRED',
+        message: 'The offer expired. Re-issue the offer before hiring.',
+      });
+    }
+    if (app.offerStatus !== JobOfferStatus.ACCEPTED) {
+      throw new BadRequestException({
+        error: 'OFFER_NOT_ACCEPTED',
+        message:
+          'Waiting for the applicant to accept the offer. Hire is enabled once they ACCEPT on the careers portal.',
+      });
+    }
 
     const track = normalizeApplicantTrack(app.posting.applicantTrack);
+    const employeeNumber =
+      dto.employeeNumber?.trim() ||
+      (await this.nextEmployeeNumber(user.organizationId, track));
     const employee = await this.employees.create(
       {
-        employeeNumber: dto.employeeNumber,
+        employeeNumber,
         fullName: app.applicantName,
         email: app.email,
         phone: app.phone ?? undefined,
-        department: dto.department,
+        department:
+          dto.department?.trim() ||
+          app.offerDepartment ||
+          undefined,
         employmentType:
-          dto.employmentType ?? defaultEmploymentType(track),
-        hireDate: new Date().toISOString(),
+          dto.employmentType ??
+          app.offerEmploymentType ??
+          defaultEmploymentType(track),
+        hireDate:
+          app.offerStartDate?.toISOString() ?? new Date().toISOString(),
       },
       user,
     );
@@ -548,8 +922,40 @@ export class RecruitmentService {
     );
   }
 
-  private async nextReferenceNumber(organizationId: string): Promise<string> {
-    const year = new Date().getUTCFullYear();
+  /**
+   * Hire without the admin inventing a number — next free EMP-/GRD- sequence.
+   */
+  private async nextEmployeeNumber(
+    organizationId: string,
+    track: string,
+  ): Promise<string> {
+    const prefix = track === 'GUARD' ? 'GRD-' : 'EMP-';
+    const latest = await this.prisma.employee.findFirst({
+      where: {
+        organizationId,
+        employeeNumber: { startsWith: prefix },
+      },
+      orderBy: { employeeNumber: 'desc' },
+      select: { employeeNumber: true },
+    });
+    let seq = 1;
+    if (latest?.employeeNumber) {
+      const n = Number.parseInt(latest.employeeNumber.slice(prefix.length), 10);
+      if (!Number.isNaN(n)) seq = n + 1;
+    }
+    // Skip collisions if the org already used the candidate number elsewhere.
+    for (let attempt = 0; attempt < 200; attempt++) {
+      const candidate = `${prefix}${String(seq + attempt).padStart(4, '0')}`;
+      const taken = await this.prisma.employee.findFirst({
+        where: { organizationId, employeeNumber: candidate },
+        select: { id: true },
+      });
+      if (!taken) return candidate;
+    }
+    return `${prefix}${Date.now().toString().slice(-6)}`;
+  }
+
+  private async nextReferenceNumber(organizationId: string): Promise<string> {    const year = new Date().getUTCFullYear();
     const prefix = `APP-${year}-`;
     const latest = await this.prisma.jobApplication.findFirst({
       where: {
@@ -637,16 +1043,31 @@ export class RecruitmentService {
       employeeId: string | null;
       createdAt: Date;
       onboardingProgress?: unknown;
+      offerStatus?: JobOfferStatus | null;
+      offerPosition?: string | null;
+      offerDepartment?: string | null;
+      offerEmploymentType?: EmploymentType | null;
+      offerSalaryAmount?: Prisma.Decimal | null;
+      offerCurrency?: string | null;
+      offerStartDate?: Date | null;
+      offerMessage?: string | null;
+      offerIssuedAt?: Date | null;
+      offerIssuedBy?: string | null;
+      offerExpiresAt?: Date | null;
+      offerRespondedAt?: Date | null;
+      offerResponseReason?: string | null;
     },
     postingTitle?: string | null,
     applicantTrack?: string | null,
     interviewNotification?: { email: boolean } | null,
+    offerNotification?: { email: boolean } | null,
   ): JobApplicationResponseDto {
     const track = normalizeApplicantTrack(applicantTrack);
     const onboardingSteps =
       a.status === ApplicationStatus.HIRED
         ? parseOnboardingProgress(a.onboardingProgress, track)
         : undefined;
+    const offer = this.toOfferDto(a);
     return {
       id: a.id,
       organizationId: a.organizationId,
@@ -663,12 +1084,105 @@ export class RecruitmentService {
       createdAt: a.createdAt,
       postingTitle: postingTitle ?? null,
       allowedNextStatuses: STATUS_TRANSITIONS[a.status] ?? [],
-      canHire: a.status === ApplicationStatus.OFFERED,
+      canHire:
+        a.status === ApplicationStatus.OFFERED &&
+        a.offerStatus === JobOfferStatus.ACCEPTED,
       applicantTrack: track,
+      offer,
       onboardingSteps,
       interviewNotification: interviewNotification ?? null,
+      offerNotification: offerNotification ?? null,
     };
   }
+
+  private offerIsOpen(a: {
+    status: ApplicationStatus;
+    offerStatus?: JobOfferStatus | null;
+    offerExpiresAt?: Date | null;
+  }): boolean {
+    return (
+      a.status === ApplicationStatus.OFFERED &&
+      a.offerStatus === JobOfferStatus.PENDING &&
+      (!a.offerExpiresAt || a.offerExpiresAt.getTime() > Date.now())
+    );
+  }
+
+  private toOfferDto(a: {
+    offerStatus?: JobOfferStatus | null;
+    offerPosition?: string | null;
+    offerDepartment?: string | null;
+    offerEmploymentType?: EmploymentType | null;
+    offerSalaryAmount?: Prisma.Decimal | null;
+    offerCurrency?: string | null;
+    offerStartDate?: Date | null;
+    offerMessage?: string | null;
+    offerIssuedAt?: Date | null;
+    offerIssuedBy?: string | null;
+    offerExpiresAt?: Date | null;
+    offerRespondedAt?: Date | null;
+    offerResponseReason?: string | null;
+    status: ApplicationStatus;
+  }): JobApplicationOfferDto | null {
+    if (!a.offerStatus) return null;
+    return {
+      status: a.offerStatus,
+      position: a.offerPosition ?? null,
+      department: a.offerDepartment ?? null,
+      employmentType: a.offerEmploymentType ?? null,
+      salaryAmount: a.offerSalaryAmount?.toString() ?? null,
+      currency: a.offerCurrency ?? null,
+      startDate: a.offerStartDate ?? null,
+      message: a.offerMessage ?? null,
+      issuedAt: a.offerIssuedAt ?? null,
+      issuedBy: a.offerIssuedBy ?? null,
+      expiresAt: a.offerExpiresAt ?? null,
+      respondedAt: a.offerRespondedAt ?? null,
+      responseReason: a.offerResponseReason ?? null,
+      awaitingResponse: this.offerIsOpen(a),
+    };
+  }
+
+  /** Applicant-safe offer — no issuing officer id. */
+  private toPublicOffer(a: {
+    offerStatus?: JobOfferStatus | null;
+    offerPosition?: string | null;
+    offerDepartment?: string | null;
+    offerEmploymentType?: EmploymentType | null;
+    offerSalaryAmount?: Prisma.Decimal | null;
+    offerCurrency?: string | null;
+    offerStartDate?: Date | null;
+    offerMessage?: string | null;
+    offerIssuedAt?: Date | null;
+    offerExpiresAt?: Date | null;
+    offerRespondedAt?: Date | null;
+    status: ApplicationStatus;
+  }): PublicJobOfferDto | null {
+    if (!a.offerStatus) return null;
+    const canRespond = this.offerIsOpen(a);
+    return {
+      status: a.offerStatus,
+      position: a.offerPosition ?? null,
+      department: a.offerDepartment ?? null,
+      employmentType: a.offerEmploymentType ?? null,
+      salaryAmount: a.offerSalaryAmount?.toString() ?? null,
+      currency: a.offerCurrency ?? null,
+      startDate: a.offerStartDate ?? null,
+      message: a.offerMessage ?? null,
+      issuedAt: a.offerIssuedAt ?? null,
+      expiresAt: a.offerExpiresAt ?? null,
+      respondedAt: a.offerRespondedAt ?? null,
+      canRespond,
+      awaitingResponse: canRespond,
+    };
+  }
+}
+
+/** Append a line to the HR notes column without losing earlier notes. */
+function appendNote(existing: string | null, line: string): string {
+  const next = line.trim();
+  if (!existing?.trim()) return next;
+  if (existing.includes(next)) return existing;
+  return `${existing.trim()}\n${next}`;
 }
 
 const PIPELINE: Array<{ key: ApplicationStatus; label: string }> = [
@@ -697,7 +1211,8 @@ const STATUS_COPY: Record<
   },
   OFFERED: {
     label: 'Offer',
-    hint: 'An offer is in progress. Watch this email for next steps.',
+    hint:
+      'HIGHLINK has issued you an offer. Review the terms below and ACCEPT or DECLINE it.',
   },
   HIRED: {
     label: 'Hired',

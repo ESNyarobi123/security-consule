@@ -553,6 +553,7 @@ export async function seedDemoVolume(
         fullName,
         email,
         status: 'ACTIVE',
+        branchId: ctx.branchId,
       },
       create: {
         organizationId: orgId,
@@ -563,12 +564,50 @@ export async function seedDemoVolume(
         email,
         phone: `+2557129${pad(i, 4)}`,
         department: 'Operations',
+        branchId: ctx.branchId,
         employmentType: 'GUARD',
         hireDate: daysFromNow(-365 - i * 10),
         createdBy: ctx.adminUserId,
       },
     });
     volGuardIds.push(gp.id);
+
+    // Payroll readiness for the seeded volume: without an active salary
+    // assignment these guards are skipped by a payroll run, which looks like
+    // missing data in the Payroll console.
+    const volGuardEmployee = await prisma.employee.findFirst({
+      where: { organizationId: orgId, employeeNumber: num },
+      select: { id: true },
+    });
+    if (volGuardEmployee) {
+      await prisma.employee.update({
+        where: { id: volGuardEmployee.id },
+        data: {
+          bankAccountRef: `01501${pad(i, 5)}0`,
+          bankName: i % 2 === 0 ? 'CRDB Bank' : 'NMB Bank',
+          mobileMoneyRef: `+2557129${pad(i, 4)}`,
+          mobileMoneyProvider: 'M-PESA',
+        },
+      });
+      const existingVolSalary = await prisma.salaryAssignment.findFirst({
+        where: { employeeId: volGuardEmployee.id, isActive: true },
+      });
+      if (!existingVolSalary) {
+        const basic = 650000 + (i % 5) * 40000;
+        await prisma.salaryAssignment.create({
+          data: {
+            organizationId: orgId,
+            employeeId: volGuardEmployee.id,
+            basicSalary: basic,
+            currency: 'TZS',
+            hourlyRate: Math.round(basic / 176),
+            allowances: { TRANSPORT: 45000, RISK: 55000, SITE: 20000 },
+            effectiveFrom: new Date('2024-01-01'),
+            createdBy: ctx.adminUserId,
+          },
+        });
+      }
+    }
     bump('guards');
   }
 
@@ -939,7 +978,7 @@ export async function seedDemoVolume(
   const levels: AccessLevel[] = ['STANDARD', 'RESTRICTED', 'ELEVATED'];
   for (let i = 1; i <= N; i++) {
     const email = `vol.emp.${pad(i)}@demo-mfg.co.tz`;
-    await prisma.customerEmployee.upsert({
+    const volCustomerEmployee = await prisma.customerEmployee.upsert({
       where: {
         customerId_email: { customerId: ctx.customerId, email },
       },
@@ -963,7 +1002,100 @@ export async function seedDemoVolume(
         createdBy: ctx.adminUserId,
       },
     });
+
+    // Customer payroll readiness: an active salary assignment + payment refs
+    // so customer cycles produce a slip for the whole demo roster.
+    await prisma.customerEmployee.update({
+      where: { id: volCustomerEmployee.id },
+      data: {
+        bankAccountRef: `01234567${pad(i, 4)}`,
+        bankName: 'CRDB Bank',
+        mobileMoneyRef: `+2557558${pad(i, 4)}`,
+        mobileMoneyProvider: 'M-PESA',
+      },
+    });
+    const existingVolCustomerSalary =
+      await prisma.customerSalaryAssignment.findFirst({
+        where: {
+          customerEmployeeId: volCustomerEmployee.id,
+          isActive: true,
+        },
+      });
+    if (!existingVolCustomerSalary) {
+      const basic = 600000 + (i % 5) * 35000;
+      await prisma.customerSalaryAssignment.create({
+        data: {
+          organizationId: orgId,
+          customerId: ctx.customerId,
+          customerEmployeeId: volCustomerEmployee.id,
+          basicSalary: basic,
+          currency: 'TZS',
+          hourlyRate: Math.round(basic / 176),
+          allowances: { TRANSPORT: 40000, MEAL: 25000 },
+          effectiveFrom: new Date('2024-01-01'),
+          createdBy: ctx.adminUserId,
+        },
+      });
+    }
     bump('customerEmployees');
+  }
+
+  // ── Customer employee access check-ins for the current month ───────────
+  // Customer payroll derives absences from `access.entries`; without these the
+  // whole volume roster looks absent and every payslip is prorated to almost
+  // nothing, which reads as "missing payroll data" in the console.
+  {
+    const today = new Date();
+    const monthStart = new Date(
+      Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), 1),
+    );
+    const volCustomerEmployees = await prisma.customerEmployee.findMany({
+      where: {
+        organizationId: orgId,
+        customerId: ctx.customerId,
+        employeeNumber: { startsWith: 'VOL-EMP-' },
+        isActive: true,
+      },
+      select: { id: true, employeeNumber: true },
+      orderBy: { employeeNumber: 'asc' },
+    });
+    const accessSite = await prisma.site.findFirst({
+      where: { organizationId: orgId, customerId: ctx.customerId },
+      select: { id: true },
+    });
+    if (accessSite) {
+      for (const emp of volCustomerEmployees) {
+        for (let dayOffset = 0; ; dayOffset += 1) {
+          const at = new Date(monthStart.getTime() + dayOffset * 86_400_000);
+          if (at.getUTCMonth() !== monthStart.getUTCMonth()) break;
+          const weekday = at.getUTCDay();
+          if (weekday === 0 || weekday === 6) continue;
+          if (at.getTime() > today.getTime()) break;
+          const clientEventId = `vol-access-${emp.employeeNumber}-${at
+            .toISOString()
+            .slice(0, 10)}`;
+          const existing = await prisma.accessEntry.findFirst({
+            where: { organizationId: orgId, clientEventId },
+            select: { id: true },
+          });
+          if (existing) continue;
+          await prisma.accessEntry.create({
+            data: {
+              organizationId: orgId,
+              customerId: ctx.customerId,
+              employeeId: emp.id,
+              siteId: accessSite.id,
+              entryType: 'CHECK_IN',
+              accessMethod: 'CARD',
+              recordedBy: ctx.adminUserId,
+              recordedAt: new Date(at.getTime() + 8 * 3600_000),
+              clientEventId,
+            },
+          });
+          bump('accessEntries');
+        }
+      }
+    }
   }
 
   // ── CustomerContact VOL-CTC-01..20 ─────────────────────────────────────
@@ -1455,6 +1587,35 @@ export async function seedDemoVolume(
       },
     });
     bump('invoices');
+
+    // Keep the payments ledger in sync with `amountPaid` (revenue KPIs read
+    // InvoicePayment, not the invoice header).
+    if (paid > 0) {
+      const seeded = await prisma.invoice.findUnique({
+        where: { organizationId_invoiceNumber: { organizationId: orgId, invoiceNumber } },
+        select: { id: true },
+      });
+      if (seeded) {
+        const paymentReference = `SEED-${invoiceNumber}`;
+        const existing = await prisma.invoicePayment.findFirst({
+          where: { organizationId: orgId, invoiceId: seeded.id, paymentReference },
+          select: { id: true },
+        });
+        if (!existing) {
+          await prisma.invoicePayment.create({
+            data: {
+              organizationId: orgId,
+              invoiceId: seeded.id,
+              amount: paid,
+              paymentMethod: 'BANK_TRANSFER',
+              paymentReference,
+              recordedBy: ctx.adminUserId,
+              recordedAt: issueDate,
+            },
+          });
+        }
+      }
+    }
   }
 
   // ── Petty cash vouchers ~20 ────────────────────────────────────────────
@@ -1928,6 +2089,24 @@ export async function seedDemoVolume(
   ];
   for (let i = 1; i <= N; i++) {
     const referenceNumber = `VOL-APP-${pad(i)}`;
+    const status = appStatuses[(i - 1) % appStatuses.length]!;
+    // Module 14 — OFFERED rows need a real offer for the applicant portal.
+    const offerSeed =
+      status === 'OFFERED'
+        ? {
+            offerStatus: 'PENDING' as const,
+            offerPosition: 'Security Guard — Multi-site',
+            offerDepartment: 'Operations',
+            offerEmploymentType: 'GUARD' as const,
+            offerSalaryAmount: 650000,
+            offerCurrency: 'TZS',
+            offerStartDate: daysFromNow(14),
+            offerMessage:
+              'Welcome to HIGHLINK. Report to the branch office with your original ID and NIDA number.',
+            offerIssuedAt: daysFromNow(-1),
+            offerExpiresAt: daysFromNow(7),
+          }
+        : {};
     await prisma.jobApplication.upsert({
       where: {
         organizationId_referenceNumber: {
@@ -1936,8 +2115,9 @@ export async function seedDemoVolume(
         },
       },
       update: {
-        status: appStatuses[(i - 1) % appStatuses.length]!,
+        status,
         applicantName: `${FIRST[(i - 1) % FIRST.length]} Applicant ${pad(i)}`,
+        ...offerSeed,
       },
       create: {
         organizationId: orgId,
@@ -1946,8 +2126,9 @@ export async function seedDemoVolume(
         email: `vol.app.${pad(i)}@example.com`,
         phone: `+2557138${pad(i, 4)}`,
         coverLetter: `Volume application ${pad(i)}`,
-        status: appStatuses[(i - 1) % appStatuses.length]!,
+        status,
         referenceNumber,
+        ...offerSeed,
       },
     });
     bump('applications');

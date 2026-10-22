@@ -2,6 +2,7 @@ import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import {
   ApplicationStatus,
   EmploymentType,
+  JobOfferStatus,
   JobPostingStatus,
 } from '@prisma/client';
 import {
@@ -10,10 +11,14 @@ import {
   IsEmail,
   IsEnum,
   IsIn,
+  IsInt,
+  IsNumber,
   IsOptional,
   IsString,
   IsUUID,
+  Max,
   MaxLength,
+  Min,
   MinLength,
 } from 'class-validator';
 import {
@@ -172,11 +177,18 @@ export class JobApplicationResponseDto {
   })
   allowedNextStatuses?: ApplicationStatus[];
 
-  @ApiPropertyOptional({ description: 'True when status is OFFERED' })
+  @ApiPropertyOptional({
+    description:
+      'True only when status is OFFERED and the applicant ACCEPTED the offer',
+  })
   canHire?: boolean;
 
   @ApiPropertyOptional({ enum: APPLICANT_TRACKS })
   applicantTrack?: string | null;
+
+  /** Module 14 — formal offer terms + applicant decision. */
+  @ApiPropertyOptional({ type: () => JobApplicationOfferDto })
+  offer?: JobApplicationOfferDto | null;
 
   @ApiPropertyOptional({ type: 'array' })
   onboardingSteps?: Array<{
@@ -190,6 +202,156 @@ export class JobApplicationResponseDto {
     description: 'Set when advancing to INTERVIEW',
   })
   interviewNotification?: { email: boolean } | null;
+
+  @ApiPropertyOptional({
+    description: 'Set when an offer email is queued to the applicant',
+  })
+  offerNotification?: { email: boolean } | null;
+}
+
+/** Staff view of the offer (includes officer ids). */
+export class JobApplicationOfferDto {
+  @ApiProperty({ enum: JobOfferStatus }) status!: JobOfferStatus;
+  @ApiPropertyOptional() position?: string | null;
+  @ApiPropertyOptional() department?: string | null;
+  @ApiPropertyOptional({ enum: EmploymentType })
+  employmentType?: EmploymentType | null;
+  @ApiPropertyOptional({ description: 'Decimal serialised as string' })
+  salaryAmount?: string | null;
+  @ApiPropertyOptional() currency?: string | null;
+  @ApiPropertyOptional() startDate?: Date | null;
+  @ApiPropertyOptional() message?: string | null;
+  @ApiPropertyOptional() issuedAt?: Date | null;
+  @ApiPropertyOptional() issuedBy?: string | null;
+  @ApiPropertyOptional() expiresAt?: Date | null;
+  @ApiPropertyOptional() respondedAt?: Date | null;
+  @ApiPropertyOptional() responseReason?: string | null;
+  @ApiPropertyOptional({
+    description: 'True when the applicant can still accept/decline',
+  })
+  awaitingResponse?: boolean;
+}
+
+/**
+ * Public applicant-facing offer — no officer ids, no internal notes.
+ */
+export class PublicJobOfferDto {
+  @ApiProperty({ enum: JobOfferStatus }) status!: JobOfferStatus;
+  @ApiPropertyOptional() position?: string | null;
+  @ApiPropertyOptional() department?: string | null;
+  @ApiPropertyOptional({ enum: EmploymentType })
+  employmentType?: EmploymentType | null;
+  @ApiPropertyOptional() salaryAmount?: string | null;
+  @ApiPropertyOptional() currency?: string | null;
+  @ApiPropertyOptional() startDate?: Date | null;
+  @ApiPropertyOptional() message?: string | null;
+  @ApiPropertyOptional() issuedAt?: Date | null;
+  @ApiPropertyOptional() expiresAt?: Date | null;
+  @ApiPropertyOptional() respondedAt?: Date | null;
+  @ApiPropertyOptional({
+    description: 'True when accept / decline buttons should be shown',
+  })
+  canRespond?: boolean;
+
+  /** @deprecated alias kept for older clients */
+  @ApiPropertyOptional() awaitingResponse?: boolean;
+}
+
+export class IssueJobOfferDto {
+  @ApiProperty({ example: 'Security Guard — Site A' })
+  @IsString()
+  @MinLength(2)
+  position!: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  department?: string;
+
+  @ApiPropertyOptional({ enum: EmploymentType })
+  @IsOptional()
+  @IsEnum(EmploymentType)
+  employmentType?: EmploymentType;
+
+  @ApiPropertyOptional({ example: 650000 })
+  @IsOptional()
+  @IsNumber({ maxDecimalPlaces: 2 })
+  @Min(0)
+  salaryAmount?: number;
+
+  @ApiPropertyOptional({ example: 'TZS' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(8)
+  currency?: string;
+
+  @ApiPropertyOptional({ example: '2026-11-01' })
+  @IsOptional()
+  @IsDateString()
+  startDate?: string;
+
+  @ApiPropertyOptional({
+    description: 'Days the applicant has to accept (default 7, max 60)',
+    example: 7,
+  })
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  @Max(60)
+  expiresInDays?: number;
+
+  @ApiPropertyOptional({ description: 'Message shown to the applicant' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(2000)
+  message?: string;
+}
+
+/** Public accept / decline — verified by reference + email. */
+export class RespondToJobOfferDto {
+  @ApiProperty()
+  @IsString()
+  reference!: string;
+
+  @ApiProperty()
+  @IsEmail()
+  email!: string;
+
+  @ApiProperty({ enum: ['ACCEPT', 'DECLINE'] })
+  @IsIn(['ACCEPT', 'DECLINE'], {
+    message: 'decision must be ACCEPT or DECLINE',
+  })
+  decision!: 'ACCEPT' | 'DECLINE';
+
+  @ApiPropertyOptional({ description: 'Reason (encouraged when declining)' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(500)
+  reason?: string;
+}
+
+/** HR records a decision received by phone / in person. */
+export class RecordOfferResponseDto {
+  @ApiProperty({ enum: ['ACCEPT', 'DECLINE'] })
+  @IsIn(['ACCEPT', 'DECLINE'], {
+    message: 'decision must be ACCEPT or DECLINE',
+  })
+  decision!: 'ACCEPT' | 'DECLINE';
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  @MaxLength(500)
+  reason?: string;
+}
+
+export class JobOfferResponseReceiptDto {
+  @ApiProperty() referenceNumber!: string;
+  @ApiProperty({ enum: JobOfferStatus }) offerStatus!: JobOfferStatus;
+  @ApiProperty({ enum: ApplicationStatus }) status!: ApplicationStatus;
+  @ApiProperty() statusLabel!: string;
+  @ApiProperty() statusHint!: string;
+  @ApiPropertyOptional() respondedAt?: Date | null;
 }
 
 export class JobApplicationPublicStatusDto {
@@ -225,6 +387,13 @@ export class JobApplicationPublicStatusDto {
   applicantTrack!: string;
 
   @ApiPropertyOptional({
+    description:
+      'Formal offer terms + applicant decision (OFFERED / HIRED only)',
+    type: () => PublicJobOfferDto,
+  })
+  offer?: PublicJobOfferDto | null;
+
+  @ApiPropertyOptional({
     description: 'Hire checklist (HIRED only; no officer names)',
     type: 'array',
   })
@@ -246,9 +415,13 @@ export class UpdateOnboardingStepDto {
 }
 
 export class HireApplicantDto {
-  @ApiProperty({ example: 'GRD-0002' })
+  @ApiPropertyOptional({
+    example: 'GRD-0002',
+    description: 'Omit to auto-generate (EMP-#### / GRD-#### by track)',
+  })
+  @IsOptional()
   @IsString()
-  employeeNumber!: string;
+  employeeNumber?: string;
 
   @ApiPropertyOptional()
   @IsOptional()

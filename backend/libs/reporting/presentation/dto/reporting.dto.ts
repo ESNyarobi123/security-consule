@@ -47,6 +47,9 @@ export class KpiItemDto {
   @ApiPropertyOptional() deltaPct?: number | null;
   @ApiProperty() asOf!: Date;
   @ApiProperty({ enum: ['live', 'snapshot'] }) source!: 'live' | 'snapshot';
+  @ApiPropertyOptional({ description: 'True when the query failed and the value is not a real zero' })
+  degraded?: boolean;
+  @ApiPropertyOptional() error?: string;
   @ApiPropertyOptional() breakdown?: Record<string, unknown>;
 }
 
@@ -81,6 +84,11 @@ export class ExecutiveDashboardResponseDto {
     granularity: KpiPeriodGranularity;
   };
   @ApiProperty({ type: [KpiItemDto] }) kpis!: KpiItemDto[];
+  @ApiPropertyOptional({
+    type: [String],
+    description: 'KPI codes whose live query failed (value must not be read as zero)',
+  })
+  degradedKpis?: string[];
   @ApiProperty({ type: [Object] }) insights!: Record<string, unknown>[];
   @ApiProperty() cache!: { hit: boolean; expiresAt: Date | null };
 }

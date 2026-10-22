@@ -54,6 +54,12 @@ export class SitesService {
       where: { id: dto.branchId, organizationId: user.organizationId },
     });
     if (!branch) throw new NotFoundException('Branch not found');
+    if (!branch.isActive) {
+      throw new BadRequestException({
+        error: 'BRANCH_INACTIVE',
+        message: 'Cannot create a site on a deactivated branch',
+      });
+    }
     assertBranchAccess(user, dto.branchId);
 
     if (dto.customerId) {

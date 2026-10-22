@@ -11,6 +11,8 @@ export * from './decorators/require-permissions.decorator';
 export * from './types/auth-user';
 export * from './utils/geo.util';
 export * from './utils/verification-code.util';
+export * from './utils/phone.util';
+export * from './utils/sms-config.util';
 export * from './utils/payroll.util';
 export * from './utils/totp.util';
 export * from './utils/password-policy.util';

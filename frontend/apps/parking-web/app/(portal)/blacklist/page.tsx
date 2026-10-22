@@ -29,6 +29,21 @@ import {
 type StatusFilter = 'ALL' | 'ACTIVE' | 'INACTIVE';
 type ViewMode = 'cards' | 'table';
 
+function friendlyBlacklistError(err: unknown, fallback: string): string {
+  const message = err instanceof Error ? err.message : fallback;
+  const code =
+    typeof err === 'object' && err && 'code' in err
+      ? String((err as { code?: unknown }).code ?? '')
+      : '';
+  if (/already blacklisted/i.test(message)) {
+    return 'That plate is already blocked. Look for it under Active blocks.';
+  }
+  if (code === 'UNAUTHORIZED' || code === 'AUTH_REQUIRED') {
+    return 'Your session expired. Please sign in again.';
+  }
+  return message;
+}
+
 function formatWhen(iso: string): string {
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return '—';
@@ -47,6 +62,7 @@ export default function BlacklistPage() {
   const [vehicles, setVehicles] = useState<ParkingOpsVehicle[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
   const [plateNumber, setPlateNumber] = useState('');
   const [reason, setReason] = useState('');
   const [saving, setSaving] = useState(false);
@@ -131,17 +147,26 @@ export default function BlacklistPage() {
     e.preventDefault();
     setSaving(true);
     setError(null);
+    setNotice(null);
     try {
-      await addBlacklist({
-        plateNumber: plateNumber.trim().toUpperCase(),
-        reason: reason.trim(),
-      });
+      const plate = plateNumber.trim().toUpperCase();
+      const why = reason.trim();
+      if (plate.length < 3) {
+        setError('Plate number must be at least 3 characters');
+        return;
+      }
+      if (!why) {
+        setError('Reason is required — say why this plate is blocked');
+        return;
+      }
+      await addBlacklist({ plateNumber: plate, reason: why });
       setPlateNumber('');
       setReason('');
       setStatusFilter('ACTIVE');
+      setNotice(`${plate} is now blocked at the gate and by ANPR.`);
       await load();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Add failed');
+      setError(friendlyBlacklistError(err, 'Add failed'));
     } finally {
       setSaving(false);
     }
@@ -150,11 +175,33 @@ export default function BlacklistPage() {
   async function onDeactivate(id: string) {
     setBusyId(id);
     setError(null);
+    setNotice(null);
     try {
       await deactivateBlacklist(id);
+      setNotice('Block lifted — the entry is now INACTIVE.');
+      setStatusFilter('ALL');
       await load();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Deactivate failed');
+      setError(friendlyBlacklistError(err, 'Deactivate failed'));
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  async function onReactivate(entry: ParkingBlacklistEntry) {
+    setBusyId(entry.id);
+    setError(null);
+    setNotice(null);
+    try {
+      await addBlacklist({
+        plateNumber: entry.plateNumber.toUpperCase(),
+        reason: entry.reason,
+      });
+      setNotice(`${entry.plateNumber} is blocked again.`);
+      setStatusFilter('ACTIVE');
+      await load();
+    } catch (err) {
+      setError(friendlyBlacklistError(err, 'Reactivate failed'));
     } finally {
       setBusyId(null);
     }
@@ -191,6 +238,12 @@ export default function BlacklistPage() {
           </button>
         </div>
       </div>
+
+      {notice ? (
+        <p className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
+          {notice}
+        </p>
+      ) : null}
 
       {error ? (
         <p className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800">
@@ -468,9 +521,15 @@ export default function BlacklistPage() {
                   </div>
                 ) : (
                   <div className="border-t border-slate-100 px-4 py-3">
-                    <p className="text-center text-[11px] font-semibold text-slate-400">
-                      Re-add with same plate to reactivate
-                    </p>
+                    <button
+                      type="button"
+                      disabled={busyId === b.id}
+                      onClick={() => void onReactivate(b)}
+                      className="inline-flex w-full items-center justify-center gap-1.5 rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-xs font-bold text-rose-700 hover:bg-rose-100 disabled:opacity-60"
+                    >
+                      <ShieldBan className="h-3.5 w-3.5" />
+                      {busyId === b.id ? '…' : 'Reactivate block'}
+                    </button>
                   </div>
                 )}
               </article>
@@ -551,7 +610,14 @@ export default function BlacklistPage() {
                           Deactivate
                         </button>
                       ) : (
-                        <span className="text-slate-300">—</span>
+                        <button
+                          type="button"
+                          disabled={busyId === b.id}
+                          onClick={() => void onReactivate(b)}
+                          className="rounded-lg border border-rose-200 bg-rose-50 px-2.5 py-1 text-[11px] font-bold text-rose-700 disabled:opacity-60"
+                        >
+                          Reactivate
+                        </button>
                       )}
                     </td>
                   </tr>

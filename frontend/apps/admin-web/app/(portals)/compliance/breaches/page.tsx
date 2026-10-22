@@ -20,7 +20,7 @@ import {
   btnSecondary,
   inputCls,
 } from '@pssms/ui';
-import { AlertTriangle, Plus, RefreshCw } from 'lucide-react';
+import { AlertTriangle, Eye, Plus, RefreshCw, X } from 'lucide-react';
 import { FormEvent, useCallback, useEffect, useMemo, useState } from 'react';
 import { ComplianceShell } from '../_components/ComplianceShell';
 import {
@@ -39,6 +39,7 @@ export default function ComplianceBreachesPage() {
   const [error, setError] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [createOpen, setCreateOpen] = useState(false);
+  const [detail, setDetail] = useState<DataBreachCase | null>(null);
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -166,28 +167,36 @@ export default function ComplianceBreachesPage() {
               },
               {
                 key: 'id',
-                label: '',
+                label: 'Actions',
                 render: (r) => {
                   const next = BREACH_NEXT[norm(r.status)];
-                  if (!next) {
-                    return (
-                      <span className="text-[11px] text-[#a19f9d]">Closed</span>
-                    );
-                  }
-                  if (!canMutateBreach) {
-                    return (
-                      <span className="text-[11px] text-[#a19f9d]">View only</span>
-                    );
-                  }
                   return (
-                    <button
-                      type="button"
-                      className={btnPrimary}
-                      disabled={busyId === r.id}
-                      onClick={() => void advance(r)}
-                    >
-                      → {next.replace(/_/g, ' ')}
-                    </button>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <button
+                        type="button"
+                        className="inline-flex items-center gap-1 rounded-md border border-[#e1dfdd] bg-white px-2 py-1 text-xs font-semibold text-[#0067b8] hover:bg-[#f3f9fd]"
+                        onClick={() => setDetail(r)}
+                      >
+                        <Eye className="h-3 w-3" />
+                        Breach details
+                      </button>
+                      {!next ? (
+                        <span className="text-[11px] text-[#a19f9d]">Closed</span>
+                      ) : !canMutateBreach ? (
+                        <span className="text-[11px] text-[#a19f9d]">
+                          View only
+                        </span>
+                      ) : (
+                        <button
+                          type="button"
+                          className={btnPrimary}
+                          disabled={busyId === r.id}
+                          onClick={() => void advance(r)}
+                        >
+                          → {next.replace(/_/g, ' ')}
+                        </button>
+                      )}
+                    </div>
                   );
                 },
               },
@@ -204,6 +213,122 @@ export default function ComplianceBreachesPage() {
             await refresh();
           }}
         />
+      ) : null}
+
+      {detail ? (
+        <Modal
+          title={`${detail.referenceCode} · ${detail.title}`}
+          description={`Reported ${formatDateTime(detail.reportedAt)} · last update ${formatDateTime(detail.updatedAt)}`}
+          size="lg"
+          onClose={() => setDetail(null)}
+        >
+          <div className="space-y-4">
+            <div className="flex flex-wrap items-center gap-2">
+              <StatusBadge status={detail.severity} />
+              <StatusBadge status={detail.status} />
+              <span className="rounded-full bg-[#f3f2f1] px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-[#605e5c] ring-1 ring-[#e1dfdd]">
+                Discovered {formatDate(detail.discoveredAt)}
+              </span>
+            </div>
+
+            <div className="rounded-lg border border-[#e1dfdd] bg-[#faf9f8] p-3">
+              <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-[#8a8886]">
+                What happened
+              </p>
+              <p className="mt-1 whitespace-pre-wrap text-[13px] leading-relaxed text-[#1b1a19]">
+                {detail.description || '—'}
+              </p>
+            </div>
+
+            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+              <div className="min-w-0">
+                <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-[#8a8886]">
+                  Affected data categories
+                </p>
+                <p className="mt-0.5 break-words text-[13px] text-[#1b1a19]">
+                  {detail.affectedDataCategories || '—'}
+                </p>
+              </div>
+              <div className="min-w-0">
+                <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-[#8a8886]">
+                  Estimated records
+                </p>
+                <p className="mt-0.5 text-[13px] text-[#1b1a19]">
+                  {detail.estimatedRecords ?? '—'}
+                </p>
+              </div>
+              <div className="min-w-0">
+                <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-[#8a8886]">
+                  Reported
+                </p>
+                <p className="mt-0.5 text-[13px] text-[#1b1a19]">
+                  {formatDateTime(detail.reportedAt)}
+                </p>
+              </div>
+              <div className="min-w-0">
+                <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-[#8a8886]">
+                  Closed at
+                </p>
+                <p className="mt-0.5 text-[13px] text-[#1b1a19]">
+                  {detail.closedAt ? formatDateTime(detail.closedAt) : '—'}
+                </p>
+              </div>
+              <div className="min-w-0">
+                <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-[#8a8886]">
+                  Closed by
+                </p>
+                <p className="mt-0.5 break-words text-[13px] text-[#1b1a19]">
+                  {detail.closedByName || detail.closedBy || '—'}
+                </p>
+              </div>
+              <div className="min-w-0">
+                <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-[#8a8886]">
+                  Recorded by
+                </p>
+                <p className="mt-0.5 break-words text-[13px] text-[#1b1a19]">
+                  {detail.createdByName || detail.createdBy}
+                </p>
+              </div>
+            </div>
+
+            <div>
+              <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-[#8a8886]">
+                Containment / remediation
+              </p>
+              <p className="mt-0.5 whitespace-pre-wrap rounded-md border border-[#e1dfdd] bg-white px-3 py-2 text-[13px] text-[#1b1a19]">
+                {detail.containmentNotes || 'No containment notes recorded yet.'}
+              </p>
+            </div>
+
+            <div className="flex flex-wrap items-center justify-between gap-2 border-t border-[#edebe9] pt-3">
+              <p className="text-[11px] text-[#605e5c]">
+                {canMutateBreach
+                  ? 'DPO can advance the case status.'
+                  : 'Read-only for your role — DPO owns case updates.'}
+              </p>
+              <div className="flex items-center gap-2">
+                {canMutateBreach && BREACH_NEXT[norm(detail.status)] ? (
+                  <button
+                    type="button"
+                    className={btnPrimary}
+                    disabled={busyId === detail.id}
+                    onClick={() => void advance(detail)}
+                  >
+                    → {BREACH_NEXT[norm(detail.status)]!.replace(/_/g, ' ')}
+                  </button>
+                ) : null}
+                <button
+                  type="button"
+                  className={btnSecondary}
+                  onClick={() => setDetail(null)}
+                >
+                  <X className="h-3.5 w-3.5" />
+                  Close
+                </button>
+              </div>
+            </div>
+          </div>
+        </Modal>
       ) : null}
     </ComplianceShell>
   );
