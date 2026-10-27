@@ -266,10 +266,12 @@ services:
     build:
       context: ../../backend
       dockerfile: Dockerfile
-    image: pssms-integration-gateway:prod
+    # The backend image is multi-app (core-api, gateway, worker, realtime,
+    # reporting) — reuse the built tag so starting the dispatcher needs no build.
+    image: pssms-core-api:prod
     container_name: pssms-integration-gateway
     restart: unless-stopped
-    mem_limit: 192m
+    mem_limit: 160m
     environment:
       <<: *backend-env
       INTEGRATION_GATEWAY_PORT: "4003"
@@ -288,10 +290,10 @@ services:
     build:
       context: ../../backend
       dockerfile: Dockerfile
-    image: pssms-background-worker:prod
+    image: pssms-core-api:prod
     container_name: pssms-background-worker
     restart: unless-stopped
-    mem_limit: 256m
+    mem_limit: 192m
     environment:
       <<: *backend-env
       BACKGROUND_WORKER_PORT: "4002"
