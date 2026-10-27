@@ -6,7 +6,9 @@ import {
   getToken,
   parkingAuthHeaders,
   setParkingSession,
+  setParkingTokens,
 } from '@pssms/auth';
+import { errorMessageFromBody } from './errors';
 import type { LoginResult } from './index';
 
 const coreUrl = () =>
@@ -66,33 +68,70 @@ function extractApiError(
         : fallback;
     return { code, message: text };
   } catch {
-    return { code: 'REQUEST_FAILED', message: raw };
+    // Some proxies (or a truncated stream) return HTML/text. Never dump a raw
+    // payload into an officer's modal.
+    const plain = raw.trim();
+    const isMarkup = plain.startsWith('<');
+    return {
+      code: 'REQUEST_FAILED',
+      message: !plain || isMarkup ? fallback : plain.slice(0, 240),
+    };
   }
 }
 
-/** Refresh the parking JWT with the stored refresh token. */
+/**
+ * Refresh the parking JWT with the stored refresh token.
+ *
+ * `POST /auth/refresh` returns the pair **flat** (`data.accessToken` /
+ * `data.refreshToken`). Reading `data.tokens` (the login envelope) silently
+ * failed, so every parking screen died with "Unauthorized" once the 15-minute
+ * access token expired.
+ */
+let parkingRefreshInFlight: Promise<string | null> | null = null;
+
 async function refreshParkingSession(): Promise<string | null> {
-  const refreshToken = getParkingRefreshToken();
-  if (!refreshToken) return null;
-  try {
-    const res = await fetch(`${coreUrl()}/api/v1/auth/refresh`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ refreshToken }),
-    });
-    if (!res.ok) return null;
-    const json = (await res.json()) as ApiEnvelope<{ tokens: LoginResult['tokens'] }>;
-    const tokens = json.data?.tokens;
-    if (!tokens?.accessToken) return null;
-    setParkingSession(
-      tokens.accessToken,
-      getParkingSessionUser() ?? ({} as never),
-      tokens.refreshToken,
-    );
-    return tokens.accessToken;
-  } catch {
-    return null;
-  }
+  if (parkingRefreshInFlight) return parkingRefreshInFlight;
+  parkingRefreshInFlight = (async () => {
+    const refreshToken = getParkingRefreshToken();
+    if (!refreshToken) return null;
+    try {
+      const res = await fetch(`${coreUrl()}/api/v1/auth/refresh`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ refreshToken }),
+      });
+      if (!res.ok) return null;
+      const json = (await res.json()) as ApiEnvelope<{
+        accessToken?: string;
+        refreshToken?: string;
+        tokens?: { accessToken: string; refreshToken?: string };
+      }>;
+      const tokens = json.data?.accessToken ? json.data : json.data?.tokens;
+      if (!tokens?.accessToken) return null;
+      const user = getParkingSessionUser();
+      if (user) {
+        setParkingSession(tokens.accessToken, user, tokens.refreshToken);
+      } else {
+        setParkingTokens(tokens.accessToken, tokens.refreshToken);
+      }
+      return tokens.accessToken;
+    } catch {
+      return null;
+    } finally {
+      // Reset after a microtask so awaiting callers still share this result.
+      setTimeout(() => {
+        parkingRefreshInFlight = null;
+      }, 0);
+    }
+  })();
+  return parkingRefreshInFlight;
+}
+
+/** Bounce a dead parking session to the login screen instead of leaking 401s. */
+function redirectToParkingLogin() {
+  if (typeof window === 'undefined') return;
+  if (window.location.pathname.startsWith('/login')) return;
+  window.location.replace('/login?expired=1');
 }
 
 async function parseEnvelope<T>(res: Response): Promise<T> {
@@ -134,19 +173,27 @@ async function parkingOpsFetch<T>(
     },
   });
 
+  // Only a parking-portal session may be bounced to the parking login screen.
+  // admin-web reuses these helpers (CCTV / shared ANPR) with the admin token.
+  const usingPortalSession = !init?.token && !!getParkingToken();
+
   let res = await fetch(`${coreUrl()}${path}`, build());
 
   // Access tokens live 15 minutes. When the portal session is the credential we
   // can silently refresh once instead of failing the action the officer clicked.
-  if (res.status === 401 && !init?.token && getParkingRefreshToken()) {
+  if (res.status === 401 && usingPortalSession && getParkingRefreshToken()) {
     const renewed = await refreshParkingSession();
     if (renewed) {
       res = await fetch(`${coreUrl()}${path}`, build(renewed));
     }
   }
 
-  if (res.status === 401 && !init?.token) {
+  if (res.status === 401 && !init?.token && usingPortalSession) {
+    // Refresh already had its chance above. A still-401 session is dead: clear
+    // it so the middleware stops waving the officer into a portal that cannot
+    // serve a single request, then send them to sign in again.
     clearParkingSession();
+    redirectToParkingLogin();
   }
 
   return parseEnvelope<T>(res);

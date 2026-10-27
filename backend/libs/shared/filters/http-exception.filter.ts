@@ -13,6 +13,34 @@ function humanizeCode(code: string): string {
   return text.charAt(0).toUpperCase() + text.slice(1);
 }
 
+/** App codes are SCREAMING_SNAKE_CASE; Nest defaults are prose ("Not Found"). */
+const APP_CODE = /^[A-Z][A-Z0-9_]+$/;
+
+/**
+ * Canonical fallback code per HTTP status. Without this, a Nest
+ * `UnauthorizedException()` (passport guard: `{ message: 'Unauthorized',
+ * statusCode: 401 }` — no `error` field) kept the initial `INTERNAL_ERROR`
+ * label, so expired sessions surfaced as scary 500-looking failures in every
+ * portal instead of a clean `UNAUTHORIZED`.
+ */
+const STATUS_CODES: Partial<Record<number, string>> = {
+  [HttpStatus.BAD_REQUEST]: 'BAD_REQUEST',
+  [HttpStatus.UNAUTHORIZED]: 'UNAUTHORIZED',
+  [HttpStatus.FORBIDDEN]: 'FORBIDDEN',
+  [HttpStatus.NOT_FOUND]: 'NOT_FOUND',
+  [HttpStatus.METHOD_NOT_ALLOWED]: 'METHOD_NOT_ALLOWED',
+  [HttpStatus.CONFLICT]: 'CONFLICT',
+  [HttpStatus.UNPROCESSABLE_ENTITY]: 'UNPROCESSABLE_ENTITY',
+  [HttpStatus.TOO_MANY_REQUESTS]: 'TOO_MANY_REQUESTS',
+  [HttpStatus.NOT_IMPLEMENTED]: 'NOT_IMPLEMENTED',
+  [HttpStatus.BAD_GATEWAY]: 'BAD_GATEWAY',
+  [HttpStatus.SERVICE_UNAVAILABLE]: 'SERVICE_UNAVAILABLE',
+  [HttpStatus.GATEWAY_TIMEOUT]: 'GATEWAY_TIMEOUT',
+};
+
+const UNAUTHORIZED_MESSAGE =
+  'Your session has expired — please sign in again.';
+
 @Catch()
 export class HttpExceptionFilter implements ExceptionFilter {
   catch(exception: unknown, host: ArgumentsHost): void {
@@ -30,23 +58,23 @@ export class HttpExceptionFilter implements ExceptionFilter {
 
     if (exception instanceof HttpException) {
       status = exception.getStatus();
+      const fallbackCode = STATUS_CODES[status] ?? 'HTTP_ERROR';
       const body = exception.getResponse();
       if (typeof body === 'string') {
         message = body;
-        code = HttpStatus[status] ?? 'HTTP_ERROR';
+        code = fallbackCode;
       } else if (typeof body === 'object' && body !== null) {
         const obj = body as Record<string, unknown>;
-        message = (obj.message as string) ?? message;
-        const rawError = obj.error;
-        // Prefer app codes (e.g. MFA_REQUIRED). Nest defaults are prose titles.
-        if (
-          typeof rawError === 'string' &&
-          /^[A-Z][A-Z0-9_]+$/.test(rawError)
-        ) {
-          code = rawError;
-        } else if (typeof rawError === 'string') {
-          code = rawError;
+        if (typeof obj.message === 'string') {
+          message = obj.message;
         }
+        const rawError = obj.error;
+        // Prefer app codes (e.g. MFA_REQUIRED, CREATOR_CANNOT_APPROVE). Nest
+        // default titles ("Unauthorized") are prose, so use the status code.
+        code =
+          typeof rawError === 'string' && APP_CODE.test(rawError)
+            ? rawError
+            : fallbackCode;
         if (Array.isArray(obj.message)) {
           details = obj.message;
           message = 'Validation failed';
@@ -58,17 +86,9 @@ export class HttpExceptionFilter implements ExceptionFilter {
           message = humanizeCode(code);
         }
       }
-      // Nest often returns error: "Unauthorized" — normalize only generic titles.
-      if (
-        status === HttpStatus.UNAUTHORIZED &&
-        !/^[A-Z][A-Z0-9_]+$/.test(code)
-      ) {
-        code = 'UNAUTHORIZED';
-      } else if (
-        status === HttpStatus.FORBIDDEN &&
-        !/^[A-Z][A-Z0-9_]+$/.test(code)
-      ) {
-        code = 'FORBIDDEN';
+      // An expired/invalid token is an auth problem, not a server fault.
+      if (status === HttpStatus.UNAUTHORIZED && message === 'Unauthorized') {
+        message = UNAUTHORIZED_MESSAGE;
       }
     } else if (exception instanceof Error) {
       message = exception.message;

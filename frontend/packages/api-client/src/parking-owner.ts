@@ -1,7 +1,16 @@
 /**
  * External E3 — approved vehicle owner/driver self-view (parking-web /owner).
  */
-import { ownerAuthHeaders } from '@pssms/auth';
+import {
+  clearOwnerSession,
+  getOwnerRefreshToken,
+  getOwnerSessionUser,
+  getOwnerToken,
+  ownerAuthHeaders,
+  setOwnerSession,
+  setOwnerTokens,
+} from '@pssms/auth';
+import { errorMessageFromBody } from './errors';
 import type { LoginResult } from './index';
 import type {
   ParkingOpsEntry,
@@ -20,10 +29,53 @@ type ApiEnvelope<T> = {
   meta?: Record<string, unknown>;
 };
 
+/**
+ * Owner calls used to `throw new Error(await res.text())`, which printed a raw
+ * JSON envelope in the portal. Use the shared message extractor instead.
+ */
 async function parseEnvelope<T>(res: Response): Promise<T> {
-  if (!res.ok) throw new Error(await res.text());
-  const json = (await res.json()) as ApiEnvelope<T>;
+  const text = await res.text();
+  if (!res.ok) {
+    throw new Error(
+      errorMessageFromBody(
+        text,
+        res.status === 401
+          ? 'Session expired — please sign in again.'
+          : `Request failed (${res.status})`,
+      ),
+    );
+  }
+  if (!text.trim()) return undefined as T;
+  const json = JSON.parse(text) as ApiEnvelope<T>;
   return json.data;
+}
+
+async function refreshOwnerSession(): Promise<string | null> {
+  const refreshToken = getOwnerRefreshToken();
+  if (!refreshToken) return null;
+  try {
+    const res = await fetch(`${coreUrl()}/api/v1/auth/refresh`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ refreshToken }),
+    });
+    if (!res.ok) return null;
+    // Flat pair, same as the ops portal (not `data.tokens`).
+    const json = (await res.json()) as ApiEnvelope<{
+      accessToken?: string;
+      refreshToken?: string;
+    }>;
+    if (!json.data?.accessToken) return null;
+    const user = getOwnerSessionUser();
+    if (user) {
+      setOwnerSession(json.data.accessToken, user, json.data.refreshToken);
+    } else {
+      setOwnerTokens(json.data.accessToken, json.data.refreshToken);
+    }
+    return json.data.accessToken;
+  } catch {
+    return null;
+  }
 }
 
 export type ParkingOwnerProfile = {
@@ -37,12 +89,35 @@ async function ownerFetch<T>(
   path: string,
   init?: RequestInit & { token?: string },
 ): Promise<T> {
-  const headers: HeadersInit = {
-    ...(init?.body != null ? { 'Content-Type': 'application/json' } : {}),
-    ...ownerAuthHeaders(init?.token),
-    ...init?.headers,
-  };
-  const res = await fetch(`${coreUrl()}${path}`, { ...init, headers });
+  const build = (bearer?: string | null): RequestInit => ({
+    ...init,
+    headers: {
+      ...(init?.body != null ? { 'Content-Type': 'application/json' } : {}),
+      ...ownerAuthHeaders(bearer ?? init?.token),
+      ...init?.headers,
+    },
+  });
+
+  const usingPortalSession = !init?.token && !!getOwnerToken();
+  let res = await fetch(`${coreUrl()}${path}`, build());
+
+  if (res.status === 401 && usingPortalSession) {
+    const renewed = await refreshOwnerSession();
+    if (renewed) {
+      res = await fetch(`${coreUrl()}${path}`, build(renewed));
+    }
+  }
+
+  if (res.status === 401 && usingPortalSession) {
+    clearOwnerSession();
+    if (
+      typeof window !== 'undefined' &&
+      !window.location.pathname.startsWith('/owner/login')
+    ) {
+      window.location.replace('/owner/login?expired=1');
+    }
+  }
+
   return parseEnvelope<T>(res);
 }
 

@@ -270,6 +270,11 @@ export function setParkingSession(
   parkingAuth.setSession(token, user, refreshToken);
 }
 
+/** Rotate only the tokens (silent refresh) without touching the cached user. */
+export function setParkingTokens(token: string, refreshToken?: string) {
+  parkingAuth.setTokens(token, refreshToken);
+}
+
 export function clearParkingSession() {
   parkingAuth.clearSession();
 }
@@ -308,6 +313,15 @@ export function setOwnerSession(
   refreshToken?: string,
 ) {
   ownerAuth.setSession(token, user, refreshToken);
+}
+
+export function getOwnerRefreshToken(): string | null {
+  return ownerAuth.getRefreshToken();
+}
+
+/** Rotate only the tokens (silent refresh) without touching the cached user. */
+export function setOwnerTokens(token: string, refreshToken?: string) {
+  ownerAuth.setTokens(token, refreshToken);
 }
 
 export function clearOwnerSession() {
