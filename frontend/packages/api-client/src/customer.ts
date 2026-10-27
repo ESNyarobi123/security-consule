@@ -283,6 +283,12 @@ export type GateCodeDelivery = {
   smsProvider?: string;
   /** False means console/credentials missing — queued but not delivered. */
   smsLive?: boolean;
+  /** Email transport the integration gateway will use. */
+  emailProvider?: string;
+  /** False means console/EMAIL_API_URL missing — queued but not delivered. */
+  emailLive?: boolean;
+  /** Visitor email the code was queued to. */
+  emailRecipient?: string | null;
 };
 
 /** POST /visitors/appointments/:id/approve — host issues gate code */

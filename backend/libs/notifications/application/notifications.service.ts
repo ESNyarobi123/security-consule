@@ -325,6 +325,11 @@ export class NotificationsService {
     smsProvider: SmsProviderCode;
     /** False when the transport is `console` / credentials are missing. */
     smsLive: boolean;
+    /** Email transport the integration gateway will use. */
+    emailProvider: string;
+    /** False when email is only logged (console) / EMAIL_API_URL missing. */
+    emailLive: boolean;
+    emailRecipient: string | null;
   }> {
     const body = `HIGHLINK gate code: ${params.plainCode}. Valid until ${params.validUntil.toISOString()}. Site: ${params.siteName}`;
     const emailBody = [
@@ -356,6 +361,16 @@ export class NotificationsService {
         process.env.WHATSAPP_API_TOKEN?.trim(),
     );
     const smsTransport = resolveSmsTransport();
+    // Mirror `EmailSender` in the integration gateway so the UI never claims
+    // "emailed" when the transport is still console.
+    const rawEmailProvider = (process.env.EMAIL_PROVIDER ?? '')
+      .trim()
+      .toLowerCase();
+    const emailProvider = rawEmailProvider
+      ? rawEmailProvider
+      : process.env.EMAIL_API_URL?.trim()
+        ? 'generic'
+        : 'console';
     const delivery = {
       email: false,
       sms: false,
@@ -363,6 +378,9 @@ export class NotificationsService {
       smsRecipient: normalisePhone(params.visitorPhone),
       smsProvider: smsTransport.provider,
       smsLive: smsTransport.live,
+      emailProvider,
+      emailLive: emailProvider !== 'console' && Boolean(process.env.EMAIL_API_URL?.trim()),
+      emailRecipient: params.visitorEmail?.trim() || null,
     };
     const email = params.visitorEmail?.trim();
     const phone = delivery.smsRecipient;

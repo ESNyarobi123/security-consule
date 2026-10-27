@@ -32,8 +32,26 @@ x-backend-env: &backend-env
   AUTH_MODE: ${AUTH_MODE:-local}
   INTEGRATION_SERVICE_TOKEN: ${INTEGRATION_SERVICE_TOKEN}
   CORE_API_INTERNAL_URL: http://core-api:4001
-  SMS_PROVIDER: console
-  PAYMENT_PROVIDER: console
+  INTEGRATION_GATEWAY_URL: http://integration-gateway:4003
+  # SMS/email/WhatsApp transport. `console` logs only — set these in .env.prod
+  # (SMS_PROVIDER=fasthub + client_id/secret) to actually deliver gate codes.
+  SMS_PROVIDER: ${SMS_PROVIDER:-console}
+  SMS_API_KEY: ${SMS_API_KEY:-}
+  SMS_API_SECRET: ${SMS_API_SECRET:-}
+  SMS_USERNAME: ${SMS_USERNAME:-}
+  SMS_ACCOUNT_SID: ${SMS_ACCOUNT_SID:-}
+  SMS_API_URL: ${SMS_API_URL:-}
+  SMS_AUTH_HEADER: ${SMS_AUTH_HEADER:-}
+  SMS_AUTH_SCHEME: ${SMS_AUTH_SCHEME:-}
+  SMS_SENDER_ID: ${SMS_SENDER_ID:-HIGHLINK}
+  EMAIL_PROVIDER: ${EMAIL_PROVIDER:-console}
+  EMAIL_API_URL: ${EMAIL_API_URL:-}
+  EMAIL_API_KEY: ${EMAIL_API_KEY:-}
+  EMAIL_FROM: ${EMAIL_FROM:-no-reply@hisgc.co.tz}
+  WHATSAPP_API_URL: ${WHATSAPP_API_URL:-}
+  WHATSAPP_API_TOKEN: ${WHATSAPP_API_TOKEN:-}
+  WHATSAPP_PHONE_NUMBER_ID: ${WHATSAPP_PHONE_NUMBER_ID:-}
+  PAYMENT_PROVIDER: ${PAYMENT_PROVIDER:-console}
   WEBHOOK_VERIFY: "false"
   MINIO_ENDPOINT: minio
   MINIO_PORT: "9000"
@@ -240,6 +258,61 @@ services:
       redis:
         condition: service_healthy
       core-api:
+        condition: service_started
+
+  # Notification dispatch (SMS/email/WhatsApp) — outbox rows are useless
+  # without this: it is the only process that talks to the SMS gateway.
+  integration-gateway:
+    build:
+      context: ../../backend
+      dockerfile: Dockerfile
+    image: pssms-integration-gateway:prod
+    container_name: pssms-integration-gateway
+    restart: unless-stopped
+    mem_limit: 192m
+    environment:
+      <<: *backend-env
+      INTEGRATION_GATEWAY_PORT: "4003"
+    command: ["node", "dist/apps/integration-gateway/main.js"]
+    depends_on:
+      db-migrate:
+        condition: service_completed_successfully
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  # Outbox poller + scheduled scans (alertness/patrol miss, invoice overdue,
+  # contract expiry, payroll due, KPI refresh, webhook processor).
+  background-worker:
+    build:
+      context: ../../backend
+      dockerfile: Dockerfile
+    image: pssms-background-worker:prod
+    container_name: pssms-background-worker
+    restart: unless-stopped
+    mem_limit: 256m
+    environment:
+      <<: *backend-env
+      BACKGROUND_WORKER_PORT: "4002"
+      REPORTING_SERVICE_INTERNAL_URL: http://reporting-service:4005
+      ALERTNESS_MISS_SCAN_ENABLED: ${ALERTNESS_MISS_SCAN_ENABLED:-true}
+      PATROL_MISS_SCAN_ENABLED: ${PATROL_MISS_SCAN_ENABLED:-true}
+      PATROL_MISS_SCAN_INTERVAL_MS: ${PATROL_MISS_SCAN_INTERVAL_MS:-300000}
+      PATROL_MISS_GRACE_MINUTES: ${PATROL_MISS_GRACE_MINUTES:-0}
+      INVOICE_OVERDUE_SCAN_ENABLED: ${INVOICE_OVERDUE_SCAN_ENABLED:-true}
+      PAYROLL_DUE_ALERT_ENABLED: ${PAYROLL_DUE_ALERT_ENABLED:-true}
+    command: ["node", "dist/apps/background-worker/main.js"]
+    depends_on:
+      db-migrate:
+        condition: service_completed_successfully
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      integration-gateway:
+        condition: service_started
+      reporting-service:
         condition: service_started
 
   admin-web:

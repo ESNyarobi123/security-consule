@@ -331,6 +331,23 @@ export class GateCodeDeliveryDto {
       'False when the SMS is only logged (console) or vendor credentials are missing — queued ≠ delivered',
   })
   smsLive?: boolean;
+
+  @ApiPropertyOptional({
+    description: 'Email transport the integration gateway will use',
+  })
+  emailProvider?: string;
+
+  @ApiPropertyOptional({
+    description:
+      'False when email is only logged (console) or EMAIL_API_URL is missing — queued ≠ delivered',
+  })
+  emailLive?: boolean;
+
+  @ApiPropertyOptional({
+    description:
+      'Visitor email the gate code was queued to (null when no email on file)',
+  })
+  emailRecipient?: string | null;
 }
 
 export class IssueCodeResponseDto {

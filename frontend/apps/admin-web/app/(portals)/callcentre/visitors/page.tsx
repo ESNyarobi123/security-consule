@@ -472,7 +472,23 @@ export default function CallCentreVisitorsPage() {
               codeModal.delivery.whatsapp) ? (
               <ul className="mt-3 space-y-1 text-left text-sm text-[#107c10]">
                 {codeModal.delivery.email ? (
-                  <li>Code emailed to visitor</li>
+                  <li>
+                    Email queued
+                    {codeModal.delivery.emailRecipient ? (
+                      <> to {codeModal.delivery.emailRecipient}</>
+                    ) : null}
+                    {codeModal.delivery.emailLive === false ? (
+                      <span className="mt-1 block text-xs text-amber-700">
+                        Email is in console mode — nothing is delivered. Set
+                        EMAIL_PROVIDER + EMAIL_API_URL on the server to send it.
+                      </span>
+                    ) : codeModal.delivery.emailProvider ? (
+                      <span className="text-xs text-[#605e5c]">
+                        {' '}
+                        via {codeModal.delivery.emailProvider}
+                      </span>
+                    ) : null}
+                  </li>
                 ) : null}
                 {codeModal.delivery.sms ? (
                   <li>

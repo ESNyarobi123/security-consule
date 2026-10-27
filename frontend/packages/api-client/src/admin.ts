@@ -2744,6 +2744,9 @@ export const approveVisitorAppointment = (id: string, token?: string) =>
       smsRecipient?: string | null;
       smsProvider?: string;
       smsLive?: boolean;
+      emailProvider?: string;
+      emailLive?: boolean;
+      emailRecipient?: string | null;
     };
   }>(`/api/v1/visitors/appointments/${id}/approve`, {
     method: 'POST',
@@ -2766,6 +2769,9 @@ export const resendVisitorGateCode = (id: string, token?: string) =>
       smsRecipient?: string | null;
       smsProvider?: string;
       smsLive?: boolean;
+      emailProvider?: string;
+      emailLive?: boolean;
+      emailRecipient?: string | null;
     };
     resent?: boolean;
   }>(`/api/v1/visitors/appointments/${id}/resend-code`, {

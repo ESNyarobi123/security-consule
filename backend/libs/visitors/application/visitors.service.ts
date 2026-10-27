@@ -55,6 +55,25 @@ const GATE_VERIFY_WINDOW_MS = 60_000;
 /** Module 12-A — FieldAlert type for gate deny (branch /ops escalate ladder). */
 const VISITOR_GATE_DENIED_ALERT = 'VISITOR_GATE_DENIED';
 
+/**
+ * Email transport truth for the "code issued" modal. Mirrors `EmailSender` in
+ * the integration gateway so the UI never says "emailed" when the dispatcher
+ * would only log the message (console mode).
+ */
+function resolveEmailTransport(): { emailProvider: string; emailLive: boolean } {
+  const raw = (process.env.EMAIL_PROVIDER ?? '').trim().toLowerCase();
+  const emailProvider = raw
+    ? raw
+    : process.env.EMAIL_API_URL?.trim()
+      ? 'generic'
+      : 'console';
+  return {
+    emailProvider,
+    emailLive:
+      emailProvider !== 'console' && Boolean(process.env.EMAIL_API_URL?.trim()),
+  };
+}
+
 @Injectable()
 export class VisitorsService {
   private readonly gateVerifyAttempts = new Map<string, number[]>();
@@ -432,6 +451,7 @@ export class VisitorsService {
       where: { id: updated.siteId },
     });
     const transport = resolveSmsTransport();
+    const emailTransport = resolveEmailTransport();
     let delivery = {
       email: false,
       sms: false,
@@ -439,6 +459,9 @@ export class VisitorsService {
       smsRecipient: normalisePhone(updated.visitorPhone),
       smsProvider: transport.provider,
       smsLive: transport.live,
+      emailProvider: emailTransport.emailProvider,
+      emailLive: emailTransport.emailLive,
+      emailRecipient: updated.visitorEmail?.trim() || null,
     };
     try {
       delivery = await this.notifications.enqueueVisitorGateCode({
@@ -474,6 +497,9 @@ export class VisitorsService {
         smsRecipient: normalisePhone(updated.visitorPhone),
         smsProvider: transport.provider,
         smsLive: transport.live,
+        emailProvider: emailTransport.emailProvider,
+        emailLive: emailTransport.emailLive,
+        emailRecipient: updated.visitorEmail?.trim() || null,
       };
     }
 
@@ -550,6 +576,7 @@ export class VisitorsService {
     });
     const resendSuffix = `r${now.getTime()}`;
     const transport = resolveSmsTransport();
+    const emailTransport = resolveEmailTransport();
 
     let delivery = {
       email: false,
@@ -558,6 +585,9 @@ export class VisitorsService {
       smsRecipient: normalisePhone(appointment.visitorPhone),
       smsProvider: transport.provider,
       smsLive: transport.live,
+      emailProvider: emailTransport.emailProvider,
+      emailLive: emailTransport.emailLive,
+      emailRecipient: appointment.visitorEmail?.trim() || null,
     };
     try {
       const channels = await this.notifications.enqueueVisitorGateCode({
