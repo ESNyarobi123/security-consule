@@ -19,6 +19,7 @@ export * from './utils/password-policy.util';
 export * from './utils/customer-scope.util';
 export * from './utils/supplier-scope.util';
 export * from './utils/site-scope.util';
+export * from './utils/branch-scope.util';
 export * from './utils/guard-scope.util';
 export * from './utils/role-assignment-ceiling.util';
 export * from './utils/customer-employee-scope.util';

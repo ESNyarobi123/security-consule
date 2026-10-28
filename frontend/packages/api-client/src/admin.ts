@@ -1791,8 +1791,19 @@ export type ApprovalInstance = {
   amount?: number | null;
 };
 
-export const listApprovalInstances = (token?: string) =>
-  coreFetch<ApprovalInstance[]>('/api/v1/approvals/instances', { token });
+/**
+ * `mine` restricts the queue to instances the caller can actually act on
+ * (current step requires one of their roles) plus anything they raised —
+ * used by the Administration → Requests desk for branch managers.
+ */
+export const listApprovalInstances = (
+  token?: string,
+  opts?: { mine?: boolean },
+) =>
+  coreFetch<ApprovalInstance[]>(
+    `/api/v1/approvals/instances${opts?.mine ? '?mine=1' : ''}`,
+    { token },
+  );
 
 export type ApprovalWorkflowStep = {
   stepOrder: number;

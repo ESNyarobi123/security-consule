@@ -59,6 +59,7 @@ export default function HrEmployeesPage() {
   const [query, setQuery] = useState('');
   const [filter, setFilter] = useState<StatusFilter>('all');
   const session = useMemo(() => getSessionUser(), []);
+  const orgWide = useMemo(() => can(getSessionUser(), 'hr.manage'), []);
   const canFiles = can(session, 'documents.manage');
 
   const refresh = useCallback(async () => {
@@ -107,7 +108,11 @@ export default function HrEmployeesPage() {
   return (
     <HrShell
       title="Employees"
-      description="Company employee registry and staff file scans (separate from customer staff access)."
+      description={
+        orgWide
+          ? 'Company employee registry and staff file scans (separate from customer staff access).'
+          : 'Your branch staff register and staff file scans. Another branch’s staff stays out of scope — HR at head office owns profile, leave and movements.'
+      }
       actions={
         <>
           <button
@@ -121,14 +126,16 @@ export default function HrEmployeesPage() {
             />
             Refresh
           </button>
-          <button
-            type="button"
-            onClick={() => setCreateOpen(true)}
-            className={btnPrimary}
-          >
-            <Plus className="h-3.5 w-3.5" />
-            New employee
-          </button>
+          {orgWide ? (
+            <button
+              type="button"
+              onClick={() => setCreateOpen(true)}
+              className={btnPrimary}
+            >
+              <Plus className="h-3.5 w-3.5" />
+              New employee
+            </button>
+          ) : null}
         </>
       }
     >
@@ -141,7 +148,7 @@ export default function HrEmployeesPage() {
       <EmployeeRoster
         rows={filtered}
         loading={loading}
-        onEdit={setEditRow}
+        onEdit={orgWide ? setEditRow : undefined}
         onFiles={canFiles ? setFilesRow : undefined}
         toolbar={
           <div className="flex flex-col gap-2.5 sm:flex-row sm:items-center sm:justify-between">

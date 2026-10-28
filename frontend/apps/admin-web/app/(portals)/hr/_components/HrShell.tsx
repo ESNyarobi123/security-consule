@@ -7,14 +7,24 @@ import type { ReactNode } from 'react';
 import { AzureGlyph } from '@pssms/ui';
 
 export const HR_TABS = [
-  { href: '/hr', label: 'Overview', exact: true },
-  { href: '/hr/employees', label: 'Employees' },
-  { href: '/hr/onboarding', label: 'Onboarding' },
-  { href: '/hr/leave', label: 'Leave' },
-  { href: '/hr/salary', label: 'Salary' },
-  { href: '/hr/training', label: 'Training' },
-  { href: '/hr/discipline', label: 'Discipline' },
-  { href: '/hr/movements', label: 'Movements' },
+  { href: '/hr', label: 'Overview', exact: true, permission: 'hr.manage' },
+  {
+    href: '/hr/employees',
+    label: 'Employees',
+    permission: 'hr.manage',
+    /** Branch Managers (hr.branch) see their own branch's roster read-only. */
+    alsoPermits: ['hr.branch'],
+  },
+  {
+    href: '/hr/onboarding',
+    label: 'Onboarding',
+    permission: 'hr.manage',
+  },
+  { href: '/hr/leave', label: 'Leave', permission: 'hr.manage' },
+  { href: '/hr/salary', label: 'Salary', permission: 'hr.manage' },
+  { href: '/hr/training', label: 'Training', permission: 'hr.manage' },
+  { href: '/hr/discipline', label: 'Discipline', permission: 'hr.manage' },
+  { href: '/hr/movements', label: 'Movements', permission: 'hr.manage' },
   {
     href: '/hr/applications',
     label: 'Applications',
@@ -42,12 +52,68 @@ export function HrShell({
   const session = getSessionUser();
   const perms = session?.permissions ?? [];
   const isSuper = session?.roles?.includes('SUPER_ADMIN');
-  const tabs = HR_TABS.filter(
-    (tab) =>
-      !('permission' in tab && tab.permission) ||
-      isSuper ||
-      perms.includes(tab.permission),
-  );
+  const orgWideHr = isSuper || perms.includes('hr.manage');
+  const branchHr = perms.includes('hr.branch');
+  const tabs = HR_TABS.filter((tab) => {
+    const own = isSuper || perms.includes(tab.permission);
+    const extra = ('alsoPermits' in tab ? tab.alsoPermits ?? [] : []).some(
+      (code) => perms.includes(code),
+    );
+    return own || extra;
+  });
+  // Branch HR (hr.branch) only owns the employees roster. Any other HR surface
+  // (leave, salary, movements…) stays org-wide, so show the honest scope card
+  // instead of a page full of 403s.
+  const branchOnlyBlocked =
+    !orgWideHr &&
+    !(
+      pathname === '/hr/employees' ||
+      pathname.startsWith('/hr/employees/') ||
+      pathname.startsWith('/hr/applications') ||
+      pathname.startsWith('/hr/b2b-requests')
+    );
+
+  if (branchOnlyBlocked) {
+    return (
+      <div>
+        <div className="mb-4 border-b border-[#e1dfdd] pb-3">
+          <p className="text-[11px] font-medium uppercase tracking-[0.14em] text-[#605e5c]">
+            Portal 35.4 · HR & Employee Management
+          </p>
+          <h1 className="text-lg font-semibold leading-tight text-[#1b1a19]">
+            {title}
+          </h1>
+        </div>
+        <div className="rounded-lg border border-[#e1dfdd] bg-white p-4">
+          <p className="text-sm text-[#323130]">
+            Your role covers <strong>branch staff</strong>, not company-wide HR.
+            Leave, salary, movements, training and discipline are handled by HR
+            at head office.
+          </p>
+          <div className="mt-3 flex flex-wrap gap-2">
+            <Link
+              href="/hr/employees"
+              className="inline-flex items-center gap-1 rounded-md bg-[#0078d4] px-3 py-1.5 text-xs font-semibold text-white hover:bg-[#106ebe]"
+            >
+              Branch staff register
+            </Link>
+            <Link
+              href="/branch/staff"
+              className="inline-flex items-center gap-1 rounded-md border border-[#e1dfdd] bg-white px-3 py-1.5 text-xs font-semibold text-[#323130] hover:bg-[#f3f9fd]"
+            >
+              Manage branch staff
+            </Link>
+          </div>
+          {branchHr ? (
+            <p className="mt-3 text-[11px] text-[#605e5c]">
+              You can also open staff files under Administration → Staff files —
+              scoped to your branch.
+            </p>
+          ) : null}
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div>

@@ -16,6 +16,8 @@ import {
   type SalaryAssignment,
   type TrainingRecord,
 } from '@pssms/api-client';
+import { getSessionUser } from '@pssms/auth';
+import { can } from '@pssms/permissions';
 import { StatCard, btnSecondary } from '@pssms/ui';
 import {
   ArrowRight,
@@ -57,7 +59,15 @@ export default function HrOverviewPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
+  const orgWideHr = useMemo(() => can(getSessionUser(), 'hr.manage'), []);
+
   const refresh = useCallback(async () => {
+    // Branch Managers only own the employees roster; the org-wide HR pack
+    // (leave types, salary, movements) would 403 for them.
+    if (!orgWideHr) {
+      setLoading(false);
+      return;
+    }
     setLoading(true);
     setError(null);
     try {
@@ -83,7 +93,7 @@ export default function HrOverviewPage() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [orgWideHr]);
 
   useEffect(() => {
     void refresh();
@@ -115,7 +125,7 @@ export default function HrOverviewPage() {
   return (
     <HrShell
       title="HR & Employee Management"
-      description="Portal 35.4 for HR Officers, Recruitment, Training, Department Heads, and Branch Managers (BOM without hr.manage is deferred — org-wide list has no branch ABAC). Profiles, pay terms, leave, discipline, training, movements, recruitment, and onboarding."
+      description="Portal 35.4 for HR Officers, Recruitment, Department Heads, and Branch Managers (Branch Managers see their own branch roster via hr.branch). Profiles, pay terms, leave, discipline, training, movements, recruitment, and onboarding."
       actions={
         <button
           type="button"

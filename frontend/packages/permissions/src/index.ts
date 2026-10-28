@@ -40,7 +40,14 @@ export const ADMIN_PORTALS: NavItem[] = [
     permission: 'contracts.manage',
     group: 'Service',
   },
-  { href: '/hr', label: 'HR & Employees', permission: 'hr.manage', group: 'People' },
+  {
+    href: '/hr',
+    label: 'HR & Employees',
+    permission: 'hr.manage',
+    // Branch Managers open the branch-scoped staff register (no org-wide HR).
+    alsoPermits: ['hr.branch'],
+    group: 'People',
+  },
   {
     href: '/payroll',
     label: 'Payroll',

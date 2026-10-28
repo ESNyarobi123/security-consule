@@ -23,8 +23,8 @@ git fetch origin
 git checkout main
 git pull --ff-only origin main
 echo "HEAD $(git rev-parse --short HEAD) $(git log -1 --pretty=%s)"
-if ! git show HEAD:infra/docker/docker-compose.prod.yml | grep -q '0073_employee_branch_staff'; then
-  echo "FATAL: compose missing 0073 migration list"
+if ! git show HEAD:infra/docker/docker-compose.prod.yml | grep -q '0074_rbac_branch_hr_approvals'; then
+  echo "FATAL: compose missing 0074 migration list"
   exit 1
 fi
 

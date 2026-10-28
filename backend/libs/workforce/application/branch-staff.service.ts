@@ -13,6 +13,7 @@ import {
 } from '@prisma/client';
 import { AuditService } from '@pssms/audit';
 import { AuthUser, PrismaService, resolveSiteIdFilter } from '@pssms/shared';
+import { nextEmployeeNumber } from './employee-number.util';
 import {
   BranchStaffRowDto,
   CreateBranchStaffDto,
@@ -290,7 +291,8 @@ export class BranchStaffService {
     }
 
     const employeeNumber =
-      dto.employeeNumber?.trim() || (await this.nextEmployeeNumber(org));
+      dto.employeeNumber?.trim() ||
+      (await nextEmployeeNumber(this.prisma, org));
     const duplicate = await this.prisma.employee.findFirst({
       where: { organizationId: org, employeeNumber },
       select: { id: true },
@@ -400,34 +402,5 @@ export class BranchStaffService {
     });
 
     return updated;
-  }
-
-  private async nextEmployeeNumber(org: string): Promise<string> {
-    const rows = await this.prisma.employee.findMany({
-      where: {
-        organizationId: org,
-        employeeNumber: { startsWith: 'EMP-' },
-      },
-      select: { employeeNumber: true },
-      orderBy: { createdAt: 'desc' },
-      take: 500,
-    });
-    let max = 0;
-    for (const r of rows) {
-      const m = /^EMP-(\d+)$/.exec(r.employeeNumber);
-      if (m) max = Math.max(max, Number(m[1]));
-    }
-    for (let i = 1; i <= 50; i += 1) {
-      const candidate = `EMP-${String(max + i).padStart(4, '0')}`;
-      const exists = await this.prisma.employee.findFirst({
-        where: { organizationId: org, employeeNumber: candidate },
-        select: { id: true },
-      });
-      if (!exists) return candidate;
-    }
-    throw new ConflictException({
-      error: 'EMPLOYEE_NUMBER_GENERATION_FAILED',
-      message: 'Could not allocate an employee number',
-    });
   }
 }

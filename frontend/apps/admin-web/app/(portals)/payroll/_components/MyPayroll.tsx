@@ -187,7 +187,7 @@ export function MyPayroll() {
         <PanelEmpty
           icon={<UserRound className="h-4 w-4" />}
           title="No employee profile linked to this login"
-          description="Your own payslips appear here automatically once HR adds your work email to your employee record. Company-wide payroll is never shown on this page."
+          description="Internal staff logins get a payroll profile automatically on first view. External accounts (customer, supplier, contractor, consultant) are never part of company payroll — this page stays empty for them."
         />
         <p className="mt-3 text-center text-xs text-[#605e5c]">
           If your email is already on file, ask HR to confirm it matches this
@@ -292,7 +292,7 @@ export function MyPayroll() {
               <PanelEmpty
                 icon={<Banknote className="h-4 w-4" />}
                 title="No payslips yet"
-                description="Payslips appear here after payroll cycles are generated for your employee record."
+                description="Your profile is linked, but no payroll cycle has produced a payslip for you. If your salary terms are not set yet, ask HR or Payroll to add them under HR → Salary."
               />
             </div>
           ) : (

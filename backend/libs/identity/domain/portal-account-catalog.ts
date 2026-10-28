@@ -159,13 +159,14 @@ export const DESIGN_PORTALS = [
   {
     id: '35.4',
     name: 'HR & Employee Management',
-    primaryUsers: 'HR, Recruitment, Training',
+    primaryUsers: 'HR, Recruitment, Training, Branch Managers',
     job: 'Profiles, leave, discipline, training, onboarding',
     entry: 'admin-web /hr',
-    gatePermissions: ['hr.manage'],
+    gatePermissions: ['hr.manage', 'hr.branch'],
     accountTypeCodes: ['HR', 'MANAGEMENT'],
-    roleCodes: ['HR_OFFICER', 'DEPARTMENT_HEAD'],
-    security: 'hr.manage; movements creator ≠ approver via shared approvals.',
+    roleCodes: ['HR_OFFICER', 'DEPARTMENT_HEAD', 'BRANCH_MANAGER'],
+    security:
+      'hr.manage = company register; hr.branch = own-branch staff register + staff files only (Branch Manager). Movements creator ≠ approver via shared approvals.',
   },
   {
     id: '35.5',

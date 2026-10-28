@@ -1,9 +1,18 @@
-import { Body, Controller, Get, Param, Post, UseGuards } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  Param,
+  Post,
+  Query,
+  UseGuards,
+} from '@nestjs/common';
 import {
   ApiBearerAuth,
   ApiCreatedResponse,
   ApiOkResponse,
   ApiOperation,
+  ApiQuery,
   ApiTags,
 } from '@nestjs/swagger';
 import {
@@ -69,9 +78,17 @@ export class ApprovalsController {
 
   @Get('instances')
   @RequirePermissions('approvals.act')
-  @ApiOperation({ summary: 'List approval instances' })
+  @ApiOperation({
+    summary: 'List approval instances',
+    description:
+      'Pass `mine=1` to only return instances the caller can act on (current step requires one of their roles) plus requests they raised.',
+  })
+  @ApiQuery({ name: 'mine', required: false, type: Boolean })
   @ApiOkResponse({ type: [ApprovalInstanceResponseDto] })
-  list(@CurrentUser() user: AuthUser) {
-    return this.service.list(user.organizationId);
+  list(@CurrentUser() user: AuthUser, @Query('mine') mine?: string) {
+    const mineOnly = mine === '1' || mine === 'true';
+    return mineOnly
+      ? this.service.listActionable(user.organizationId, user)
+      : this.service.list(user.organizationId);
   }
 }

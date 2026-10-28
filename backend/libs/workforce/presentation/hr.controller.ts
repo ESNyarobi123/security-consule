@@ -21,8 +21,10 @@ import {
   AuthUser,
   CurrentUser,
   PermissionsGuard,
+  PrismaService,
   RequireAnyPermissions,
   RequirePermissions,
+  resolveBranchScopeIds,
 } from '@pssms/shared';
 import { EmployeesService } from '../application/employees.service';
 import { LeaveService } from '../application/leave.service';
@@ -65,12 +67,15 @@ import {
 @ApiTags('HR — Employees')
 @ApiBearerAuth()
 @UseGuards(PermissionsGuard)
-@RequirePermissions('hr.manage')
 @Controller('hr/employees')
 export class EmployeesController {
-  constructor(private readonly service: EmployeesService) {}
+  constructor(
+    private readonly service: EmployeesService,
+    private readonly prisma: PrismaService,
+  ) {}
 
   @Post()
+  @RequirePermissions('hr.manage')
   @ApiOperation({ summary: 'Create employee record' })
   @ApiCreatedResponse({ type: EmployeeResponseDto })
   create(@Body() dto: CreateEmployeeDto, @CurrentUser() user: AuthUser) {
@@ -78,7 +83,12 @@ export class EmployeesController {
   }
 
   @Get()
-  @ApiOperation({ summary: 'List employees' })
+  @RequireAnyPermissions('hr.manage', 'hr.branch')
+  @ApiOperation({
+    summary: 'List employees',
+    description:
+      'hr.manage reads the whole organisation. hr.branch (Branch Manager) reads only its own branch, so the Branch HR register never leaks another branch.',
+  })
   @ApiQuery({
     name: 'status',
     required: false,
@@ -87,14 +97,19 @@ export class EmployeesController {
       'Filter by status. Omit to exclude TERMINATED; pass TERMINATED to include leavers.',
   })
   @ApiOkResponse({ type: [EmployeeResponseDto] })
-  list(
+  async list(
     @CurrentUser() user: AuthUser,
     @Query('status') status?: EmployeeStatus,
   ) {
-    return this.service.list(user.organizationId, status);
+    const orgWide = user.permissions.includes('hr.manage');
+    const branchIds = orgWide
+      ? null
+      : await resolveBranchScopeIds(user, this.prisma);
+    return this.service.list(user.organizationId, status, branchIds);
   }
 
   @Get('linkable-users')
+  @RequirePermissions('hr.manage')
   @ApiOperation({
     summary: 'List org users for ESS account linking (id/email/name only)',
   })
@@ -103,13 +118,18 @@ export class EmployeesController {
   }
 
   @Get(':id')
+  @RequireAnyPermissions('hr.manage', 'hr.branch')
   @ApiOperation({ summary: 'Get employee by id' })
   @ApiOkResponse({ type: EmployeeResponseDto })
-  get(@Param('id') id: string, @CurrentUser() user: AuthUser) {
-    return this.service.get(id, user.organizationId);
+  async get(@Param('id') id: string, @CurrentUser() user: AuthUser) {
+    const branchIds = user.permissions.includes('hr.manage')
+      ? null
+      : await resolveBranchScopeIds(user, this.prisma);
+    return this.service.get(id, user.organizationId, branchIds);
   }
 
   @Patch(':id')
+  @RequirePermissions('hr.manage')
   @ApiOperation({ summary: 'Update employee profile fields' })
   @ApiOkResponse({ type: EmployeeResponseDto })
   update(

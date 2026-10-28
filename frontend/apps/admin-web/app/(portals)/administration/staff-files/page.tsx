@@ -9,16 +9,25 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { FileCabinet } from '../_components/FileCabinet';
 import { formatApiError } from '../_components/shared';
 
+/**
+ * Portal 35.3 — Staff files.
+ *
+ * `hr.manage` reads the whole company register. A Branch Manager holds
+ * `hr.branch` instead, so the API returns only their own branch's staff and
+ * staff-file attachments are limited to those employees (no cross-branch leak).
+ */
 export default function StaffFilesPage() {
   const session = useMemo(() => getSessionUser(), []);
   const canHr = can(session, 'hr.manage');
-  const canUpload = can(session, 'documents.manage') && canHr;
+  const canBranchHr = can(session, 'hr.branch');
+  const canList = canHr || canBranchHr;
+  const canUpload = can(session, 'documents.manage') && canList;
   const [rows, setRows] = useState<Employee[]>([]);
-  const [loading, setLoading] = useState(canHr);
+  const [loading, setLoading] = useState(canList);
   const [error, setError] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
-    if (!canHr) return;
+    if (!canList) return;
     setLoading(true);
     setError(null);
     try {
@@ -28,7 +37,7 @@ export default function StaffFilesPage() {
     } finally {
       setLoading(false);
     }
-  }, [canHr]);
+  }, [canList]);
 
   useEffect(() => {
     void refresh();
@@ -45,28 +54,52 @@ export default function StaffFilesPage() {
         </p>
       </div>
 
-      {!canHr ? (
+      {!canList ? (
         <GlassCard glow="none" className="p-4">
           <p className="text-sm text-[#605e5c]">
-            Listing staff files requires hr.manage. Branch Managers can send
-            officers to HR; Department Heads and GM can open the register.
+            Staff files are limited to HR officers and Branch Managers. Ask HR
+            if you need a copy of a staff document.
           </p>
-          <Link href="/hr/employees" className={`${btnSecondary} mt-3 inline-flex`}>
-            Open HR employees
-          </Link>
         </GlassCard>
       ) : (
         <>
+          <GlassCard glow="none" className="px-4 py-3">
+            <p className="text-sm text-[#605e5c]">
+              {canHr ? (
+                <>
+                  You are viewing the <strong>company-wide</strong> staff
+                  register. Edit profiles, status, and ESS links in HR.
+                </>
+              ) : (
+                <>
+                  You are viewing <strong>your branch&apos;s</strong> staff
+                  register. Only employees posted to your branch appear here —
+                  another branch&apos;s staff files stay out of scope.
+                </>
+              )}
+            </p>
+          </GlassCard>
+
           {error ? (
             <p className="rounded border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-800">
               {error}
             </p>
           ) : null}
-          <div className="flex items-center justify-end">
-            <Link href="/hr/employees" className={btnSecondary}>
-              Manage in HR
-            </Link>
-          </div>
+
+          {canHr ? (
+            <div className="flex items-center justify-end">
+              <Link href="/hr/employees" className={btnSecondary}>
+                Manage in HR
+              </Link>
+            </div>
+          ) : (
+            <div className="flex items-center justify-end">
+              <Link href="/branch/staff" className={btnSecondary}>
+                Manage branch staff
+              </Link>
+            </div>
+          )}
+
           <FileCabinet
             resourceType="Employee"
             records={rows.map((e) => ({
@@ -76,8 +109,19 @@ export default function StaffFilesPage() {
             }))}
             recordsLoading={loading}
             canUpload={canUpload}
-            emptyHint="No employees in this organization."
+            emptyHint={
+              canHr
+                ? 'No employees in this organization.'
+                : 'No employees are posted to your branch yet.'
+            }
           />
+
+          {!canUpload ? (
+            <p className="text-xs text-[#605e5c]">
+              Uploading staff files needs `documents.manage`. You can still
+              list and open existing files.
+            </p>
+          ) : null}
         </>
       )}
     </div>

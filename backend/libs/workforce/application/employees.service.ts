@@ -95,10 +95,15 @@ export class EmployeesService {
   async list(
     organizationId: string,
     status?: EmployeeStatus,
+    branchIds?: string[] | null,
   ): Promise<EmployeeResponseDto[]> {
+    // `branchIds === null` = caller may read the whole organisation (hr.manage).
+    // An array (possibly empty) = branch-scoped HR readers (`hr.branch`).
+    if (branchIds && branchIds.length === 0) return [];
     const rows = await this.prisma.employee.findMany({
       where: {
         organizationId,
+        ...(branchIds ? { branchId: { in: branchIds } } : {}),
         ...(status
           ? { status }
           : { status: { not: EmployeeStatus.TERMINATED } }),
@@ -111,8 +116,13 @@ export class EmployeesService {
   async get(
     id: string,
     organizationId: string,
+    branchIds?: string[] | null,
   ): Promise<EmployeeResponseDto> {
-    return this.toDto(await this.getById(id, organizationId));
+    const employee = await this.getById(id, organizationId);
+    if (branchIds && !branchIds.includes(employee.branchId ?? '')) {
+      throw new NotFoundException('Employee not found');
+    }
+    return this.toDto(employee);
   }
 
   async update(

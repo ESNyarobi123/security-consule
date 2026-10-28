@@ -67,6 +67,11 @@ async function main() {
     },
     { code: 'hr.manage', name: 'Manage HR', module: 'workforce' },
     {
+      code: 'hr.branch',
+      name: 'Branch staff register + staff files (own branch only)',
+      module: 'workforce',
+    },
+    {
       code: 'ess.access',
       name: 'Employee self-service portal',
       module: 'workforce',
@@ -368,6 +373,10 @@ async function main() {
     'ess.access',
     'documents.manage',
     'reporting.read',
+    // Branch HR register: own branch's staff files only (NOT org-wide hr.manage).
+    'hr.branch',
+    // Branch-level approvals (pending instances the caller's role must satisfy).
+    'approvals.act',
   ]);
 
   /** §4 Operations Manager — ops console + guards + CCTV + reporting (not finance/HR). */
@@ -4065,6 +4074,240 @@ async function main() {
         createdBy: admin.id,
       },
     });
+  }
+
+  // §35.16 / 18-C — manager demo logins need their own employee profile,
+  // otherwise `/payroll` greets them with "No employee profile linked to this
+  // login" and they cannot see their payslips. Branch Managers and the other
+  // branch-desk manager roles are payroll employees too.
+  const managerUsers = await prisma.user.findMany({
+    where: {
+      organizationId: org.id,
+      email: {
+        in: [
+          'bom1@highlink.co.tz',
+          'ops1@highlink.co.tz',
+          'regional1@highlink.co.tz',
+          'tech1@highlink.co.tz',
+          'bdm1@highlink.co.tz',
+        ],
+      },
+    },
+    select: { id: true, email: true },
+  });
+  const managerUserId = (email: string) =>
+    managerUsers.find((u) => u.email === email)?.id;
+  const managerStaff = [
+    {
+      employeeNumber: 'OFF-BOM-001',
+      userId: managerUserId('bom1@highlink.co.tz'),
+      fullName: 'Bella Branch Manager',
+      email: 'bom1@highlink.co.tz',
+      phone: '+255713000201',
+      department: 'Branch Operations',
+      employmentType: 'SUPERVISOR' as const,
+      basicSalary: 2400000,
+    },
+    {
+      employeeNumber: 'OFF-OPS-MGR-001',
+      userId: managerUserId('ops1@highlink.co.tz'),
+      fullName: 'Omar Operations',
+      email: 'ops1@highlink.co.tz',
+      phone: '+255713000202',
+      department: 'Operations',
+      employmentType: 'SUPERVISOR' as const,
+      basicSalary: 2600000,
+    },
+    {
+      employeeNumber: 'OFF-REG-001',
+      userId: managerUserId('regional1@highlink.co.tz'),
+      fullName: 'Rehema Regional',
+      email: 'regional1@highlink.co.tz',
+      phone: '+255713000203',
+      department: 'Branch Operations',
+      employmentType: 'SUPERVISOR' as const,
+      basicSalary: 3200000,
+    },
+    {
+      employeeNumber: 'OFF-TECH-MGR-001',
+      userId: managerUserId('tech1@highlink.co.tz'),
+      fullName: 'Tumaini Technical',
+      email: 'tech1@highlink.co.tz',
+      phone: '+255713000204',
+      department: 'Technical',
+      employmentType: 'OTHER' as const,
+      basicSalary: 2100000,
+    },
+    {
+      employeeNumber: 'OFF-BDM-001',
+      userId: managerUserId('bdm1@highlink.co.tz'),
+      fullName: 'Baraka Business Development',
+      email: 'bdm1@highlink.co.tz',
+      phone: '+255713000205',
+      department: 'Business Development',
+      employmentType: 'ADMIN' as const,
+      basicSalary: 2300000,
+    },
+  ];
+  for (const staff of managerStaff) {
+    const employee = await prisma.employee.upsert({
+      where: {
+        organizationId_employeeNumber: {
+          organizationId: org.id,
+          employeeNumber: staff.employeeNumber,
+        },
+      },
+      update: {
+        userId: staff.userId,
+        fullName: staff.fullName,
+        email: staff.email,
+        phone: staff.phone,
+        department: staff.department,
+        employmentType: staff.employmentType,
+        branchId: branch.id,
+        status: 'ACTIVE',
+        bankAccountRef: '0150123400000',
+        bankName: 'NMB Bank',
+        mobileMoneyRef: staff.phone,
+        mobileMoneyProvider: 'M-PESA',
+      },
+      create: {
+        organizationId: org.id,
+        userId: staff.userId,
+        employeeNumber: staff.employeeNumber,
+        fullName: staff.fullName,
+        email: staff.email,
+        phone: staff.phone,
+        department: staff.department,
+        employmentType: staff.employmentType,
+        branchId: branch.id,
+        hireDate: new Date('2023-01-15'),
+        createdBy: admin.id,
+        bankAccountRef: '0150123400000',
+        bankName: 'NMB Bank',
+        mobileMoneyRef: staff.phone,
+        mobileMoneyProvider: 'M-PESA',
+      },
+    });
+    const existingSalary = await prisma.salaryAssignment.findFirst({
+      where: { employeeId: employee.id, isActive: true },
+    });
+    if (!existingSalary) {
+      await prisma.salaryAssignment.create({
+        data: {
+          organizationId: org.id,
+          employeeId: employee.id,
+          basicSalary: staff.basicSalary,
+          currency: 'TZS',
+          hourlyRate: Math.round(staff.basicSalary / 176),
+          allowances: { TRANSPORT: 120000, RISK: 80000 },
+          effectiveFrom: new Date('2024-01-01'),
+          createdBy: admin.id,
+        },
+      });
+    }
+  }
+
+  // Office/manager payroll history — one PAID cycle for last month so
+  // `/payroll` → My payslips is not an empty demo for office staff (and so the
+  // console has a settled run). The current month stays free for a live run.
+  const seedRule = await prisma.payrollRuleVersion.findFirst({
+    where: { organizationId: org.id, isCurrent: true },
+  });
+  if (seedRule) {
+    // UTC construction keeps the stored @db.Date values on the 1st/last of the
+    // month regardless of the server timezone.
+    const nowRef = new Date();
+    const prevStart = new Date(
+      Date.UTC(nowRef.getUTCFullYear(), nowRef.getUTCMonth() - 1, 1),
+    );
+    const prevEnd = new Date(
+      Date.UTC(nowRef.getUTCFullYear(), nowRef.getUTCMonth(), 0),
+    );
+    const prevKey = `${prevStart.getUTCFullYear()}${String(
+      prevStart.getUTCMonth() + 1,
+    ).padStart(2, '0')}`;
+    const officeCycle = await prisma.payrollCycle.upsert({
+      where: {
+        organizationId_cycleCode: {
+          organizationId: org.id,
+          cycleCode: `PAY-${prevKey}`,
+        },
+      },
+      update: {},
+      create: {
+        organizationId: org.id,
+        tenantType: 'INTERNAL_COMPANY',
+        cycleCode: `PAY-${prevKey}`,
+        periodStart: prevStart,
+        periodEnd: prevEnd,
+        status: 'PAID',
+        ruleVersionId: seedRule.id,
+        createdBy: admin.id,
+        reviewedBy: admin.id,
+        approvedBy: admin.id,
+        paidAt: prevEnd,
+        paymentReference: `PAYREF-${prevKey}`,
+      },
+    });
+    const officeEmployees = await prisma.employee.findMany({
+      where: {
+        organizationId: org.id,
+        employeeNumber: { startsWith: 'OFF-' },
+        status: 'ACTIVE',
+      },
+      select: {
+        id: true,
+        employeeNumber: true,
+        fullName: true,
+        salaryAssignments: {
+          where: { isActive: true },
+          take: 1,
+          select: { basicSalary: true, allowances: true },
+        },
+      },
+    });
+    for (const emp of officeEmployees) {
+      const assignment = emp.salaryAssignments[0];
+      if (!assignment) continue;
+      const exists = await prisma.payslipSnapshot.findFirst({
+        where: { cycleId: officeCycle.id, employeeId: emp.id },
+        select: { id: true },
+      });
+      if (exists) continue;
+      const basic = Number(assignment.basicSalary);
+      const allowances =
+        assignment.allowances && typeof assignment.allowances === 'object'
+          ? Object.values(
+              assignment.allowances as Record<string, unknown>,
+            ).reduce((sum: number, v) => sum + Number(v ?? 0), 0)
+          : 0;
+      const gross = basic + allowances;
+      const statutory = Math.round(gross * 0.1);
+      await prisma.payslipSnapshot.create({
+        data: {
+          organizationId: org.id,
+          cycleId: officeCycle.id,
+          employeeId: emp.id,
+          employeeNumber: emp.employeeNumber,
+          employeeName: emp.fullName,
+          inputsSnapshot: { seed: true, source: 'salary_assignment' },
+          allowancesSnapshot: assignment.allowances ?? {},
+          deductionsSnapshot: { NSSF: statutory },
+          calculationResult: {
+            grossPay: gross,
+            totalDeductions: statutory,
+            netPay: gross - statutory,
+            currency: 'TZS',
+          },
+          grossPay: gross,
+          totalDeductions: statutory,
+          netPay: gross - statutory,
+          ruleVersionId: seedRule.id,
+          createdBy: admin.id,
+        },
+      });
+    }
   }
 
   // Module 17-A — APPROVED boots loan ready for HR issue demo

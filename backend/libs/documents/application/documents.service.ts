@@ -7,6 +7,7 @@ import {
 import { createHash, randomUUID } from 'crypto';
 import { AuditService } from '@pssms/audit';
 import {
+  assertBranchInScope,
   assertSiteAccess,
   AuthUser,
   isGuardSelfScoped,
@@ -29,7 +30,7 @@ const ALLOWED_EXT = new Set(['.pdf', '.png', '.jpg', '.jpeg', '.webp']);
 const PRESIGN_TTL_SECONDS = 300;
 
 /** documents.manage alone is not enough — caller needs the parent domain permission. */
-const PARENT_PERMISSION_BY_RESOURCE: Record<string, string> = {
+const PARENT_PERMISSION_BY_RESOURCE: Record<string, string | string[]> = {
   OccurrenceEntry: 'operations.manage',
   PettyCashVoucher: 'finance.manage',
   Customer: 'customers.manage',
@@ -43,8 +44,10 @@ const PARENT_PERMISSION_BY_RESOURCE: Record<string, string> = {
   SupplierSubmission: 'procurement.manage',
   /** Module 31-A — incident evidence */
   Incident: 'incidents.manage',
-  /** Portal 35.4 / Module 16-A — employee staff file scans */
-  Employee: 'hr.manage',
+  /** Portal 35.4 / Module 16-A — employee staff file scans.
+   * `hr.manage` = whole register; `hr.branch` = own-branch staff only
+   * (enforced by the Employee branch check in assertDocumentAccess). */
+  Employee: ['hr.manage', 'hr.branch'],
   /** Portal 35.13 — applicant CV / certificates (staff MinIO; public apply still resumeUrl) */
   JobApplication: 'recruitment.manage',
   /** Portal 35.15 — receipt scan attached to the finance receipt register */
@@ -65,9 +68,10 @@ function assertParentPermission(resourceType: string, user: AuthUser): void {
     );
   }
   if (user.roles.includes('SUPER_ADMIN')) return;
-  if (!user.permissions.includes(required)) {
+  const allowed = Array.isArray(required) ? required : [required];
+  if (!allowed.some((code) => user.permissions.includes(code))) {
     throw new ForbiddenException(
-      `Missing permission ${required} for ${resourceType} attachments`,
+      `Missing permission ${allowed.join(' or ')} for ${resourceType} attachments`,
     );
   }
 }
@@ -334,6 +338,22 @@ async function assertDocumentAccess(
   }
 
   assertParentPermission(resourceType, user);
+  if (resourceType === 'Employee' && !user.permissions.includes('hr.manage')) {
+    // Branch HR readers (`hr.branch`) may only touch staff in their own branch.
+    const employee = await prisma.employee.findFirst({
+      where: { id: resourceId, organizationId: user.organizationId },
+      select: { branchId: true },
+    });
+    if (!employee) {
+      throw new BadRequestException('Employee not found in your organization');
+    }
+    if (!employee.branchId) {
+      throw new ForbiddenException(
+        'Employee has no branch, so branch HR cannot access its staff files',
+      );
+    }
+    await assertBranchInScope(user, prisma, employee.branchId);
+  }
   if (resourceType === 'Incident') {
     const incident = await prisma.incident.findFirst({
       where: { id: resourceId, organizationId: user.organizationId },

@@ -1148,6 +1148,26 @@ export class ApprovalsService {
     return rows.map((r) => this.toDto(r, r.version.steps));
   }
 
+  /**
+   * Queue scoped to what this officer can actually decide: instances whose
+   * current step requires one of their roles, plus anything they raised.
+   * Used by the Administration → Requests desk so branch managers see their
+   * own branch-level items instead of the whole company workflow list.
+   */
+  async listActionable(
+    organizationId: string,
+    user: AuthUser,
+  ): Promise<ApprovalInstanceResponseDto[]> {
+    const all = await this.list(organizationId);
+    if (user.roles.includes('SUPER_ADMIN')) return all;
+    return all.filter((i) => {
+      if (i.createdBy === user.id) return true;
+      if (i.status !== ApprovalStatus.PENDING) return false;
+      if (!i.requiredRole || i.requiredRole === '*') return true;
+      return user.roles.includes(i.requiredRole);
+    });
+  }
+
   private toDto(
     i: {
       id: string;

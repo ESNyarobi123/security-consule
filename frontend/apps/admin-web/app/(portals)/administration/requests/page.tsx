@@ -28,7 +28,9 @@ export default function AdministrationRequestsPage() {
     try {
       const [inst, lv] = await Promise.all([
         canAct
-          ? listApprovalInstances().catch(() => [] as ApprovalInstance[])
+          ? listApprovalInstances(undefined, { mine: true }).catch(
+              () => [] as ApprovalInstance[],
+            )
           : Promise.resolve([] as ApprovalInstance[]),
         canHr
           ? listLeaveRequests().catch(() => [] as LeaveRequest[])
@@ -89,13 +91,17 @@ export default function AdministrationRequestsPage() {
         <h2 className="text-sm font-semibold">Pending approval instances</h2>
         {!canAct ? (
           <p className="mt-2 text-sm text-[#605e5c]">
-            Listing the company queue needs approvals.act (GM, Department Head,
-            and designated approvers). Use the Payroll → My payslips / self-service pages for your own submissions.
+            Listing the approval queue needs approvals.act (GM, Department
+            Head, Branch Manager, and designated approvers). Use the Payroll →
+            My payslips / self-service pages for your own submissions.
           </p>
         ) : loading ? (
           <p className="mt-2 text-sm text-[#605e5c]">Loading…</p>
         ) : instances.length === 0 ? (
-          <p className="mt-2 text-sm text-[#605e5c]">No pending instances.</p>
+          <p className="mt-2 text-sm text-[#605e5c]">
+            Nothing waiting on you — no pending instance needs one of your
+            roles right now.
+          </p>
         ) : (
           <ul className="mt-3 divide-y divide-[#edebe9] text-sm">
             {instances.map((i) => (
