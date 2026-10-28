@@ -168,40 +168,84 @@ export default function DeveloperOverviewPage() {
   const [outboxStatus, setOutboxStatus] = useState<OutboxStatusFilter>('ALL');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  // Working-but-degraded facts (e.g. adapter registry served by the core-api
+  // fallback because integration-gateway is not running here). Shown as an
+  // info line, never as a red/amber failure banner.
+  const [notices, setNotices] = useState<string[]>([]);
   const [busyId, setBusyId] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
     setLoading(true);
     setError(null);
-    try {
-      const [health, providers, hooks, box, notifs, deviceRows, links] =
-        await Promise.all([
-          getPlatformServicesHealth(),
-          getProvidersHealth(),
-          listWebhookInbox(
-            webhookStatus === 'ALL' ? undefined : webhookStatus,
-          ),
-          listIntegrationOutbox(
-            outboxStatus === 'ALL' ? undefined : outboxStatus,
-          ),
-          listNotifications(),
-          listDevices(),
-          getDeveloperConnectivity(),
-        ]);
-      setServices(health.services);
+    setNotices([]);
+    // Each feed is independent: a role that cannot read devices (e.g. ICT
+    // Manager without operations.manage) must not blank the whole board.
+    const settled = await Promise.allSettled([
+      getPlatformServicesHealth(),
+      getProvidersHealth(),
+      listWebhookInbox(webhookStatus === 'ALL' ? undefined : webhookStatus),
+      listIntegrationOutbox(outboxStatus === 'ALL' ? undefined : outboxStatus),
+      listNotifications(),
+      listDevices(),
+      getDeveloperConnectivity(),
+    ]);
+    const failures: string[] = [];
+    const take = <T,>(idx: number, label: string): T | null => {
+      const result = settled[idx];
+      if (result && result.status === 'fulfilled') return result.value as T;
+      if (result && result.status === 'rejected') {
+        const reason = result.reason;
+        const message =
+          reason instanceof Error ? reason.message : String(reason ?? 'failed');
+        failures.push(`${label}: ${message}`);
+      }
+      return null;
+    };
+
+    const health = take<Awaited<ReturnType<typeof getPlatformServicesHealth>>>(
+      0,
+      'Service health',
+    );
+    const providers = take<Awaited<ReturnType<typeof getProvidersHealth>>>(
+      1,
+      'Adapters',
+    );
+    const hooks = take<Awaited<ReturnType<typeof listWebhookInbox>>>(
+      2,
+      'Webhook inbox',
+    );
+    const box = take<Awaited<ReturnType<typeof listIntegrationOutbox>>>(
+      3,
+      'Outbox',
+    );
+    const notifs = take<Awaited<ReturnType<typeof listNotifications>>>(
+      4,
+      'Notifications',
+    );
+    const deviceRows = take<Awaited<ReturnType<typeof listDevices>>>(
+      5,
+      'Devices',
+    );
+    const links = take<Awaited<ReturnType<typeof getDeveloperConnectivity>>>(
+      6,
+      'Connected systems',
+    );
+
+    if (health) setServices(health.services);
+    const softNotices: string[] = [];
+    if (providers) {
       setAdapters(providers.adapters);
-      setConnectivity(links);
       setProvidersSource(providers.source);
-      setInbox(hooks);
-      setOutbox(box);
-      setNotifications(notifs);
-      setDevices(deviceRows);
-      if (providers.error) setError(providers.error);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
-    } finally {
-      setLoading(false);
+      if (providers.error) softNotices.push(providers.error);
     }
+    if (links) setConnectivity(links);
+    if (hooks) setInbox(hooks);
+    if (box) setOutbox(box);
+    if (notifs) setNotifications(notifs);
+    if (deviceRows) setDevices(deviceRows);
+    setNotices(softNotices);
+    setError(failures.length ? failures.join(' · ') : null);
+    setLoading(false);
   }, [webhookStatus, outboxStatus]);
 
   useEffect(() => {
@@ -210,6 +254,7 @@ export default function DeveloperOverviewPage() {
 
   const online = services.filter((s) => isOnline(s.status)).length;
   const offline = services.filter((s) => s.status === 'down').length;
+  const absentCount = services.filter((s) => s.status === 'not_deployed').length;
   const adaptersUp = adapters.filter((a) => a.status === 'UP').length;
   const recentNotifications = notifications.slice(0, RECENT_LIMIT);
   const devicePreview = devices.slice(0, DEVICES_PREVIEW);
@@ -252,7 +297,7 @@ export default function DeveloperOverviewPage() {
   return (
     <DeveloperShell
       title="Integrations overview"
-      description="Everything the platform is wired to, and whether it is actually talking. Open Connected systems for the evidence-based verdict per service, gateway, device system and money rail. Console SMS/payment until vendors; WhatsApp, banks, mobile money, MQTT Nest client and bulk import are deferred. Admin, Developer and ICT Manager (IT_SUPPORT) can open this portal."
+      description="Everything the platform is wired to, and whether it is actually talking. Open Connected systems for the evidence-based verdict per service, gateway, device system and money rail. SMS/payment run console adapters until vendor credentials are set in .env; WhatsApp, banks, mobile money and the MQTT client are deferred. Admin, Developer and ICT Manager (IT_SUPPORT) can open this portal."
       actions={
         <button
           type="button"
@@ -270,12 +315,34 @@ export default function DeveloperOverviewPage() {
           {error}
         </p>
       ) : null}
+      {notices.length ? (
+        <div className="mb-3 rounded border border-[#c7e0f4] bg-[#eff6fc] px-3 py-2 text-xs text-[#004578]">
+          {notices.map((n) => (
+            <p key={n}>{n}</p>
+          ))}
+          <p className="mt-1 text-[11px] text-[#4a6a86]">
+            Adapters still report real state below — nothing is broken by this.
+          </p>
+        </div>
+      ) : null}
 
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         <StatCard
           label="Services"
-          value={loading ? '…' : `${online}/${services.length}`}
-          hint={offline > 0 ? `${offline} offline` : 'All up'}
+          value={
+            loading
+              ? '…'
+              : `${online}/${services.length - absentCount}`
+          }
+          hint={
+            loading
+              ? '…'
+              : offline > 0
+                ? `${offline} down${absentCount ? ` · ${absentCount} not running here` : ''}`
+                : absentCount
+                  ? `All up · ${absentCount} not running here`
+                  : 'All up'
+          }
           icon={
             offline > 0 ? (
               <XCircle className="h-4 w-4" />
@@ -775,12 +842,20 @@ export default function DeveloperOverviewPage() {
           title="Devices"
           href="/devices"
           count={devices.length}
+          actions={
+            <Link
+              href="/developer/import"
+              className="text-[11px] font-medium text-[#0067b8] hover:text-[#004578]"
+            >
+              Bulk import →
+            </Link>
+          }
         />
         {devicePreview.length === 0 && !loading ? (
           <PanelEmpty
             icon={<HardDrive className="h-4 w-4" />}
             title="No devices"
-            description="Register devices on the Devices portal."
+            description="Register devices on the Devices portal, or onboard a whole fleet with the CSV import."
           />
         ) : (
           <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">

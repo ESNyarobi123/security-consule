@@ -1,4 +1,11 @@
-import { supplierAuthHeaders } from '@pssms/auth';
+import { parseApiEnvelope } from './errors';
+import { createSessionFetch } from './session';
+import {
+  clearSupplierSession,
+  getSupplierRefreshToken,
+  getSupplierToken,
+  setSupplierTokens,
+} from '@pssms/auth';
 import type { LoginResult } from './index';
 import type { SupplierSubmission } from './admin';
 
@@ -7,29 +14,25 @@ const coreUrl = () =>
   process.env.NEXT_PUBLIC_API_URL ??
   'http://localhost:4001';
 
-type ApiEnvelope<T> = {
-  success: boolean;
-  data: T;
-  meta?: Record<string, unknown>;
-};
-
 async function parseEnvelope<T>(res: Response): Promise<T> {
-  if (!res.ok) throw new Error(await res.text());
-  const json = (await res.json()) as ApiEnvelope<T>;
-  return json.data;
+  return parseApiEnvelope<T>(res);
 }
+
+/** Supplier portal session — silent refresh keeps vendor pages alive past 15m. */
+const supplierSession = createSessionFetch({
+  key: 'supplier',
+  getAccessToken: getSupplierToken,
+  getRefreshToken: getSupplierRefreshToken,
+  setTokens: setSupplierTokens,
+  clearSession: clearSupplierSession,
+  loginPath: '/login',
+});
 
 async function supplierFetch<T>(
   path: string,
   init?: RequestInit & { token?: string },
 ): Promise<T> {
-  const headers: HeadersInit = {
-    ...(init?.body != null ? { 'Content-Type': 'application/json' } : {}),
-    ...supplierAuthHeaders(init?.token),
-    ...init?.headers,
-  };
-  const res = await fetch(`${coreUrl()}${path}`, { ...init, headers });
-  return parseEnvelope<T>(res);
+  return supplierSession.request<T>(path, init);
 }
 
 export type SupplierProfile = {

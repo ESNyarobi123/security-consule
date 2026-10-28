@@ -4,7 +4,7 @@ import { providerLogin } from '@pssms/api-client';
 import { setProviderSession } from '@pssms/auth';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { FormEvent, useState } from 'react';
+import { FormEvent, useEffect, useState } from 'react';
 
 function canAccessProviderPortal(user: {
   roles: string[];
@@ -26,6 +26,12 @@ export default function ProviderLoginPage() {
   const [password, setPassword] = useState('ChangeMe123!');
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    if (new URLSearchParams(window.location.search).get('expired') === '1') {
+      setError('Your session expired. Sign in again to continue.');
+    }
+  }, []);
 
   async function onSubmit(e: FormEvent) {
     e.preventDefault();

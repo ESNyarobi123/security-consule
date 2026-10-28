@@ -61,7 +61,13 @@ export type ServiceHealthItem = {
   name: string;
   url: string;
   path: string;
-  status: 'ok' | 'down';
+  /**
+   * `ok` = probed and healthy, `down` = probed and unreachable, `not_deployed`
+   * = this deployment does not run the service at all (e.g. api-gateway on a
+   * single-VPS install). Reporting an absent service as `down` made the board
+   * look broken in production.
+   */
+  status: 'ok' | 'down' | 'not_deployed';
   latencyMs: number | null;
   detail?: string;
 };
@@ -107,6 +113,37 @@ export type ProviderPingResult = {
   ok: boolean;
   detail: string;
   latencyMs: number | null;
+};
+
+/** Columns accepted by the device-registry bulk import (§35.24 data import). */
+export const DEVICE_IMPORT_COLUMNS = [
+  'code',
+  'name',
+  'type',
+  'connection',
+  'siteCode',
+  'vendor',
+  'model',
+  'serialNumber',
+] as const;
+
+export type DeviceImportRow = {
+  line: number;
+  code: string;
+  action: 'CREATE' | 'UPDATE' | 'SKIP' | 'ERROR';
+  message?: string;
+};
+
+export type DeviceImportReport = {
+  kind: 'devices';
+  dryRun: boolean;
+  total: number;
+  created: number;
+  updated: number;
+  skipped: number;
+  failed: number;
+  rows: DeviceImportRow[];
+  importedAt: string;
 };
 
 /**
@@ -255,7 +292,10 @@ export class DeveloperIntegrationsService {
     source: 'integration-gateway' | 'core-api-fallback';
     checkedAt: string;
     adapters: ProviderHealthItem[];
+    /** Plain-language explanation when the gateway is not reachable. */
     error?: string;
+    /** Raw technical reason, for the logs drawer only. */
+    errorDetail?: string;
   }> {
     const started = Date.now();
     const base =
@@ -311,9 +351,24 @@ export class DeveloperIntegrationsService {
         source: 'core-api-fallback',
         checkedAt: new Date().toISOString(),
         adapters: fallback,
-        error: `integration-gateway unreachable: ${String(err)}`,
+        // Never surface a raw TypeError to the portal. The fallback is a
+        // working state, not a failure — say what happened in plain words.
+        error: this.providerFallbackMessage(base),
+        errorDetail: String(err).slice(0, 300),
       };
     }
+  }
+
+  /**
+   * Human sentence for "adapter registry came from the core-api fallback".
+   * Mentioned in the Developer portal as an info line, never as an error.
+   */
+  private providerFallbackMessage(base: string): string {
+    const host = this.safeHostname(base) ?? 'integration-gateway';
+    const configured = Boolean(process.env.INTEGRATION_GATEWAY_URL?.trim());
+    return configured
+      ? `Integration gateway at ${host} did not respond — the adapter registry is being read from the core-api fallback`
+      : 'Integration gateway is not configured in this environment (INTEGRATION_GATEWAY_URL unset) — the adapter registry is being read from the core-api fallback';
   }
 
   /** Non-secret env / broker status for Developer portal. Never returns secrets. */
@@ -551,27 +606,39 @@ export class DeveloperIntegrationsService {
     const systems: ConnectivitySystem[] = [];
 
     // ── PLATFORM ──────────────────────────────────────────────────────────
-    const downServices = health.services.filter((s) => s.status !== 'ok');
+    const deployedServices = health.services.filter(
+      (s) => s.status !== 'not_deployed',
+    );
+    const absentServices = health.services.filter(
+      (s) => s.status === 'not_deployed',
+    );
+    const downServices = deployedServices.filter((s) => s.status !== 'ok');
     systems.push({
       code: 'platform-services',
       name: 'Platform services',
       group: 'PLATFORM',
-      status:
-        downServices.length === 0
-          ? 'CONNECTED'
-          : downServices.length >= health.services.length / 2
-            ? 'DEGRADED'
-            : 'DEGRADED',
+      status: downServices.length === 0 ? 'CONNECTED' : 'DEGRADED',
       live: true,
       configured: true,
-      detail: `${health.services.length - downServices.length}/${health.services.length} responding${
-        downServices.length ? ` — down: ${downServices.map((s) => s.code).join(', ')}` : ''
+      detail: `${deployedServices.length - downServices.length}/${deployedServices.length} deployed services responding${
+        downServices.length
+          ? ` — down: ${downServices.map((s) => s.code).join(', ')}`
+          : ''
+      }${
+        absentServices.length
+          ? ` · ${absentServices.length} not running here: ${absentServices
+              .map((s) => s.code)
+              .join(', ')}`
+          : ''
       }`,
       lastActivityAt: health.checkedAt,
-      activity24h: health.services.length,
+      activity24h: deployedServices.length,
       failures24h: downServices.length,
       evidence: health.services.map(
-        (s) => `${s.code}: ${s.status}${s.latencyMs != null ? ` ${s.latencyMs}ms` : ''}`,
+        (s) =>
+          `${s.code}: ${s.status}${s.status === 'not_deployed' ? ' (absent here)' : ''}${
+            s.latencyMs != null ? ` ${s.latencyMs}ms` : ''
+          }`,
       ),
       href: '/developer/health',
     });
@@ -841,7 +908,9 @@ export class DeveloperIntegrationsService {
       detail:
         vision?.status === 'ok'
           ? `Vision AI reachable — ${anpr24h} plate reads in 24h`
-          : 'Vision AI service unreachable — ANPR events cannot be processed',
+          : vision?.status === 'not_deployed'
+            ? `Vision AI is not running in this environment — ANPR stays unwired until VISION_AI_URL points at it`
+            : 'Vision AI service unreachable — ANPR events cannot be processed',
       lastActivityAt: iso(lastAnpr?.capturedAt ?? lastDeviceEvent?.receivedAt ?? null),
       activity24h: anpr24h,
       failures24h: 0,
@@ -1293,8 +1362,8 @@ export class DeveloperIntegrationsService {
         {
           id: 'import',
           name: 'Data import',
-          status: 'DEFERRED',
-          note: 'No bulk customer/HR CSV import on this portal.',
+          status: 'WIRED',
+          note: 'Device registry bulk CSV import with dry-run preview + audit. Customer / HR / payroll spreadsheets stay with their owning portal.',
         },
         {
           id: 'mqtt',
@@ -1304,8 +1373,8 @@ export class DeveloperIntegrationsService {
         },
       ],
       notes: [
-        'ICT Manager IAM stays Super Admin. IT Support is helpdesk (no integrations.manage).',
-        'No API_ADMIN / SYSTEM_INTEGRATOR / TECHNICAL_PARTNER roles — use DEVELOPER (dev1@) plus SA/GM.',
+        'ICT Manager is IT_SUPPORT (helpdesk + integrations.manage) and can open this portal; Super Admin and DEVELOPER (dev1@) always can.',
+        'Authorized technical partners use a DEVELOPER-style account — there is no separate API_ADMIN / SYSTEM_INTEGRATOR / TECHNICAL_PARTNER role.',
       ],
     };
   }
@@ -1498,6 +1567,268 @@ export class DeveloperIntegrationsService {
     return { kind, filename, csv, rowCount: rows.length };
   }
 
+  /**
+   * Portal 35.24 — data import. Device registry is the developer-owned master
+   * data, so bulk onboarding of biometric / CCTV / RFID / ANPR terminals lives
+   * here (customer or HR spreadsheets stay out: those domains own their input).
+   *
+   * Preview first (`dryRun`), then commit. Never throws on a bad row — the
+   * report carries per-line errors so the operator can fix the file.
+   */
+  async importDevices(
+    user: AuthUser,
+    csv: string,
+    dryRun: boolean,
+  ): Promise<DeviceImportReport> {
+    const org = user.organizationId;
+    const lines = (csv ?? '')
+      .split(/\r?\n/)
+      .map((l) => l.trim())
+      .filter(Boolean);
+    if (lines.length < 2) {
+      throw new BadRequestException({
+        error: 'IMPORT_EMPTY',
+        message: 'CSV needs a header row and at least one device row',
+      });
+    }
+
+    const header = this.splitCsvLine(lines[0]!).map((h) => h.toLowerCase());
+    const required = ['code', 'name', 'type'];
+    const missing = required.filter((h) => !header.includes(h));
+    if (missing.length) {
+      throw new BadRequestException({
+        error: 'IMPORT_HEADER_INVALID',
+        message: `Missing required column(s): ${missing.join(', ')}. Allowed columns: ${DEVICE_IMPORT_COLUMNS.join(', ')}`,
+      });
+    }
+    const dataLines = lines.slice(1);
+    if (dataLines.length > 500) {
+      throw new BadRequestException({
+        error: 'IMPORT_TOO_LARGE',
+        message: `Maximum 500 rows per import (received ${dataLines.length})`,
+      });
+    }
+
+    const types = Object.values(DeviceType) as string[];
+    const connections = Object.values(DeviceConnection) as string[];
+    const sites = await this.prisma.site.findMany({
+      where: { organizationId: org },
+      select: { id: true, code: true, name: true },
+    });
+    const siteByCode = new Map(sites.map((s) => [s.code.toLowerCase(), s]));
+    const existing = await this.prisma.device.findMany({
+      where: { organizationId: org },
+      select: { code: true },
+    });
+    const existingCodes = new Set(existing.map((d) => d.code.toLowerCase()));
+
+    const rows: DeviceImportRow[] = [];
+    const seen = new Set<string>();
+    let created = 0;
+    let updated = 0;
+    let skipped = 0;
+    let failed = 0;
+
+    for (let i = 0; i < dataLines.length; i += 1) {
+      const lineNumber = i + 2;
+      const cells = this.splitCsvLine(dataLines[i]!);
+      const get = (col: string): string => {
+        const idx = header.indexOf(col);
+        return idx >= 0 ? (cells[idx] ?? '').trim() : '';
+      };
+      const code = get('code');
+      const name = get('name');
+      const typeRaw = get('type').toUpperCase();
+      const connectionRaw = (get('connection') || 'NETWORK').toUpperCase();
+      const siteCode = get('sitecode') || get('site');
+
+      if (!code || !name) {
+        rows.push({
+          line: lineNumber,
+          code: code || '—',
+          action: 'ERROR',
+          message: 'code and name are required',
+        });
+        failed += 1;
+        continue;
+      }
+      if (!types.includes(typeRaw)) {
+        rows.push({
+          line: lineNumber,
+          code,
+          action: 'ERROR',
+          message: `unknown type "${typeRaw}" — use one of ${types.join(', ')}`,
+        });
+        failed += 1;
+        continue;
+      }
+      if (!connections.includes(connectionRaw)) {
+        rows.push({
+          line: lineNumber,
+          code,
+          action: 'ERROR',
+          message: `unknown connection "${connectionRaw}" — use one of ${connections.join(', ')}`,
+        });
+        failed += 1;
+        continue;
+      }
+      const site = siteCode ? siteByCode.get(siteCode.toLowerCase()) : undefined;
+      if (siteCode && !site) {
+        rows.push({
+          line: lineNumber,
+          code,
+          action: 'ERROR',
+          message: `site code "${siteCode}" not found in this organization`,
+        });
+        failed += 1;
+        continue;
+      }
+      if (seen.has(code.toLowerCase())) {
+        rows.push({
+          line: lineNumber,
+          code,
+          action: 'SKIP',
+          message: 'duplicate code in this file',
+        });
+        skipped += 1;
+        continue;
+      }
+      seen.add(code.toLowerCase());
+
+      const isUpdate = existingCodes.has(code.toLowerCase());
+      const payload = {
+        name,
+        type: typeRaw as DeviceType,
+        connection: connectionRaw as DeviceConnection,
+        siteId: site?.id ?? null,
+        vendor: get('vendor') || null,
+        model: get('model') || null,
+        serialNumber: get('serialnumber') || get('serial') || null,
+      };
+
+      if (dryRun) {
+        rows.push({
+          line: lineNumber,
+          code,
+          action: isUpdate ? 'UPDATE' : 'CREATE',
+          message: isUpdate
+            ? 'existing code — metadata will be overwritten'
+            : site
+              ? `new device at ${site.code}`
+              : 'new device (no site)',
+        });
+        if (isUpdate) updated += 1;
+        else created += 1;
+        continue;
+      }
+
+      try {
+        if (isUpdate) {
+          await this.prisma.device.update({
+            where: { organizationId_code: { organizationId: org, code } },
+            data: payload,
+          });
+          updated += 1;
+          rows.push({ line: lineNumber, code, action: 'UPDATE' });
+        } else {
+          await this.prisma.device.create({
+            data: {
+              organizationId: org,
+              code,
+              ...payload,
+              status: DeviceStatus.PENDING,
+              createdBy: user.id,
+            },
+          });
+          existingCodes.add(code.toLowerCase());
+          created += 1;
+          rows.push({ line: lineNumber, code, action: 'CREATE' });
+        }
+      } catch (err) {
+        failed += 1;
+        rows.push({
+          line: lineNumber,
+          code,
+          action: 'ERROR',
+          message: String(err).slice(0, 200),
+        });
+      }
+    }
+
+    const report: DeviceImportReport = {
+      kind: 'devices',
+      dryRun,
+      total: dataLines.length,
+      created,
+      updated,
+      skipped,
+      failed,
+      rows,
+      importedAt: new Date().toISOString(),
+    };
+    if (!dryRun) {
+      await this.audit.record({
+        organizationId: org,
+        actorId: user.id,
+        action: 'developer.import.devices',
+        resourceType: 'DeveloperImport',
+        after: {
+          total: report.total,
+          created: report.created,
+          updated: report.updated,
+          skipped: report.skipped,
+          failed: report.failed,
+        },
+      });
+    }
+    return report;
+  }
+
+  /** Column contract for the import screen (so the UI never guesses). */
+  importOptions() {
+    return {
+      kind: 'devices',
+      entity: 'Device registry',
+      columns: DEVICE_IMPORT_COLUMNS,
+      required: ['code', 'name', 'type'],
+      deviceTypes: Object.values(DeviceType),
+      connections: Object.values(DeviceConnection),
+      sample: [
+        'code,name,type,connection,siteCode,vendor,model,serialNumber',
+        'BIO-GATE-02,Gate 2 fingerprint,BIOMETRIC_TERMINAL,NETWORK,SITE-WAREHOUSE-A,ZKTeco,F18,SN-0002',
+      ].join('\n'),
+      notes: [
+        'Existing device code updates its metadata — no duplicate rows are created.',
+        'New devices start as PENDING until the device authenticates.',
+        'Maximum 500 rows per file. Customers / HR / payroll spreadsheets are out of scope here.',
+      ],
+    };
+  }
+
+  private splitCsvLine(line: string): string[] {
+    const out: string[] = [];
+    let cur = '';
+    let quoted = false;
+    for (let i = 0; i < line.length; i += 1) {
+      const ch = line[i];
+      if (ch === '"') {
+        if (quoted && line[i + 1] === '"') {
+          cur += '"';
+          i += 1;
+        } else {
+          quoted = !quoted;
+        }
+      } else if (ch === ',' && !quoted) {
+        out.push(cur);
+        cur = '';
+      } else {
+        cur += ch;
+      }
+    }
+    out.push(cur);
+    return out;
+  }
+
   private toCsv(rows: Record<string, unknown>[]): string {
     if (!rows.length) return 'id\n';
     const keys = Object.keys(rows[0] ?? { id: true });
@@ -1617,22 +1948,68 @@ export class DeveloperIntegrationsService {
   }
 
   private async probeService(target: ProbeTarget): Promise<ServiceHealthItem> {
-    const base = process.env[target.envUrl] ?? target.defaultUrl;
+    const configured = process.env[target.envUrl];
+    const base = configured ?? target.defaultUrl;
     const publicUrl = this.safeHostname(base) ?? 'configured';
+    const absent = this.absentServices();
+    const loopback = /(^|\/\/)(localhost|127\.0\.0\.1)(:|\/|$)/.test(base);
+
+    // An explicitly-absent service, or one still pointing at localhost in a
+    // production deploy, is not part of this environment — say so instead of
+    // pretending it is broken ("down").
+    if (absent.includes(target.code)) {
+      return {
+        code: target.code,
+        name: target.name,
+        url: publicUrl,
+        path: target.path,
+        status: 'not_deployed',
+        latencyMs: null,
+        detail: 'Not deployed in this environment (PLATFORM_ABSENT_SERVICES)',
+      };
+    }
+    // A loopback default with no env override means the platform was never
+    // told where this service lives — in any environment, not just prod.
+    if (!configured && loopback) {
+      return {
+        code: target.code,
+        name: target.name,
+        url: publicUrl,
+        path: target.path,
+        status: 'not_deployed',
+        latencyMs: null,
+        detail: `No ${target.envUrl} configured — not part of this deployment`,
+      };
+    }
+
     const url = `${base.replace(/\/$/, '')}${target.path}`;
     const started = Date.now();
     try {
       const res = await fetch(url, { signal: AbortSignal.timeout(4000) });
       const latencyMs = Date.now() - started;
       if (!res.ok) {
+        // 5xx = our service answered but is unhealthy → real outage.
+        // 4xx = the route does not exist there, so a different application is
+        // answering; that service simply is not deployed at this URL.
+        if (res.status >= 500) {
+          return {
+            code: target.code,
+            name: target.name,
+            url: publicUrl,
+            path: target.path,
+            status: 'down',
+            latencyMs,
+            detail: `HTTP ${res.status}`,
+          };
+        }
         return {
           code: target.code,
           name: target.name,
           url: publicUrl,
           path: target.path,
-          status: 'down',
+          status: 'not_deployed',
           latencyMs,
-          detail: `HTTP ${res.status}`,
+          detail: `Not running here — HTTP ${res.status} at ${base} is a different application, not ${target.name}`,
         };
       }
       const json = (await res.json().catch(() => ({}))) as {
@@ -1652,17 +2029,43 @@ export class DeveloperIntegrationsService {
         detail: json.service ?? String(statusRaw),
       };
     } catch {
+      const latencyMs = Date.now() - started;
+      // A loopback address always means "this machine", so a refused
+      // connection is "not started here", not an outage. Flagging it red made
+      // a healthy laptop install look broken.
+      if (loopback) {
+        return {
+          code: target.code,
+          name: target.name,
+          url: publicUrl,
+          path: target.path,
+          status: 'not_deployed',
+          latencyMs,
+          detail: `Not running here — nothing is listening at ${base}${
+            configured ? '' : ` (and no ${target.envUrl} is configured)`
+          }`,
+        };
+      }
       return {
         code: target.code,
         name: target.name,
         url: publicUrl,
         path: target.path,
         status: 'down',
-        latencyMs: Date.now() - started,
+        latencyMs,
         detail: 'unreachable',
       };
     }
   }
+
+  /** Comma-separated service codes this deployment deliberately omits. */
+  private absentServices(): string[] {
+    return (process.env.PLATFORM_ABSENT_SERVICES ?? '')
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean);
+  }
+
 
   private async providersHealthFallback(): Promise<ProviderHealthItem[]> {
     const registered = await this.prisma.providerRegistry.findMany({
@@ -1728,14 +2131,28 @@ export class DeveloperIntegrationsService {
   private async probeVisionAi(): Promise<{ status: string; detail: string }> {
     const base = process.env.VISION_AI_URL ?? 'http://localhost:8000';
     const host = this.safeHostname(base) ?? 'vision-ai';
+    const loopback = /(^|\/\/)(localhost|127\.0\.0\.1)(:|\/|$)/.test(base);
+    const notDeployed = (why: string) => ({
+      status: 'NOT_DEPLOYED',
+      detail: `Vision AI is not running in this environment (${why}) — ANPR cannot process captures`,
+    });
     try {
       const res = await fetch(`${base}/health`, {
         signal: AbortSignal.timeout(3000),
       });
-      if (!res.ok) return { status: 'DOWN', detail: `HTTP ${res.status}` };
+      if (!res.ok) {
+        // 5xx = our service answered and is sick. 4xx = another app owns the port.
+        return res.status >= 500
+          ? { status: 'DOWN', detail: `HTTP ${res.status}` }
+          : notDeployed(
+              `HTTP ${res.status} at ${host} is a different application`,
+            );
+      }
       return { status: 'UP', detail: host };
     } catch {
-      return { status: 'DOWN', detail: 'unreachable' };
+      return loopback
+        ? notDeployed(`nothing is listening at ${host}`)
+        : { status: 'DOWN', detail: 'unreachable' };
     }
   }
 }

@@ -1,4 +1,6 @@
 import {
+  BadRequestException,
+  Body,
   Controller,
   Get,
   Param,
@@ -91,6 +93,36 @@ export class DeveloperIntegrationsController {
     @Query('kind') kind?: string,
   ) {
     return this.service.exportPack(user, kind);
+  }
+
+  @Get('import/options')
+  @RequirePermissions('integrations.manage')
+  @ApiOperation({
+    summary:
+      'Device bulk-import column contract, enums and sample CSV (§35.24 data import)',
+  })
+  importOptions() {
+    return this.service.importOptions();
+  }
+
+  @Post('import')
+  @RequirePermissions('integrations.manage')
+  @ApiOperation({
+    summary:
+      'Device registry bulk import — dryRun=true previews, then commit (audited)',
+  })
+  importDevices(
+    @CurrentUser() user: AuthUser,
+    @Body() body: { kind?: string; csv?: string; dryRun?: boolean },
+  ) {
+    const kind = (body.kind ?? 'devices').toLowerCase();
+    if (kind !== 'devices') {
+      throw new BadRequestException({
+        error: 'INVALID_IMPORT_KIND',
+        message: 'Only the device registry import is supported on this portal',
+      });
+    }
+    return this.service.importDevices(user, body.csv ?? '', body.dryRun === true);
   }
 
   @Get('services/health')

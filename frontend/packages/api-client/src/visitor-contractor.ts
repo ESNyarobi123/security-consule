@@ -1,10 +1,16 @@
 /**
  * External E4 — contractor/guest self-view (visitor-web /contractor).
  */
-import { contractorAuthHeaders } from '@pssms/auth';
+import {
+  clearContractorSession,
+  getContractorRefreshToken,
+  getContractorToken,
+  setContractorTokens,
+} from '@pssms/auth';
 import type { LoginResult } from './index';
 import type { VisitorAppointment, VisitorEntry } from './admin';
 import { parseApiEnvelope } from './errors';
+import { createSessionFetch } from './session';
 
 const coreUrl = () =>
   process.env.NEXT_PUBLIC_CORE_API_URL ??
@@ -14,6 +20,16 @@ const coreUrl = () =>
 async function parseEnvelope<T>(res: Response): Promise<T> {
   return parseApiEnvelope<T>(res);
 }
+
+/** Contractor self-service session (silent refresh, dead-session redirect). */
+const contractorSession = createSessionFetch({
+  key: 'contractor',
+  getAccessToken: getContractorToken,
+  getRefreshToken: getContractorRefreshToken,
+  setTokens: setContractorTokens,
+  clearSession: clearContractorSession,
+  loginPath: '/contractor/login',
+});
 
 export type ContractorVisitProfile = {
   userId?: string;
@@ -28,13 +44,7 @@ async function contractorFetch<T>(
   path: string,
   init?: RequestInit & { token?: string },
 ): Promise<T> {
-  const headers: HeadersInit = {
-    ...(init?.body != null ? { 'Content-Type': 'application/json' } : {}),
-    ...contractorAuthHeaders(init?.token),
-    ...init?.headers,
-  };
-  const res = await fetch(`${coreUrl()}${path}`, { ...init, headers });
-  return parseEnvelope<T>(res);
+  return contractorSession.request<T>(path, init);
 }
 
 /** Contractor portal login → POST /auth/login */

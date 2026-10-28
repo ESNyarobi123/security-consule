@@ -232,8 +232,22 @@ export const ADMIN_PORTALS: NavItem[] = [
     group: 'Platform',
   },
   { href: '/developer/apis', label: 'APIs', permission: 'integrations.manage', group: 'Platform' },
+  { href: '/developer/health', label: 'Service health', permission: 'integrations.manage', group: 'Platform' },
+  { href: '/developer/adapters', label: 'Adapters', permission: 'integrations.manage', group: 'Platform' },
   { href: '/developer/systems', label: 'Systems', permission: 'integrations.manage', group: 'Platform' },
+  { href: '/developer/webhooks', label: 'Webhooks', permission: 'integrations.manage', group: 'Platform' },
+  { href: '/developer/outbox', label: 'Outbox', permission: 'integrations.manage', group: 'Platform' },
+  { href: '/developer/logs', label: 'Logs', permission: 'integrations.manage', group: 'Platform' },
+  {
+    href: '/developer/notifications',
+    label: 'Delivery queue',
+    permission: 'notifications.manage',
+    alsoPermits: ['integrations.manage'],
+    group: 'Platform',
+  },
+  { href: '/developer/config', label: 'Environments', permission: 'integrations.manage', group: 'Platform' },
   { href: '/developer/export', label: 'Export', permission: 'integrations.manage', group: 'Platform' },
+  { href: '/developer/import', label: 'Import', permission: 'integrations.manage', group: 'Platform' },
   /** Bottom of sidebar — portal URLs, ports/subdomains, demo logins */
   {
     href: '/portal-directory',

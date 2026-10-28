@@ -304,3 +304,5 @@ export * from './developer';
 export * from './compliance';
 export * from './branch-ops';
 export * from './documents';
+export { createSessionFetch } from './session';
+export type { SessionFetchConfig } from './session';

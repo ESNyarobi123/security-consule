@@ -14,10 +14,11 @@ export const DEVELOPER_TABS = [
   { href: '/developer/systems', label: 'Systems' },
   { href: '/developer/webhooks', label: 'Webhooks' },
   { href: '/developer/outbox', label: 'Outbox' },
-  { href: '/developer/notifications', label: 'Notifications' },
+  { href: '/developer/notifications', label: 'Delivery queue' },
   { href: '/developer/logs', label: 'Logs' },
   { href: '/developer/config', label: 'Environments' },
   { href: '/developer/export', label: 'Export' },
+  { href: '/developer/import', label: 'Import' },
 ] as const;
 
 export function DeveloperShell({

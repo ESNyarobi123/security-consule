@@ -84,6 +84,11 @@ function LoginForm() {
   const [oidcError, setOidcError] = useState<string | null>(null);
 
   useEffect(() => {
+    const expired = searchParams.get('expired');
+    if (expired === '1') {
+      setError('Your session expired. Sign in again to continue.');
+      return;
+    }
     const err = searchParams.get('error');
     if (err) {
       setError(decodeURIComponent(err.replace(/\+/g, ' ')));

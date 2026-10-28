@@ -25,19 +25,18 @@ import {
 import type { ReactNode } from 'react';
 
 export const isOnline = (status?: string) =>
-  !!status && !['down', 'DOWN', 'DISABLED'].includes(status);
+  !!status && !['down', 'DOWN', 'DISABLED', 'not_deployed'].includes(status);
 
-export const serviceBadge = (status?: string): string =>
-  status === undefined
-    ? 'PENDING'
-    : isOnline(status)
-      ? 'ACTIVE'
-      : 'SUSPENDED';
+export const serviceBadge = (status?: string): string => {
+  if (status === undefined) return 'PENDING';
+  if (status === 'not_deployed') return 'DRAFT';
+  return isOnline(status) ? 'ACTIVE' : 'SUSPENDED';
+};
 
 export const adapterBadge = (status?: string): string => {
   if (!status) return 'PENDING';
   if (status === 'UP') return 'ACTIVE';
-  if (status === 'DISABLED') return 'DRAFT';
+  if (status === 'DISABLED' || status === 'NOT_DEPLOYED') return 'DRAFT';
   return 'SUSPENDED';
 };
 
@@ -143,14 +142,15 @@ export function PanelEmpty({
 }
 
 export function ServiceCard({ row }: { row: PlatformServiceHealth }) {
+  const absent = row.status === 'not_deployed';
   const online = isOnline(row.status);
   return (
-    <GlassCard glow={online ? 'emerald' : 'rose'} className="!p-3">
+    <GlassCard glow={absent ? undefined : online ? 'emerald' : 'rose'} className="!p-3">
       <div className="flex items-start justify-between gap-2">
         <div className="flex min-w-0 items-center gap-2.5">
           <span
             className={`mt-1 h-2 w-2 shrink-0 rounded-full ${
-              online ? 'bg-[#107c10]' : 'bg-rose-500'
+              absent ? 'bg-[#a19f9d]' : online ? 'bg-[#107c10]' : 'bg-rose-500'
             }`}
           />
           <div className="min-w-0">
@@ -167,9 +167,12 @@ export function ServiceCard({ row }: { row: PlatformServiceHealth }) {
           {row.path}
         </span>
         <span className="shrink-0">
-          {row.latencyMs != null ? `${row.latencyMs} ms` : '—'}
+          {row.latencyMs != null ? `${row.latencyMs} ms` : absent ? 'not running' : '—'}
         </span>
       </div>
+      {absent && row.detail ? (
+        <p className="mt-1.5 text-[11px] text-[#8a8886]">{row.detail}</p>
+      ) : null}
     </GlassCard>
   );
 }

@@ -27,7 +27,12 @@ export default function LoginPage() {
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
-    const msg = new URLSearchParams(window.location.search).get('error');
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('expired') === '1') {
+      setError('Your supplier session expired. Sign in again to continue.');
+      return;
+    }
+    const msg = params.get('error');
     if (msg) setError(msg);
   }, []);
 
@@ -37,7 +42,11 @@ export default function LoginPage() {
     setError(null);
     try {
       const result = await supplierLogin(email, password);
-      setSupplierSession(result.tokens.accessToken, result.user);
+      setSupplierSession(
+        result.tokens.accessToken,
+        result.user,
+        result.tokens.refreshToken,
+      );
       router.push('/dashboard');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Login failed');

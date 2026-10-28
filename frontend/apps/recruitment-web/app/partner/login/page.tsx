@@ -19,7 +19,7 @@ import {
 } from 'lucide-react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { FormEvent, useState } from 'react';
+import { FormEvent, useEffect, useState } from 'react';
 import { CareersShell } from '../../_components/careers-ui';
 
 /** Registration limits mirror `RegisterB2bPartnerDto` on core-api. */
@@ -107,6 +107,13 @@ export default function PartnerLoginPage() {
   const [confirmPassword, setConfirmPassword] = useState('');
   const [consent, setConsent] = useState(false);
   const [fieldErrors, setFieldErrors] = useState<FieldErrors>({});
+
+  // Silent refresh failed → the API client sent us here with `?expired=1`.
+  useEffect(() => {
+    if (new URLSearchParams(window.location.search).get('expired') === '1') {
+      setError('Your partner session expired. Sign in again to continue.');
+    }
+  }, []);
 
   const inputClass = (key: FieldKey) =>
     `${BASE_INPUT} ${fieldErrors[key] ? BAD_INPUT : OK_INPUT}`;

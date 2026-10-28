@@ -16,17 +16,20 @@ export default function DeveloperAdaptersPage() {
   const [source, setSource] = useState('');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  // Gateway fallback note — informational, not a failure.
+  const [notice, setNotice] = useState<string | null>(null);
   const [pingCode, setPingCode] = useState<string | null>(null);
   const [pingMsg, setPingMsg] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
     setLoading(true);
     setError(null);
+    setNotice(null);
     try {
       const providers = await getProvidersHealth();
       setAdapters(providers.adapters);
       setSource(providers.source);
-      if (providers.error) setError(providers.error);
+      if (providers.error) setNotice(providers.error);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -92,6 +95,11 @@ export default function DeveloperAdaptersPage() {
       {error ? (
         <p className="mb-3 rounded border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
           {error}
+        </p>
+      ) : null}
+      {notice ? (
+        <p className="mb-3 rounded border border-[#c7e0f4] bg-[#eff6fc] px-3 py-2 text-xs text-[#004578]">
+          {notice}
         </p>
       ) : null}
       {pingMsg ? (

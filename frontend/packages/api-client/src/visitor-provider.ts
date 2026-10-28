@@ -1,10 +1,16 @@
 /**
  * External E6 — service-provider self-view (visitor-web /provider).
  */
-import { providerAuthHeaders } from '@pssms/auth';
+import {
+  clearProviderSession,
+  getProviderRefreshToken,
+  getProviderToken,
+  setProviderTokens,
+} from '@pssms/auth';
 import type { LoginResult } from './index';
 import type { VisitorAppointment, VisitorEntry } from './admin';
 import { parseApiEnvelope } from './errors';
+import { createSessionFetch } from './session';
 
 const coreUrl = () =>
   process.env.NEXT_PUBLIC_CORE_API_URL ??
@@ -14,6 +20,16 @@ const coreUrl = () =>
 async function parseEnvelope<T>(res: Response): Promise<T> {
   return parseApiEnvelope<T>(res);
 }
+
+/** Service-provider self-service session (silent refresh, dead-session redirect). */
+const providerSession = createSessionFetch({
+  key: 'provider',
+  getAccessToken: getProviderToken,
+  getRefreshToken: getProviderRefreshToken,
+  setTokens: setProviderTokens,
+  clearSession: clearProviderSession,
+  loginPath: '/provider/login',
+});
 
 export type ProviderVisitProfile = {
   userId: string;
@@ -28,13 +44,7 @@ async function providerFetch<T>(
   path: string,
   init?: RequestInit & { token?: string },
 ): Promise<T> {
-  const headers: HeadersInit = {
-    ...(init?.body != null ? { 'Content-Type': 'application/json' } : {}),
-    ...providerAuthHeaders(init?.token),
-    ...init?.headers,
-  };
-  const res = await fetch(`${coreUrl()}${path}`, { ...init, headers });
-  return parseEnvelope<T>(res);
+  return providerSession.request<T>(path, init);
 }
 
 /** Service-provider portal login → POST /auth/login */

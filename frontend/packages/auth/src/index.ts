@@ -10,6 +10,7 @@ export const CUSTOMER_REFRESH_COOKIE = 'pssms_customer_refresh';
 
 export const SUPPLIER_TOKEN_COOKIE = 'pssms_supplier_token';
 export const SUPPLIER_USER_COOKIE = 'pssms_supplier_user';
+export const SUPPLIER_REFRESH_COOKIE = 'pssms_supplier_refresh';
 
 export const PARKING_TOKEN_COOKIE = 'pssms_parking_token';
 export const PARKING_USER_COOKIE = 'pssms_parking_user';
@@ -133,6 +134,7 @@ const customerAuth = createAuthStore({
 const supplierAuth = createAuthStore({
   tokenCookie: SUPPLIER_TOKEN_COOKIE,
   userCookie: SUPPLIER_USER_COOKIE,
+  refreshCookie: SUPPLIER_REFRESH_COOKIE,
 });
 
 const parkingAuth = createAuthStore({
@@ -242,8 +244,21 @@ export function getSupplierSessionUser(): SessionUser | null {
   return supplierAuth.getSessionUser();
 }
 
-export function setSupplierSession(token: string, user: SessionUser) {
-  supplierAuth.setSession(token, user);
+export function getSupplierRefreshToken(): string | null {
+  return supplierAuth.getRefreshToken();
+}
+
+export function setSupplierSession(
+  token: string,
+  user: SessionUser,
+  refreshToken?: string,
+) {
+  supplierAuth.setSession(token, user, refreshToken);
+}
+
+/** Rotate only the tokens (silent refresh) without touching the cached user. */
+export function setSupplierTokens(token: string, refreshToken?: string) {
+  supplierAuth.setTokens(token, refreshToken);
 }
 
 export function clearSupplierSession() {
@@ -295,6 +310,15 @@ export function setPartnerSession(
   partnerAuth.setSession(token, user, refreshToken);
 }
 
+export function getPartnerRefreshToken(): string | null {
+  return partnerAuth.getRefreshToken();
+}
+
+/** Rotate only the tokens (silent refresh) without touching the cached user. */
+export function setPartnerTokens(token: string, refreshToken?: string) {
+  partnerAuth.setTokens(token, refreshToken);
+}
+
 export function clearPartnerSession() {
   partnerAuth.clearSession();
 }
@@ -344,6 +368,15 @@ export function setContractorSession(
   contractorAuth.setSession(token, user, refreshToken);
 }
 
+export function getContractorRefreshToken(): string | null {
+  return contractorAuth.getRefreshToken();
+}
+
+/** Rotate only the tokens (silent refresh) without touching the cached user. */
+export function setContractorTokens(token: string, refreshToken?: string) {
+  contractorAuth.setTokens(token, refreshToken);
+}
+
 export function clearContractorSession() {
   contractorAuth.clearSession();
 }
@@ -364,6 +397,15 @@ export function setConsultantSession(
   consultantAuth.setSession(token, user, refreshToken);
 }
 
+export function getConsultantRefreshToken(): string | null {
+  return consultantAuth.getRefreshToken();
+}
+
+/** Rotate only the tokens (silent refresh) without touching the cached user. */
+export function setConsultantTokens(token: string, refreshToken?: string) {
+  consultantAuth.setTokens(token, refreshToken);
+}
+
 export function clearConsultantSession() {
   consultantAuth.clearSession();
 }
@@ -382,6 +424,15 @@ export function setProviderSession(
   refreshToken?: string,
 ) {
   providerAuth.setSession(token, user, refreshToken);
+}
+
+export function getProviderRefreshToken(): string | null {
+  return providerAuth.getRefreshToken();
+}
+
+/** Rotate only the tokens (silent refresh) without touching the cached user. */
+export function setProviderTokens(token: string, refreshToken?: string) {
+  providerAuth.setTokens(token, refreshToken);
 }
 
 export function clearProviderSession() {

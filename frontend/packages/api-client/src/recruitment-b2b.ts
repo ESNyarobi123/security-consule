@@ -1,11 +1,18 @@
 /**
  * Portal 35.14 — other security company B2B + HR triage.
  */
-import {
-  authHeaders,
-  partnerAuthHeaders,
-} from '@pssms/auth';
 import { parseApiEnvelope } from './errors';
+import { createSessionFetch } from './session';
+import {
+  clearPartnerSession,
+  clearSession,
+  getPartnerRefreshToken,
+  getPartnerToken,
+  getRefreshToken,
+  getToken,
+  setPartnerTokens,
+  setTokens,
+} from '@pssms/auth';
 import type { LoginResult } from './index';
 
 const coreUrl = () =>
@@ -21,6 +28,29 @@ const coreUrl = () =>
 async function parseEnvelope<T>(res: Response): Promise<T> {
   return parseApiEnvelope<T>(res);
 }
+
+/**
+ * Staff (admin-web HR triage) and partner sessions both need silent refresh —
+ * the access token lives 15 minutes, and a bare `fetch` here used to surface
+ * "Unauthorized" on `/hr/b2b-requests` mid-session.
+ */
+const staffSession = createSessionFetch({
+  key: 'admin',
+  getAccessToken: getToken,
+  getRefreshToken,
+  setTokens,
+  clearSession,
+  loginPath: '/login',
+});
+
+const partnerSession = createSessionFetch({
+  key: 'partner',
+  getAccessToken: getPartnerToken,
+  getRefreshToken: getPartnerRefreshToken,
+  setTokens: setPartnerTokens,
+  clearSession: clearPartnerSession,
+  loginPath: '/partner/login',
+});
 
 export type B2bPartnerProfile = {
   id: string;
@@ -116,26 +146,14 @@ async function partnerFetch<T>(
   path: string,
   init?: RequestInit & { token?: string },
 ): Promise<T> {
-  const headers: HeadersInit = {
-    ...(init?.body != null ? { 'Content-Type': 'application/json' } : {}),
-    ...partnerAuthHeaders(init?.token),
-    ...init?.headers,
-  };
-  const res = await fetch(`${coreUrl()}${path}`, { ...init, headers });
-  return parseEnvelope<T>(res);
+  return partnerSession.request<T>(path, init);
 }
 
 async function staffFetch<T>(
   path: string,
   init?: RequestInit & { token?: string },
 ): Promise<T> {
-  const headers: HeadersInit = {
-    ...(init?.body != null ? { 'Content-Type': 'application/json' } : {}),
-    ...authHeaders(init?.token),
-    ...init?.headers,
-  };
-  const res = await fetch(`${coreUrl()}${path}`, { ...init, headers });
-  return parseEnvelope<T>(res);
+  return staffSession.request<T>(path, init);
 }
 
 export type RegisterB2bPartnerInput = {

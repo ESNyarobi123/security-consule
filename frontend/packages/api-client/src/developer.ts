@@ -101,7 +101,11 @@ export type PlatformServiceHealth = {
   name: string;
   url: string;
   path: string;
-  status: 'ok' | 'down';
+  /**
+   * `not_deployed` = this deployment does not run the service (e.g. API gateway
+   * or Python AI on a single-VPS install) — not a failure.
+   */
+  status: 'ok' | 'down' | 'not_deployed';
   latencyMs: number | null;
   detail?: string;
 };
@@ -132,7 +136,10 @@ export type ProvidersHealthResponse = {
   source: 'integration-gateway' | 'core-api-fallback';
   checkedAt: string;
   adapters: ProviderAdapterHealth[];
+  /** Plain-language note when the gateway is unreachable (not an error state). */
   error?: string;
+  /** Raw technical reason for the logs drawer. */
+  errorDetail?: string;
 };
 
 /** GET /api/v1/developer/providers/health — JWT required */
@@ -432,3 +439,56 @@ export const exportDeveloperPack = (
     `/api/v1/developer/export?kind=${encodeURIComponent(kind)}`,
     { token },
   );
+
+// ── Data import (device registry, §35.24) ──
+
+export type DeveloperImportOptions = {
+  kind: 'devices';
+  entity: string;
+  columns: string[];
+  required: string[];
+  deviceTypes: string[];
+  connections: string[];
+  sample: string;
+  notes: string[];
+};
+
+export type DeveloperImportRow = {
+  line: number;
+  code: string;
+  action: 'CREATE' | 'UPDATE' | 'SKIP' | 'ERROR';
+  message?: string;
+};
+
+export type DeveloperImportReport = {
+  kind: 'devices';
+  dryRun: boolean;
+  total: number;
+  created: number;
+  updated: number;
+  skipped: number;
+  failed: number;
+  rows: DeveloperImportRow[];
+  importedAt: string;
+};
+
+/** GET /api/v1/developer/import/options — column contract + sample */
+export const getDeveloperImportOptions = (token?: string) =>
+  coreFetch<DeveloperImportOptions>('/api/v1/developer/import/options', {
+    token,
+  });
+
+/**
+ * POST /api/v1/developer/import — dryRun=true previews, then commit (audited).
+ * Only the device registry is importable from this portal.
+ */
+export const importDeveloperDevices = (
+  csv: string,
+  dryRun: boolean,
+  token?: string,
+) =>
+  coreFetch<DeveloperImportReport>('/api/v1/developer/import', {
+    token,
+    method: 'POST',
+    body: JSON.stringify({ kind: 'devices', csv, dryRun }),
+  });

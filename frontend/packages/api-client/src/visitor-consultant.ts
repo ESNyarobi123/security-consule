@@ -1,10 +1,16 @@
 /**
  * External E5 — consultant/auditor self-view (visitor-web /consultant).
  */
-import { consultantAuthHeaders } from '@pssms/auth';
+import {
+  clearConsultantSession,
+  getConsultantRefreshToken,
+  getConsultantToken,
+  setConsultantTokens,
+} from '@pssms/auth';
 import type { LoginResult } from './index';
 import type { VisitorAppointment, VisitorEntry } from './admin';
 import { parseApiEnvelope } from './errors';
+import { createSessionFetch } from './session';
 
 const coreUrl = () =>
   process.env.NEXT_PUBLIC_CORE_API_URL ??
@@ -14,6 +20,16 @@ const coreUrl = () =>
 async function parseEnvelope<T>(res: Response): Promise<T> {
   return parseApiEnvelope<T>(res);
 }
+
+/** Consultant self-service session (silent refresh, dead-session redirect). */
+const consultantSession = createSessionFetch({
+  key: 'consultant',
+  getAccessToken: getConsultantToken,
+  getRefreshToken: getConsultantRefreshToken,
+  setTokens: setConsultantTokens,
+  clearSession: clearConsultantSession,
+  loginPath: '/consultant/login',
+});
 
 export type ConsultantVisitProfile = {
   userId: string;
@@ -28,13 +44,7 @@ async function consultantFetch<T>(
   path: string,
   init?: RequestInit & { token?: string },
 ): Promise<T> {
-  const headers: HeadersInit = {
-    ...(init?.body != null ? { 'Content-Type': 'application/json' } : {}),
-    ...consultantAuthHeaders(init?.token),
-    ...init?.headers,
-  };
-  const res = await fetch(`${coreUrl()}${path}`, { ...init, headers });
-  return parseEnvelope<T>(res);
+  return consultantSession.request<T>(path, init);
 }
 
 /** Consultant portal login → POST /auth/login */

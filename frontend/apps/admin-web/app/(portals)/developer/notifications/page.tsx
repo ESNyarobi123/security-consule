@@ -33,8 +33,8 @@ export default function DeveloperNotificationsPage() {
 
   return (
     <DeveloperShell
-      title="Notifications"
-      description="Outbound notification delivery queue (SMS, email, push)."
+      title="Delivery queue"
+      description="Outbound notification delivery queue (SMS, email, WhatsApp). Rows come from real domain events, not a test harness."
       actions={
         <button
           type="button"

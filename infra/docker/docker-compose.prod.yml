@@ -33,6 +33,12 @@ x-backend-env: &backend-env
   INTEGRATION_SERVICE_TOKEN: ${INTEGRATION_SERVICE_TOKEN}
   CORE_API_INTERNAL_URL: http://core-api:4001
   INTEGRATION_GATEWAY_URL: http://integration-gateway:4003
+  # Portal 35.24 service health probes — in-cluster hostnames, never localhost.
+  BACKGROUND_WORKER_URL: http://background-worker:4002
+  REPORTING_SERVICE_INTERNAL_URL: http://reporting-service:4005
+  # Services this small VPS does not run. The health board lists them as
+  # "not deployed" instead of reporting them down.
+  PLATFORM_ABSENT_SERVICES: ${PLATFORM_ABSENT_SERVICES:-api-gateway,realtime-gateway,vision-ai,analytics-ai}
   # SMS/email/WhatsApp transport. `console` logs only — set these in .env.prod
   # (SMS_PROVIDER=fasthub + client_id/secret) to actually deliver gate codes.
   SMS_PROVIDER: ${SMS_PROVIDER:-console}
